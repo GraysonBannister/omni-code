@@ -96,12 +96,25 @@ async function main() {
   let currentProviderName = cliArgs.provider || config.get('defaultProvider') || DEFAULT_PROVIDER;
 
   const resolved = providerRegistry.resolveModel(currentModel);
-  let activeProvider = resolved?.provider || providerRegistry.getProvider(currentProviderName);
   if (resolved) {
     currentModel = resolved.model.id;
     currentProviderName = resolved.provider.name;
-    activeProvider = resolved.provider;
+  } else if (cliArgs.model && !cliArgs.provider) {
+    // Model not in registry — try to infer provider from model name prefix
+    const prefixMap: Record<string, string> = {
+      'grok': 'xai', 'gpt': 'openai', 'o1': 'openai', 'o3': 'openai', 'o4': 'openai',
+      'claude': 'anthropic', 'gemini': 'google', 'mistral': 'mistral',
+      'codestral': 'mistral', 'llama': 'groq', 'mixtral': 'groq',
+    };
+    for (const [prefix, provider] of Object.entries(prefixMap)) {
+      if (currentModel.startsWith(prefix)) {
+        currentProviderName = provider;
+        break;
+      }
+    }
   }
+
+  let activeProvider = resolved?.provider || providerRegistry.getProvider(currentProviderName);
 
   if (!activeProvider || !activeProvider.isAvailable()) {
     console.error(`Error: Provider "${currentProviderName}" is not available.`);
