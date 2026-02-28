@@ -1,0 +1,27 @@
+export const theme = {
+  colors: {
+    primary: '#7C3AED',
+    secondary: '#06B6D4',
+    success: '#10B981',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    muted: '#6B7280',
+    text: '#E5E7EB',
+    accent: '#8B5CF6',
+    border: '#374151',
+    userMessage: '#60A5FA',
+    assistantMessage: '#A78BFA',
+    toolCall: '#F59E0B',
+    toolResult: '#6B7280',
+  },
+  symbols: {
+    user: '>',
+    assistant: '●',
+    tool: '⚡',
+    error: '✗',
+    success: '✓',
+    spinner: '◐',
+    arrow: '→',
+    bullet: '•',
+  },
+};
