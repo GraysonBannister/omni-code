@@ -87,8 +87,12 @@ export class MistralProvider extends BaseProvider {
         for (let i = 0; i < delta.toolCalls.length; i++) {
           const tc = delta.toolCalls[i];
           if (tc.function?.name) {
-            toolBuffers.set(i, { id: tc.id || crypto.randomUUID(), name: tc.function.name, args: tc.function.arguments || '' });
-            yield { type: 'tool_use_start', toolUse: { id: tc.id || '', name: tc.function.name } };
+            const id = tc.id || crypto.randomUUID();
+            toolBuffers.set(i, { id, name: tc.function.name, args: tc.function.arguments || '' });
+            yield { type: 'tool_use_start', toolUse: { id, name: tc.function.name } };
+            if (tc.function.arguments) {
+              yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } };
+            }
           } else if (tc.function?.arguments) {
             const buf = toolBuffers.get(i);
             if (buf) { buf.args += tc.function.arguments; yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } }; }

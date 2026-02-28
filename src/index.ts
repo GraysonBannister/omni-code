@@ -184,6 +184,13 @@ async function main() {
       if (event.type === 'stream_delta' && event.delta.type === 'text' && event.delta.text) {
         process.stdout.write(event.delta.text);
       }
+      if (event.type === 'tool_call_start') {
+        console.log(`\n  ⚡ ${event.toolName}(${Object.entries(event.input).map(([k,v]) => `${k}: ${String(v).substring(0, 80)}`).join(', ')})`);
+      }
+      if (event.type === 'tool_call_end') {
+        const preview = event.result.content.substring(0, 200).replace(/\n/g, ' ');
+        console.log(`    → ${event.result.isError ? 'ERROR: ' : ''}${preview}${event.result.content.length > 200 ? '...' : ''}`);
+      }
       if (event.type === 'error') {
         console.error(`\nError: ${event.error.message}`);
       }

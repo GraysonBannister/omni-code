@@ -139,15 +139,23 @@ export class OpenAIProvider extends BaseProvider {
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
           if (tc.function?.name) {
+            const id = tc.id || crypto.randomUUID();
             toolBuffers.set(tc.index, {
-              id: tc.id || crypto.randomUUID(),
+              id,
               name: tc.function.name,
               args: tc.function.arguments || '',
             });
             yield {
               type: 'tool_use_start',
-              toolUse: { id: tc.id || '', name: tc.function.name },
+              toolUse: { id, name: tc.function.name },
             };
+            // Some providers send arguments in the same chunk as the name
+            if (tc.function.arguments) {
+              yield {
+                type: 'tool_use_delta',
+                toolUse: { inputDelta: tc.function.arguments },
+              };
+            }
           } else if (tc.function?.arguments) {
             const buf = toolBuffers.get(tc.index);
             if (buf) {
