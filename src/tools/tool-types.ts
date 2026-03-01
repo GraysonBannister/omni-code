@@ -26,6 +26,7 @@ export interface ToolContext {
   planMode: boolean;
   abortSignal: AbortSignal;
   onProgress?: (message: string) => void;
+  spawnSubAgent?: (task: string, planMode: boolean) => Promise<string>;
 }
 
 export interface Tool {
