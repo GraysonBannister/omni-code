@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import type { PersistentMemoryStore } from '../memory/persistent-store';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -17,6 +18,7 @@ export interface StoredSession {
 }
 
 export class SessionStore {
+  public persistentMemory?: PersistentMemoryStore;  // Optional integration
   private db: Database.Database;
 
   constructor(dbPath?: string) {

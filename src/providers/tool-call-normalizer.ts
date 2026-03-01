@@ -34,6 +34,19 @@ export class ToolCallNormalizer {
     }];
   }
 
+  /** Convert unified tool definitions to AWS Bedrock format */
+  static toBedrock(tools: ToolDefinition[]): unknown {
+    return {
+      tools: tools.map(t => ({
+        toolSpec: {
+          name: t.name,
+          description: t.description,
+          inputSchema: { json: t.inputSchema },
+        },
+      })),
+    };
+  }
+
   /** Parse a native tool call from any provider back to our unified format */
   static parseToolCall(provider: ProviderName, nativeToolCall: any): ToolUseBlock {
     switch (provider) {
@@ -63,6 +76,14 @@ export class ToolCallNormalizer {
           id: crypto.randomUUID(),
           name: nativeToolCall.name,
           input: nativeToolCall.args || {},
+        };
+
+      case 'bedrock':
+        return {
+          type: 'tool_use',
+          id: nativeToolCall.toolUseId || crypto.randomUUID(),
+          name: nativeToolCall.name || '',
+          input: nativeToolCall.input || {},
         };
 
       default:

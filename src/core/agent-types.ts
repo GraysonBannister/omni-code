@@ -12,9 +12,19 @@ export type AgentEvent =
   | { type: 'turn_complete'; message: UnifiedMessage }
   | { type: 'error'; error: Error }
   | { type: 'context_compressed'; removedTokens: number; remainingTokens: number }
-  | { type: 'cost_update'; totalCost: number; turnCost: number };
+  | { type: 'cost_update'; totalCost: number; turnCost: number }
+  | { type: 'agent_phase_start'; role: AgentRole; description: string }
+  | { type: 'agent_phase_end'; role: AgentRole }
+  | { type: 'orchestration_complete'; summary: string };
+
+export enum AgentRole {
+  planner = 'planner',
+  coder = 'coder',
+  reviewer = 'reviewer'
+}
 
 export interface AgentConfig {
+  agentRole?: AgentRole;
   provider: LLMProvider;
   model: string;
   systemPrompt: string;

@@ -2,12 +2,16 @@ import type { Agent } from '../core/agent-types.js';
 import type { ConfigManager } from '../config/config-manager.js';
 import type { ProviderRegistry } from '../providers/provider-registry.js';
 import type { CostTracker } from '../core/cost-tracker.js';
+import type { MemoryStore } from '../memory/memory-store.js';
+import type { SessionStore } from '../session/session-store.js';
 
 export interface CommandContext {
   agent: Agent;
   config: ConfigManager;
   providerRegistry: ProviderRegistry;
   costTracker: CostTracker;
+  memoryStore?: MemoryStore;
+  sessionStore?: SessionStore;
   setModel: (model: string, provider: string) => void;
 }
 

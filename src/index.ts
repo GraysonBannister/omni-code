@@ -1,6 +1,7 @@
 import React from 'react';
 import { render } from 'ink';
 import 'dotenv/config';
+import * as path from 'node:path';
 
 import { parseCLI } from './cli.js';
 import { ConfigManager } from './config/config-manager.js';
@@ -12,6 +13,7 @@ import { MistralProvider } from './providers/mistral/mistral-provider.js';
 import { GroqProvider } from './providers/groq/groq-provider.js';
 import { XAIProvider } from './providers/xai/xai-provider.js';
 import { OpenAICompatProvider } from './providers/openai-compatible/openai-compat-provider.js';
+import { BedrockProvider } from './providers/aws/bedrock-provider.js';
 import { ToolRegistry } from './tools/tool-registry.js';
 import { ToolRunner } from './tools/tool-runner.js';
 import { registerBuiltinTools } from './tools/builtin/index.js';
@@ -24,6 +26,12 @@ import { setLogLevel } from './utils/logger.js';
 import { App } from './ui/components/App.js';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './constants.js';
 import type { PermissionMode } from './config/config-schema.js';
+import type { UnifiedMessage } from './core/message-types.js';
+
+// Memory & Session imports
+import { MemoryStore } from './memory/memory-store.js';
+import { SessionStore } from './session/session-store.js';
+import { ProjectContextLoader } from './memory/project-context.js';
 
 const SYSTEM_PROMPT = `You are omni-code, a powerful AI coding assistant running in the terminal.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
@@ -63,6 +71,7 @@ async function main() {
   providerRegistry.register(new MistralProvider());
   providerRegistry.register(new GroqProvider());
   providerRegistry.register(new XAIProvider());
+  providerRegistry.register(new BedrockProvider());
 
   // Register custom OpenAI-compatible endpoints (Ollama, LM Studio, vLLM, etc.)
   for (const [name, endpoint] of Object.entries(config.get('customEndpoints'))) {
@@ -79,6 +88,7 @@ async function main() {
     MISTRAL_API_KEY: 'mistral',
     GROQ_API_KEY: 'groq',
     XAI_API_KEY: 'xai',
+    AWS_ACCESS_KEY_ID: 'bedrock',
   };
   for (const [envVar, providerName] of Object.entries(envKeys)) {
     if (process.env[envVar] && !providerConfigs[providerName]?.apiKey) {
@@ -105,6 +115,7 @@ async function main() {
       'grok': 'xai', 'gpt': 'openai', 'o1': 'openai', 'o3': 'openai', 'o4': 'openai',
       'claude': 'anthropic', 'gemini': 'google', 'mistral': 'mistral',
       'codestral': 'mistral', 'llama': 'groq', 'mixtral': 'groq',
+      'anthropic.': 'bedrock',
     };
     for (const [prefix, provider] of Object.entries(prefixMap)) {
       if (currentModel.startsWith(prefix)) {
@@ -145,6 +156,77 @@ async function main() {
   // Initialize cost tracker
   const costTracker = new CostTracker();
 
+  // Initialize memory & session stores
+  const memoryStore = new MemoryStore();
+  const sessionStore = new SessionStore();
+
+  // Load project context from OMNICODE.md files
+  const contextLoader = new ProjectContextLoader();
+  let projectContext = '';
+  try {
+    projectContext = await contextLoader.load(process.cwd());
+  } catch {
+    // No project context found - that's fine
+  }
+
+  // Load project-specific memories
+  const projectName = path.basename(process.cwd());
+  const memories = memoryStore.getForProject(projectName);
+
+  // Build system prompt with context and memories
+  let systemPrompt = SYSTEM_PROMPT;
+  if (projectContext) {
+    systemPrompt += `\n\n## Project Context (from OMNICODE.md)\n${projectContext}`;
+  }
+  if (memories.length > 0) {
+    const memoryBlock = memories.map(m => `- [${m.category}] ${m.content}`).join('\n');
+    systemPrompt += `\n\n## Remembered Facts\n${memoryBlock}`;
+  }
+  systemPrompt += config.get('systemPromptAppend') || '';
+
+  // Handle --resume: load existing session
+  let existingMessages: UnifiedMessage[] | undefined;
+  let sessionId: string | undefined;
+
+  if (cliArgs.resume) {
+    try {
+      if (cliArgs.resume === true) {
+        // Resume most recent session for this cwd
+        const recent = sessionStore.listRecent(process.cwd(), 1);
+        if (recent.length > 0) {
+          const session = sessionStore.load(recent[0].id);
+          if (session) {
+            existingMessages = JSON.parse(session.messages);
+            sessionId = session.id;
+            currentModel = session.model;
+            currentProviderName = session.provider;
+            // Re-resolve provider for resumed session
+            const resumedProvider = providerRegistry.getProvider(currentProviderName);
+            if (resumedProvider?.isAvailable()) {
+              activeProvider = resumedProvider;
+            }
+            console.log(`Resuming session ${sessionId?.substring(0, 8)} (${currentModel})`);
+          }
+        }
+      } else if (typeof cliArgs.resume === 'string') {
+        const session = sessionStore.load(cliArgs.resume);
+        if (session) {
+          existingMessages = JSON.parse(session.messages);
+          sessionId = session.id;
+          currentModel = session.model;
+          currentProviderName = session.provider;
+          const resumedProvider = providerRegistry.getProvider(currentProviderName);
+          if (resumedProvider?.isAvailable()) {
+            activeProvider = resumedProvider;
+          }
+          console.log(`Resuming session ${sessionId?.substring(0, 8)} (${currentModel})`);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not resume session:', (err as Error).message);
+    }
+  }
+
   // Initialize slash commands
   const commandRegistry = new CommandRegistry();
   registerBuiltinCommands(commandRegistry);
@@ -152,16 +234,51 @@ async function main() {
   // Create the agent
   const agent = new AgentImpl(
     {
-      provider: activeProvider,
+      provider: activeProvider!,
       model: currentModel,
-      systemPrompt: SYSTEM_PROMPT + (config.get('systemPromptAppend') || ''),
+      systemPrompt,
       tools: toolRegistry.getAll(),
       temperature: config.get('temperature'),
       planMode: false,
     },
     toolRunner,
     costTracker,
+    existingMessages,
   );
+
+  // Session auto-save on exit
+  const saveSession = () => {
+    try {
+      const agentMessages = agent.messages;
+      if (agentMessages.length > 0) {
+        const firstUserMsg = agentMessages.find(m => m.role === 'user');
+        const summary = firstUserMsg
+          ? (typeof firstUserMsg.content === 'string'
+              ? firstUserMsg.content.substring(0, 100)
+              : '')
+          : '';
+
+        sessionStore.save({
+          id: sessionId || agent.id,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          model: currentModel,
+          provider: currentProviderName,
+          cwd: process.cwd(),
+          summary,
+          messages: JSON.stringify(agentMessages),
+          metadata: JSON.stringify({ cost: costTracker.getSummary() }),
+        });
+      }
+    } catch {
+      // Silently ignore save errors on exit
+    }
+  };
+  process.on('beforeExit', saveSession);
+  process.on('SIGINT', () => {
+    saveSession();
+    process.exit(0);
+  });
 
   // Handle slash commands
   const handleSlashCommand = async (input: string): Promise<string | void> => {
@@ -170,6 +287,8 @@ async function main() {
       config,
       providerRegistry,
       costTracker,
+      memoryStore,
+      sessionStore,
       setModel: (model: string, provider: string) => {
         currentModel = model;
         currentProviderName = provider;
@@ -210,6 +329,7 @@ async function main() {
     }
     console.log('\n');
     console.log(costTracker.getSummary());
+    saveSession();
     process.exit(0);
   }
 

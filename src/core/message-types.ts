@@ -45,6 +45,7 @@ export interface MessageMetadata {
 }
 
 export interface UnifiedMessage {
+  reasoning?: string;  // Claude-style thinking
   id: string;
   role: MessageRole;
   content: string | ContentBlock[];

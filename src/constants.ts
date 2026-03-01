@@ -8,8 +8,8 @@ export const SESSION_DB_NAME = 'sessions.db';
 export const MEMORY_DB_NAME = 'memory.db';
 export const CONFIG_FILE_NAME = 'config.json';
 
-export const DEFAULT_PROVIDER = 'anthropic';
-export const DEFAULT_MODEL = 'claude-sonnet-4-5';
+export const DEFAULT_PROVIDER = 'xai';
+export const DEFAULT_MODEL = 'grok-4-1-fast-reasoning';
 export const DEFAULT_TEMPERATURE = 0.7;
 export const DEFAULT_MAX_RETRIES = 3;
 export const DEFAULT_TIMEOUT = 60_000;

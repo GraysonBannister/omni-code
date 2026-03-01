@@ -29,6 +29,18 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
 
     return (
       <Box flexDirection="column" marginY={0}>
+        {/* Reasoning/thinking display */}
+        {message.reasoning && (
+          <Box marginLeft={2} paddingX={1} borderStyle="single" borderColor="gray">
+            <Text dimColor italic>
+              {'💭 '}
+              {message.reasoning.length > 500
+                ? message.reasoning.substring(0, 500) + '...'
+                : message.reasoning}
+            </Text>
+          </Box>
+        )}
+
         {text && (
           <Box>
             <Text color="magenta" bold>
@@ -37,21 +49,52 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
             <Text>{text}</Text>
           </Box>
         )}
-        {toolCalls.map((tc) => (
-          <Box key={tc.id} marginLeft={2}>
-            <Text color="yellow">
-              {'⚡ '}{tc.name}
-            </Text>
-            <Text dimColor>
-              {' '}({formatToolInput(tc.input)})
-            </Text>
-          </Box>
-        ))}
+        {toolCalls.map((tc) => {
+          const inputStr = formatToolInput(tc.input);
+          // Check if tool result contains diff output
+          return (
+            <Box key={tc.id} marginLeft={2}>
+              <Text color="yellow">
+                {'⚡ '}{tc.name}
+              </Text>
+              <Text dimColor>
+                {' '}({inputStr})
+              </Text>
+            </Box>
+          );
+        })}
       </Box>
     );
   }
 
   return null;
+};
+
+/** Render diff output with color highlighting */
+export const DiffDisplay: React.FC<{ diff: string }> = ({ diff }) => {
+  const lines = diff.split('\n');
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, i) => {
+        if (line.startsWith('+++') || line.startsWith('---')) {
+          return <Text key={i} bold>{line}</Text>;
+        }
+        if (line.startsWith('diff --git') || line.startsWith('index ')) {
+          return <Text key={i} bold dimColor>{line}</Text>;
+        }
+        if (line.startsWith('@@')) {
+          return <Text key={i} color="cyan">{line}</Text>;
+        }
+        if (line.startsWith('+')) {
+          return <Text key={i} color="green">{line}</Text>;
+        }
+        if (line.startsWith('-')) {
+          return <Text key={i} color="red">{line}</Text>;
+        }
+        return <Text key={i}>{line}</Text>;
+      })}
+    </Box>
+  );
 };
 
 function formatToolInput(input: Record<string, unknown>): string {

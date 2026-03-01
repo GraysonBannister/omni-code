@@ -7,7 +7,7 @@ export interface CLIArgs {
   apiKey?: string;
   baseUrl?: string;
   permissionMode?: string;
-  resume?: string;
+  resume?: string | true;
   verbose?: boolean;
   prompt?: string;
 }

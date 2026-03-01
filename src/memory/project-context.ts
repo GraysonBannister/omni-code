@@ -3,7 +3,18 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { CONFIG_DIR_NAME, PROJECT_CONTEXT_FILE } from '../constants.js';
 
+import { RAGIndexer } from './rag-indexer.js';
+
 export class ProjectContextLoader {
+  private rag?: RAGIndexer;
+
+  async indexCodebase(glob: string): Promise<void> {
+    if (!this.rag) {
+      this.rag = await RAGIndexer.create();
+    }
+    await this.rag.indexCodebase(glob);
+  }
+
   async load(cwd: string): Promise<string> {
     const contexts: string[] = [];
     const home = os.homedir();
@@ -32,6 +43,10 @@ export class ProjectContextLoader {
     }
 
     return contexts.join('\n\n---\n\n');
+  }
+
+  close(): void {
+    this.rag?.close();
   }
 
   private async fileExists(filePath: string): Promise<boolean> {

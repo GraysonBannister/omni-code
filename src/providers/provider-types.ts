@@ -7,6 +7,7 @@ export type ProviderName =
   | 'mistral'
   | 'groq'
   | 'xai'
+  | 'bedrock'
   | 'openai-compatible';
 
 export interface ModelCapabilities {

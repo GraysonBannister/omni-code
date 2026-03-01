@@ -9,6 +9,8 @@ interface StatusBarProps {
   outputTokens: number;
   isProcessing: boolean;
   planMode: boolean;
+  sessionId?: string;
+  memoryCount?: number;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -19,6 +21,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   outputTokens,
   isProcessing,
   planMode,
+  sessionId,
+  memoryCount,
 }) => {
   return (
     <Box borderStyle="single" borderColor="gray" paddingX={1}>
@@ -38,6 +42,22 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <Text dimColor>
         ${totalCost.toFixed(4)}
       </Text>
+      {sessionId && (
+        <>
+          <Text dimColor> | </Text>
+          <Text dimColor>
+            sess:{sessionId.substring(0, 8)}
+          </Text>
+        </>
+      )}
+      {memoryCount !== undefined && memoryCount > 0 && (
+        <>
+          <Text dimColor> | </Text>
+          <Text dimColor>
+            {memoryCount} memories
+          </Text>
+        </>
+      )}
       {isProcessing && (
         <>
           <Text dimColor> | </Text>

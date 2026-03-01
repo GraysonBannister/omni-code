@@ -252,6 +252,56 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     },
     pricing: { inputPerMillion: 2, outputPerMillion: 10 },
   },
+
+  // ── AWS Bedrock ──
+  {
+    id: 'anthropic.claude-sonnet-4-5-v1',
+    provider: 'bedrock',
+    displayName: 'Claude Sonnet 4.5 (Bedrock)',
+    aliases: ['bedrock-sonnet', 'bedrock-claude-sonnet'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 8_192,
+    },
+    pricing: { inputPerMillion: 3, outputPerMillion: 15 },
+  },
+  {
+    id: 'anthropic.claude-haiku-3-5-v1',
+    provider: 'bedrock',
+    displayName: 'Claude Haiku 3.5 (Bedrock)',
+    aliases: ['bedrock-haiku', 'bedrock-claude-haiku'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0.8, outputPerMillion: 4 },
+  },
+  {
+    id: 'meta.llama3-3-70b-instruct-v1:0',
+    provider: 'bedrock',
+    displayName: 'Llama 3.3 70B (Bedrock)',
+    aliases: ['bedrock-llama', 'bedrock-llama-70b'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 128_000, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0.72, outputPerMillion: 0.72 },
+  },
+  {
+    id: 'mistral.mistral-large-2411-v1:0',
+    provider: 'bedrock',
+    displayName: 'Mistral Large (Bedrock)',
+    aliases: ['bedrock-mistral', 'bedrock-mistral-large'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 128_000, maxOutputTokens: 8_192,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 6 },
+  },
 ];
 
 export function findModelInfo(modelId: string): ModelInfo | undefined {
