@@ -1,4 +1,5 @@
 import type { JsonSchema } from '../providers/provider-types.js';
+import type { ContentBlock } from '../core/message-types.js';
 
 export enum PermissionLevel {
   SAFE = 'safe',
@@ -16,6 +17,7 @@ export enum ToolCategory {
 
 export interface ToolResult {
   content: string;
+  contentBlocks?: ContentBlock[];
   isError?: boolean;
   metadata?: Record<string, unknown>;
 }

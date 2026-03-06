@@ -36,8 +36,13 @@ export class GitManager {
     return this.git.diff();
   }
 
-  async log(maxCount = 10): Promise<string> {
-    const log = await this.git.log({ maxCount });
+  async log(maxCount = 10, oneline = false, file?: string): Promise<string> {
+    const options: Record<string, any> = { maxCount };
+    if (file) options.file = file;
+    const log = await this.git.log(options);
+    if (oneline) {
+      return log.all.map(c => `${c.hash.substring(0, 7)} ${c.message}`).join('\n');
+    }
     return log.all.map(c => `${c.hash.substring(0, 7)} ${c.message} (${c.author_name})`).join('\n');
   }
 
@@ -62,5 +67,41 @@ export class GitManager {
   async push(remote = 'origin', branch?: string): Promise<void> {
     const currentBranch = branch || await this.currentBranch();
     await this.git.push(remote, currentBranch, ['--set-upstream']);
+  }
+
+  async diffRange(range: string): Promise<string> {
+    return this.git.diff([range]);
+  }
+
+  async listBranches(): Promise<string[]> {
+    const result = await this.git.branchLocal();
+    return result.all;
+  }
+
+  async switchBranch(name: string): Promise<void> {
+    await this.git.checkout(name);
+  }
+
+  async deleteBranch(name: string): Promise<void> {
+    await this.git.deleteLocalBranch(name);
+  }
+
+  async stash(action: string, message?: string, index = 0): Promise<string> {
+    switch (action) {
+      case 'push': {
+        const args = message ? ['push', '-m', message] : ['push'];
+        return this.git.stash(args);
+      }
+      case 'pop':
+        return this.git.stash(['pop', `stash@{${index}}`]);
+      case 'apply':
+        return this.git.stash(['apply', `stash@{${index}}`]);
+      case 'drop':
+        return this.git.stash(['drop', `stash@{${index}}`]);
+      case 'list':
+        return this.git.stash(['list']);
+      default:
+        throw new Error(`Unknown stash action: ${action}`);
+    }
   }
 }

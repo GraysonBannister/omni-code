@@ -32,6 +32,7 @@ import type { UnifiedMessage } from './core/message-types.js';
 import { MemoryStore } from './memory/memory-store.js';
 import { SessionStore } from './session/session-store.js';
 import { ProjectContextLoader } from './memory/project-context.js';
+import { ProjectAnalyzer } from './memory/project-analyzer.js';
 
 const SYSTEM_PROMPT = `You are omni-code, a powerful AI coding assistant running in the terminal.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
@@ -151,7 +152,7 @@ async function main() {
   );
 
   // Initialize tool runner
-  const toolRunner = new ToolRunner(toolRegistry, permissionManager, eventBus);
+  const toolRunner = new ToolRunner(toolRegistry, permissionManager, eventBus, config.get('autoLintFix'));
 
   // Initialize cost tracker
   const costTracker = new CostTracker();
@@ -173,10 +174,22 @@ async function main() {
   const projectName = path.basename(process.cwd());
   const memories = memoryStore.getForProject(projectName);
 
+  // Auto-analyze project on first run
+  const projectAnalyzer = new ProjectAnalyzer();
+  let projectAnalysis = '';
+  try {
+    projectAnalysis = await projectAnalyzer.analyzeAndStore(process.cwd(), memoryStore);
+  } catch {
+    // Analysis failure is non-fatal
+  }
+
   // Build system prompt with context and memories
   let systemPrompt = SYSTEM_PROMPT;
   if (projectContext) {
     systemPrompt += `\n\n## Project Context (from OMNICODE.md)\n${projectContext}`;
+  }
+  if (projectAnalysis) {
+    systemPrompt += `\n\n${projectAnalysis}`;
   }
   if (memories.length > 0) {
     const memoryBlock = memories.map(m => `- [${m.category}] ${m.content}`).join('\n');
@@ -231,6 +244,13 @@ async function main() {
   const commandRegistry = new CommandRegistry();
   registerBuiltinCommands(commandRegistry);
 
+  // Resolve extended thinking config
+  const extendedThinkingConfig = config.get('extendedThinking');
+  const thinkingEnabled = cliArgs.thinking || extendedThinkingConfig.enabled;
+  const thinking = thinkingEnabled
+    ? { enabled: true, budgetTokens: extendedThinkingConfig.budgetTokens }
+    : undefined;
+
   // Create the agent
   const agent = new AgentImpl(
     {
@@ -239,7 +259,9 @@ async function main() {
       systemPrompt,
       tools: toolRegistry.getAll(),
       temperature: config.get('temperature'),
+      maxContextTokens: config.get('maxContextTokens'),
       planMode: false,
+      thinking,
     },
     toolRunner,
     costTracker,

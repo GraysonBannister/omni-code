@@ -11,6 +11,7 @@ import { getTextContent } from './message-types.js';
 import type { ToolRunner } from '../tools/tool-runner.js';
 import type { CostTracker } from './cost-tracker.js';
 import type { TokenUsage } from '../providers/provider-types.js';
+import { CONTEXT_COMPRESSION_THRESHOLD } from '../constants.js';
 
 export class AgentImpl implements Agent {
   readonly id: string;
@@ -53,6 +54,27 @@ export class AgentImpl implements Agent {
     while (turns < maxTurns) {
       turns++;
 
+      // Auto-compress context if approaching token limit
+      const maxCtx = this.config.maxContextTokens;
+      if (maxCtx && this._messages.length > 10) {
+        try {
+          const currentTokens = await this.getTokenCount();
+          const threshold = maxCtx * CONTEXT_COMPRESSION_THRESHOLD;
+          if (currentTokens > threshold) {
+            const before = currentTokens;
+            await this.compressContext();
+            const after = await this.getTokenCount();
+            yield {
+              type: 'context_compressed',
+              removedTokens: before - after,
+              remainingTokens: after,
+            };
+          }
+        } catch {
+          // Token counting may fail; skip compression
+        }
+      }
+
       // Build the tools list (respecting plan mode)
       const tools = this.config.tools
         .filter(t => t.enabled && (!this.config.planMode || t.tool.availableInPlanMode))
@@ -61,6 +83,12 @@ export class AgentImpl implements Agent {
           description: t.tool.description,
           inputSchema: t.tool.inputSchema,
         }));
+
+      // Resolve extended thinking if model supports it
+      const modelInfo = this.config.provider.getModelInfo(this.config.model);
+      const thinkingConfig = this.config.thinking?.enabled && modelInfo?.capabilities.extendedThinking
+        ? this.config.thinking
+        : undefined;
 
       // Call the LLM (streaming)
       const request = {
@@ -71,6 +99,7 @@ export class AgentImpl implements Agent {
         temperature: this.config.temperature,
         maxTokens: this.config.maxTokens,
         stream: true as const,
+        thinking: thinkingConfig,
       };
 
       const assistantContent: ContentBlock[] = [];
@@ -89,6 +118,10 @@ export class AgentImpl implements Agent {
           switch (delta.type) {
             case 'text':
               textBuffer += delta.text || '';
+              break;
+
+            case 'thinking':
+              // Extended thinking content — stream for display but don't add to output
               break;
 
             case 'tool_use_start':
@@ -230,10 +263,18 @@ export class AgentImpl implements Agent {
           result,
         };
 
+        // Build tool result content — include image blocks if present
+        const resultContent: string | ContentBlock[] = result.contentBlocks
+          ? [
+              ...(result.content ? [{ type: 'text' as const, text: result.content }] : []),
+              ...result.contentBlocks,
+            ]
+          : result.content;
+
         toolResultBlocks.push({
           type: 'tool_result',
           toolUseId: toolCall.id,
-          content: result.content,
+          content: resultContent,
           isError: result.isError,
         } as ToolResultBlock);
       }
@@ -263,17 +304,57 @@ export class AgentImpl implements Agent {
   }
 
   async compressContext(): Promise<void> {
-    // Simple compression: keep system-like context + last N messages
+    // Smart compression: try LLM-powered summarization, fall back to simple truncation
     if (this._messages.length <= 10) return;
 
     const firstMsg = this._messages[0];
     const recentMessages = this._messages.slice(-6);
-    const removedCount = this._messages.length - 7;
+    const oldMessages = this._messages.slice(1, -6);
+    const removedCount = oldMessages.length;
+
+    let summaryText = `[Context compressed: ${removedCount} messages removed. Keeping recent context.]`;
+
+    // Attempt LLM-powered summary of removed messages
+    try {
+      const oldContent = oldMessages.map(m => {
+        const text = typeof m.content === 'string' ? m.content : getTextContent(m);
+        return `[${m.role}]: ${text.substring(0, 500)}`;
+      }).join('\n');
+
+      if (oldContent.length > 100) {
+        const summaryRequest = {
+          messages: [{
+            id: crypto.randomUUID(),
+            role: 'user' as const,
+            content: `Summarize the following conversation context concisely, focusing on key decisions, files modified, and current task state. Keep it under 500 words:\n\n${oldContent.substring(0, 8000)}`,
+            timestamp: Date.now(),
+          }],
+          model: this.config.model,
+          systemPrompt: 'You are a conversation summarizer. Be concise and focus on actionable context.',
+          temperature: 0.3,
+          maxTokens: 1000,
+          stream: false as const,
+        };
+
+        let responseText = '';
+        for await (const delta of this.config.provider.streamComplete(summaryRequest)) {
+          if (delta.type === 'text' && delta.text) {
+            responseText += delta.text;
+          }
+        }
+
+        if (responseText.length > 50) {
+          summaryText = `## Compressed Context Summary\n${responseText}\n\n[${removedCount} messages compressed into this summary]`;
+        }
+      }
+    } catch {
+      // Fall back to simple compression
+    }
 
     const summaryMsg: UnifiedMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: `[Context compressed: ${removedCount} messages removed. Keeping recent context.]`,
+      content: summaryText,
       timestamp: Date.now(),
     };
 

@@ -83,6 +83,26 @@ export class OpenAIProvider extends BaseProvider {
       const toolResults = getToolResultBlocks(msg);
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
+          if (typeof tr.content !== 'string' && Array.isArray(tr.content)) {
+            // Check for image blocks in tool results
+            const hasImages = tr.content.some(b => b.type === 'image');
+            if (hasImages) {
+              const parts: any[] = [];
+              for (const block of tr.content) {
+                if (block.type === 'text') {
+                  parts.push({ type: 'text', text: block.text });
+                } else if (block.type === 'image') {
+                  parts.push({
+                    type: 'image_url',
+                    image_url: { url: `data:${block.source.mediaType};base64,${block.source.data}` },
+                  });
+                }
+              }
+              // For tool results with images, send as user message since OpenAI tool role doesn't support images
+              result.push({ role: 'user' as const, content: parts });
+              continue;
+            }
+          }
           result.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,
@@ -90,6 +110,24 @@ export class OpenAIProvider extends BaseProvider {
           });
         }
       } else {
+        // Check for image blocks in regular user messages
+        if (typeof msg.content !== 'string') {
+          const hasImages = msg.content.some(b => b.type === 'image');
+          if (hasImages) {
+            const parts: any[] = [];
+            for (const block of msg.content) {
+              if (block.type === 'text') parts.push({ type: 'text', text: block.text });
+              else if (block.type === 'image') {
+                parts.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${block.source.mediaType};base64,${block.source.data}` },
+                });
+              }
+            }
+            result.push({ role: 'user' as const, content: parts });
+            continue;
+          }
+        }
         result.push({ role: 'user', content: getTextContent(msg) });
       }
     }
@@ -214,6 +252,12 @@ export class OpenAIProvider extends BaseProvider {
     if (request.temperature !== undefined) params.temperature = request.temperature;
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
+
+    // Extended thinking for o3/o3-mini reasoning models
+    if (request.thinking?.enabled && (request.model.startsWith('o3') || request.model.startsWith('o4'))) {
+      params.reasoning_effort = 'high';
+      delete params.temperature; // Reasoning models don't support temperature
+    }
 
     return params;
   }

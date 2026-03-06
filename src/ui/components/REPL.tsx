@@ -26,6 +26,7 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
   const [inputTokens, setInputTokens] = useState(0);
   const [outputTokens, setOutputTokens] = useState(0);
   const [commandOutput, setCommandOutput] = useState<string | null>(null);
+  const [contextTokens, setContextTokens] = useState(0);
   const [permissionRequest, setPermissionRequest] = useState<{
     toolName: string;
     input: Record<string, unknown>;
@@ -97,6 +98,8 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
 
           case 'cost_update':
             setTotalCost(event.totalCost);
+            // Update token counts from agent after each cost update
+            agent.getTokenCount().then(count => setContextTokens(count)).catch(() => {});
             break;
 
           case 'error':
@@ -178,6 +181,8 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
         outputTokens={outputTokens}
         isProcessing={isProcessing}
         planMode={agent.config.planMode || false}
+        contextTokens={contextTokens}
+        maxContextTokens={agent.config.maxContextTokens}
       />
     </Box>
   );

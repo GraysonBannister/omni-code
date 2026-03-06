@@ -3,23 +3,46 @@ import { AgentRole } from './agent-types.js';
 import { AgentImpl } from './agent.js';
 import type { ToolRunner } from '../tools/tool-runner.js';
 import type { CostTracker } from './cost-tracker.js';
+import type { ProviderRegistry } from '../providers/provider-registry.js';
 import { getTextContent } from './message-types.js';
+
+export interface ModelOverride {
+  model: string;
+  provider: string;
+}
 
 export interface OrchestratorConfig {
   baseConfig: AgentConfig;
   roles?: AgentRole[];
   maxReviewIterations?: number;
+  modelOverrides?: Partial<Record<AgentRole, ModelOverride>>;
 }
 
 export class MultiAgentOrchestrator {
   private runner: ToolRunner;
   private tracker: CostTracker;
   private config: OrchestratorConfig;
+  private providerRegistry?: ProviderRegistry;
 
-  constructor(config: OrchestratorConfig, runner: ToolRunner, tracker: CostTracker) {
+  constructor(config: OrchestratorConfig, runner: ToolRunner, tracker: CostTracker, providerRegistry?: ProviderRegistry) {
     this.config = config;
     this.runner = runner;
     this.tracker = tracker;
+    this.providerRegistry = providerRegistry;
+  }
+
+  private resolveConfigForRole(role: AgentRole): AgentConfig {
+    const override = this.config.modelOverrides?.[role];
+    if (!override || !this.providerRegistry) return this.config.baseConfig;
+
+    const provider = this.providerRegistry.getProvider(override.provider as any);
+    if (!provider?.isAvailable()) return this.config.baseConfig;
+
+    return {
+      ...this.config.baseConfig,
+      model: override.model,
+      provider,
+    };
   }
 
   async *orchestrate(task: string): AsyncIterable<AgentEvent> {
@@ -38,7 +61,7 @@ export class MultiAgentOrchestrator {
       } as AgentEvent;
 
       const plannerConfig: AgentConfig = {
-        ...this.config.baseConfig,
+        ...this.resolveConfigForRole(AgentRole.planner),
         agentRole: AgentRole.planner,
         systemPrompt: `You are a planning agent. Your job is to analyze the task and create a clear, step-by-step implementation plan.
 
@@ -80,7 +103,7 @@ Do NOT implement anything - only plan.`,
         : task;
 
       const coderConfig: AgentConfig = {
-        ...this.config.baseConfig,
+        ...this.resolveConfigForRole(AgentRole.coder),
         agentRole: AgentRole.coder,
         systemPrompt: `You are a coding agent. Your job is to implement code changes using the available tools.
 
@@ -122,7 +145,7 @@ Guidelines:
         } as AgentEvent;
 
         const reviewerConfig: AgentConfig = {
-          ...this.config.baseConfig,
+          ...this.resolveConfigForRole(AgentRole.reviewer),
           agentRole: AgentRole.reviewer,
           systemPrompt: `You are a code review agent. Review the implementation for:
 - Correctness and bug potential
@@ -163,7 +186,7 @@ If changes are needed, describe them clearly and specifically.`,
           } as AgentEvent;
 
           const fixerConfig: AgentConfig = {
-            ...this.config.baseConfig,
+            ...this.resolveConfigForRole(AgentRole.coder),
             agentRole: AgentRole.coder,
             systemPrompt: `You are a coding agent. Apply the review feedback to fix the implementation.
 Only make the changes requested in the review. Do not refactor beyond what's asked.`,

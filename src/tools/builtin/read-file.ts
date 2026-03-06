@@ -2,6 +2,14 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
+import type { ImageBlock } from '../../core/message-types.js';
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
+const MIME_MAP: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+};
 
 export class ReadFileTool implements Tool {
   readonly name = 'Read';
@@ -45,6 +53,22 @@ export class ReadFileTool implements Tool {
     const limit = (input.limit as number) || 2000;
 
     try {
+      // Handle image files
+      const ext = path.extname(filePath).toLowerCase();
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        const buffer = await fs.readFile(filePath);
+        const base64 = buffer.toString('base64');
+        const mediaType = MIME_MAP[ext] || 'application/octet-stream';
+        const imageBlock: ImageBlock = {
+          type: 'image',
+          source: { type: 'base64', mediaType, data: base64 },
+        };
+        return {
+          content: `Image file: ${filePath} (${(buffer.length / 1024).toFixed(1)}KB, ${mediaType})`,
+          contentBlocks: [imageBlock],
+        };
+      }
+
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.split('\n');
       const sliced = lines.slice(offset - 1, offset - 1 + limit);

@@ -9,6 +9,7 @@ export interface CLIArgs {
   permissionMode?: string;
   resume?: string | true;
   verbose?: boolean;
+  thinking?: boolean;
   prompt?: string;
 }
 
@@ -26,6 +27,7 @@ export function parseCLI(argv: string[]): CLIArgs {
     .option('--permission-mode <mode>', 'Permission mode: ask, auto-allow, deny-all', 'ask')
     .option('-r, --resume [sessionId]', 'Resume a previous session')
     .option('-v, --verbose', 'Enable verbose logging')
+    .option('--thinking', 'Enable extended thinking mode for reasoning models')
     .argument('[prompt]', 'Initial prompt to send')
     .parse(argv);
 
@@ -40,6 +42,7 @@ export function parseCLI(argv: string[]): CLIArgs {
     permissionMode: opts.permissionMode,
     resume: opts.resume,
     verbose: opts.verbose,
+    thinking: opts.thinking,
     prompt: args[0],
   };
 }

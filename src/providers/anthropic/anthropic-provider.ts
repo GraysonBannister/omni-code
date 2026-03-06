@@ -82,6 +82,8 @@ export class AnthropicProvider extends BaseProvider {
                 name: event.content_block.name,
               },
             };
+          } else if ((event.content_block as any).type === 'thinking') {
+            yield { type: 'thinking', text: '' };
           }
           break;
 
@@ -93,6 +95,8 @@ export class AnthropicProvider extends BaseProvider {
               type: 'tool_use_delta',
               toolUse: { inputDelta: event.delta.partial_json },
             };
+          } else if ((event.delta as any).type === 'thinking_delta') {
+            yield { type: 'thinking', text: (event.delta as any).thinking };
           }
           break;
 
@@ -156,6 +160,7 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   private buildParams(request: CompletionRequest): Anthropic.MessageCreateParamsNonStreaming {
+    const modelInfo = this.getModelInfo(request.model);
     const params: any = {
       model: request.model,
       messages: this.formatMessages(request.messages),
@@ -176,6 +181,16 @@ export class AnthropicProvider extends BaseProvider {
     }
     if (request.topP !== undefined) {
       params.top_p = request.topP;
+    }
+
+    // Extended thinking for Claude models that support it
+    if (request.thinking?.enabled && modelInfo?.capabilities.extendedThinking) {
+      params.thinking = {
+        type: 'enabled',
+        budget_tokens: request.thinking.budgetTokens,
+      };
+      // Anthropic requires temperature=1 with extended thinking
+      params.temperature = 1;
     }
 
     return params;

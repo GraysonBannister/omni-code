@@ -3,12 +3,19 @@ import type { ToolRegistry } from './tool-registry.js';
 import type { PermissionManager } from '../permissions/permission-manager.js';
 import type { EventBus } from '../utils/event-bus.js';
 
+const LINT_ELIGIBLE_TOOLS = new Set(['Edit', 'Write', 'MultiFileEdit', 'DiffEdit']);
+
 export class ToolRunner {
+  private autoLintFix: boolean;
+
   constructor(
     private registry: ToolRegistry,
     private permissionManager: PermissionManager,
     private eventBus: EventBus,
-  ) {}
+    autoLintFix = false,
+  ) {
+    this.autoLintFix = autoLintFix;
+  }
 
   async execute(
     toolName: string,
@@ -56,7 +63,22 @@ export class ToolRunner {
       };
     }
 
-    // 5. Emit completion event
+    // 5. Auto lint-fix after file modifications
+    if (this.autoLintFix && !result.isError && LINT_ELIGIBLE_TOOLS.has(toolName)) {
+      try {
+        const lintReg = this.registry.get('LintFix');
+        if (lintReg?.enabled) {
+          const filePath = input.file_path as string;
+          if (filePath) {
+            await lintReg.tool.execute({ file_path: filePath, fix: true }, context);
+          }
+        }
+      } catch {
+        // Lint errors are non-fatal
+      }
+    }
+
+    // 6. Emit completion event
     this.eventBus.emit('tool_call_end', { toolName, toolId, result });
 
     return result;

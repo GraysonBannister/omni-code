@@ -1,4 +1,6 @@
+import { execSync } from 'node:child_process';
 import type { SlashCommand } from './command-types.js';
+import { BUILTIN_MODES } from '../config/modes.js';
 
 export const helpCommand: SlashCommand = {
   name: 'help',
@@ -14,7 +16,10 @@ export const helpCommand: SlashCommand = {
       '/compact       - Compress conversation context',
       '/clear (c)     - Clear conversation history',
       '/memory (mem)  - View, add, or search project memories',
+      '/search (s)    - Semantic search across the codebase',
       '/sessions      - List recent sessions',
+      '/mode (md)     - Switch to a custom mode',
+      '/health        - Show project health status',
       '/exit          - Exit omni-code',
     ];
     return commands.join('\n');
@@ -185,6 +190,112 @@ export const sessionsCommand: SlashCommand = {
   },
 };
 
+export const modeCommand: SlashCommand = {
+  name: 'mode',
+  aliases: ['md'],
+  description: 'Switch to a custom mode (architect, code, review, security, debug)',
+  usage: '/mode [mode-name]',
+  async execute(args, _context) {
+    if (!args.trim()) {
+      const modeNames = Object.keys(BUILTIN_MODES);
+      const lines = modeNames.map(name => {
+        const mode = BUILTIN_MODES[name];
+        const planTag = mode.planMode ? ' [read-only]' : '';
+        return `  ${name}${planTag} - ${mode.systemPromptAppend.substring(0, 80)}...`;
+      });
+      return `Available modes:\n${lines.join('\n')}\n\nUse /mode <name> to switch.`;
+    }
+
+    const modeName = args.trim().toLowerCase();
+    const mode = BUILTIN_MODES[modeName];
+    if (!mode) {
+      return `Unknown mode: "${modeName}". Available: ${Object.keys(BUILTIN_MODES).join(', ')}`;
+    }
+
+    return `Switched to ${modeName} mode.\n${mode.systemPromptAppend}${mode.planMode ? '\n(Read-only mode — file modifications disabled)' : ''}`;
+  },
+};
+
+export const healthCommand: SlashCommand = {
+  name: 'health',
+  description: 'Show project health: type errors, lint status, TODO count',
+  usage: '/health',
+  async execute(_args, _context) {
+    const results: string[] = ['## Project Health'];
+
+    // Type checking
+    try {
+      execSync('npx tsc --noEmit 2>&1', { cwd: process.cwd(), encoding: 'utf-8', timeout: 30000 });
+      results.push('Types: OK');
+    } catch (e: any) {
+      const errors = ((e.stdout || '') as string).split('\n').filter((l: string) => l.includes('error TS')).length;
+      results.push(`Types: ${errors} error(s)`);
+    }
+
+    // Lint
+    try {
+      execSync('npx eslint src/ --quiet 2>&1', { cwd: process.cwd(), encoding: 'utf-8', timeout: 30000 });
+      results.push('Lint: OK');
+    } catch (e: any) {
+      const warnings = ((e.stdout || '') as string).split('\n').filter((l: string) => l.includes('warning') || l.includes('error')).length;
+      results.push(`Lint: ${warnings} issue(s)`);
+    }
+
+    // TODO/FIXME count
+    try {
+      const output = execSync('grep -r "TODO\\|FIXME\\|HACK\\|XXX" src/ --include="*.ts" --include="*.tsx" -c 2>/dev/null || echo "0"', { cwd: process.cwd(), encoding: 'utf-8', timeout: 10000 });
+      const count = output.trim().split('\n').reduce((sum, line) => {
+        const m = line.match(/:(\d+)$/);
+        return sum + (m ? parseInt(m[1]) : 0);
+      }, 0);
+      results.push(`TODOs/FIXMEs: ${count}`);
+    } catch {
+      results.push('TODOs: unable to scan');
+    }
+
+    return results.join('\n');
+  },
+};
+
+export const searchCommand: SlashCommand = {
+  name: 'search',
+  aliases: ['s'],
+  description: 'Semantic search across the codebase using vector embeddings',
+  usage: '/search <query> [--top <n>]',
+  async execute(args, _context) {
+    if (!args.trim()) return 'Usage: /search <query> [--top <n>]';
+
+    // Parse --top flag
+    let topK = 10;
+    let query = args;
+    const topMatch = args.match(/--top\s+(\d+)/);
+    if (topMatch) {
+      topK = parseInt(topMatch[1]);
+      query = args.replace(/--top\s+\d+/, '').trim();
+    }
+
+    try {
+      const { SemanticMemory } = await import('../memory/semantic-memory.js');
+      const memory = await SemanticMemory.create(process.cwd());
+      const results = await memory.search(query, topK);
+
+      if (results.length === 0) {
+        return `No results for "${query}". Try indexing first with the IndexCodebase tool.`;
+      }
+
+      const lines = results.map((r: any, i: number) => {
+        const score = (r.score * 100).toFixed(1);
+        const lineRange = r.startLine && r.endLine ? `:${r.startLine}-${r.endLine}` : '';
+        return `${i + 1}. [${score}%] ${r.filePath}${lineRange}\n   ${(r.content || '').substring(0, 120).replace(/\n/g, ' ')}`;
+      });
+
+      return `Semantic search results for "${query}":\n\n${lines.join('\n\n')}`;
+    } catch (error) {
+      return `Search error: ${(error as Error).message}\nMake sure the codebase has been indexed first.`;
+    }
+  },
+};
+
 export function registerBuiltinCommands(registry: import('./command-registry.js').CommandRegistry): void {
   registry.register(helpCommand);
   registry.register(modelCommand);
@@ -194,4 +305,7 @@ export function registerBuiltinCommands(registry: import('./command-registry.js'
   registry.register(clearCommand);
   registry.register(memoryCommand);
   registry.register(sessionsCommand);
+  registry.register(modeCommand);
+  registry.register(healthCommand);
+  registry.register(searchCommand);
 }

@@ -66,6 +66,10 @@ export interface CompletionRequest {
   stopSequences?: string[];
   topP?: number;
   stream: boolean;
+  thinking?: {
+    enabled: boolean;
+    budgetTokens: number;
+  };
 }
 
 export interface TokenUsage {

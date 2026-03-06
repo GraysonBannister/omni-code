@@ -3,7 +3,7 @@ import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
 
 const CHECKPOINT_PREFIX = 'omni-checkpoint:';
-const VALID_ACTIONS = ['create', 'list', 'restore', 'delete'] as const;
+const VALID_ACTIONS = ['create', 'list', 'restore', 'delete', 'diff'] as const;
 type Action = typeof VALID_ACTIONS[number];
 
 export class CheckpointTool implements Tool {
@@ -18,11 +18,15 @@ export class CheckpointTool implements Tool {
     properties: {
       action: {
         type: 'string',
-        description: 'Action: create, list, restore, or delete',
+        description: 'Action: create, list, restore, delete, or diff',
       },
       name: {
         type: 'string',
-        description: 'Checkpoint name (required for create/restore/delete)',
+        description: 'Checkpoint name (required for create/restore/delete/diff)',
+      },
+      description: {
+        type: 'string',
+        description: 'Description of what this checkpoint captures (optional, for create)',
       },
     },
     required: ['action'],
@@ -51,15 +55,19 @@ export class CheckpointTool implements Tool {
     }
 
     try {
+      const description = (input.description as string) || '';
+
       switch (action) {
         case 'create':
-          return await this.createCheckpoint(git, name);
+          return await this.createCheckpoint(git, name, description);
         case 'list':
           return await this.listCheckpoints(git);
         case 'restore':
           return await this.restoreCheckpoint(git, name);
         case 'delete':
           return await this.deleteCheckpoint(git, name);
+        case 'diff':
+          return await this.diffCheckpoint(git, name);
       }
     } catch (error) {
       return { content: `Checkpoint error: ${(error as Error).message}`, isError: true };
@@ -71,8 +79,9 @@ export class CheckpointTool implements Tool {
     return `Checkpoint: ${input.action} "${input.name || ''}"`;
   }
 
-  private async createCheckpoint(git: ReturnType<typeof simpleGit>, name: string): Promise<ToolResult> {
-    const stashMessage = `${CHECKPOINT_PREFIX}${name}`;
+  private async createCheckpoint(git: ReturnType<typeof simpleGit>, name: string, description = ''): Promise<ToolResult> {
+    const desc = description ? `:${description}` : '';
+    const stashMessage = `${CHECKPOINT_PREFIX}${name}${desc}`;
 
     // Stage all files including untracked
     await git.add('-A');
@@ -143,6 +152,18 @@ export class CheckpointTool implements Tool {
     await git.stash(['drop', stashRef]);
 
     return { content: `Deleted checkpoint "${name}" (${stashRef}).` };
+  }
+
+  private async diffCheckpoint(git: ReturnType<typeof simpleGit>, name: string): Promise<ToolResult> {
+    const stashRef = await this.findStashRef(git, name);
+    if (!stashRef) {
+      return { content: `Checkpoint "${name}" not found.`, isError: true };
+    }
+
+    const diff = await git.stash(['show', '-p', stashRef]);
+    if (!diff.trim()) return { content: `No differences in checkpoint "${name}".` };
+
+    return { content: `Diff for checkpoint "${name}" (${stashRef}):\n\n${diff}` };
   }
 
   private async findStashRef(git: ReturnType<typeof simpleGit>, name: string): Promise<string | null> {

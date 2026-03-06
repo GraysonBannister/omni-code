@@ -54,7 +54,7 @@ export interface UnifiedMessage {
 }
 
 export interface StreamDelta {
-  type: 'text' | 'tool_use_start' | 'tool_use_delta' | 'tool_use_end' | 'usage' | 'error' | 'done';
+  type: 'text' | 'thinking' | 'tool_use_start' | 'tool_use_delta' | 'tool_use_end' | 'usage' | 'error' | 'done';
   text?: string;
   toolUse?: {
     id?: string;

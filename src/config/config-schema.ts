@@ -49,6 +49,34 @@ export const OmniCodeConfigSchema = z.object({
     apiKey: z.string().optional(),
     models: z.array(z.string()).default([]),
   })).default({}),
+  extendedThinking: z.object({
+    enabled: z.boolean().default(false),
+    budgetTokens: z.number().min(1024).max(128000).default(10000),
+  }).default({ enabled: false, budgetTokens: 10000 }),
+  autoLintFix: z.boolean().default(false),
+  modelRouting: z.object({
+    enabled: z.boolean().default(false),
+    simpleModel: z.string().optional(),
+    complexModel: z.string().optional(),
+    simpleProvider: z.string().optional(),
+    complexProvider: z.string().optional(),
+  }).default({ enabled: false }),
+  automations: z.object({
+    enabled: z.boolean().default(false),
+    rules: z.array(z.object({
+      name: z.string(),
+      trigger: z.object({
+        type: z.literal('file_change'),
+        patterns: z.array(z.string()),
+      }),
+      action: z.object({
+        type: z.enum(['run_command', 'lint', 'typecheck', 'test', 'notify']),
+        command: z.string().optional(),
+      }),
+      enabled: z.boolean().default(true),
+      debounceMs: z.number().optional(),
+    })).default([]),
+  }).default({ enabled: false, rules: [] }),
 });
 
 export type OmniCodeConfig = z.infer<typeof OmniCodeConfigSchema>;

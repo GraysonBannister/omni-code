@@ -32,9 +32,14 @@ export interface AgentConfig {
   maxTurns?: number;
   temperature?: number;
   maxTokens?: number;
+  maxContextTokens?: number;
   isSubAgent?: boolean;
   parentAgentId?: string;
   planMode?: boolean;
+  thinking?: {
+    enabled: boolean;
+    budgetTokens: number;
+  };
 }
 
 export interface Agent {

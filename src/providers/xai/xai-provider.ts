@@ -77,6 +77,20 @@ export class XAIProvider extends BaseProvider {
       const toolResults = getToolResultBlocks(msg);
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
+          if (typeof tr.content !== 'string' && Array.isArray(tr.content)) {
+            const hasImages = tr.content.some(b => b.type === 'image');
+            if (hasImages) {
+              const parts: any[] = [];
+              for (const block of tr.content) {
+                if (block.type === 'text') parts.push({ type: 'text', text: block.text });
+                else if (block.type === 'image') {
+                  parts.push({ type: 'image_url', image_url: { url: `data:${block.source.mediaType};base64,${block.source.data}` } });
+                }
+              }
+              result.push({ role: 'user' as const, content: parts });
+              continue;
+            }
+          }
           result.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,
@@ -84,6 +98,20 @@ export class XAIProvider extends BaseProvider {
           });
         }
       } else {
+        if (typeof msg.content !== 'string') {
+          const hasImages = msg.content.some(b => b.type === 'image');
+          if (hasImages) {
+            const parts: any[] = [];
+            for (const block of msg.content) {
+              if (block.type === 'text') parts.push({ type: 'text', text: block.text });
+              else if (block.type === 'image') {
+                parts.push({ type: 'image_url', image_url: { url: `data:${block.source.mediaType};base64,${block.source.data}` } });
+              }
+            }
+            result.push({ role: 'user' as const, content: parts });
+            continue;
+          }
+        }
         result.push({ role: 'user', content: getTextContent(msg) });
       }
     }
@@ -186,6 +214,12 @@ export class XAIProvider extends BaseProvider {
     if (request.temperature !== undefined) params.temperature = request.temperature;
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
+
+    // Extended thinking for Grok reasoning models
+    if (request.thinking?.enabled && request.model.includes('reasoning')) {
+      params.reasoning_effort = 'high';
+    }
+
     return params;
   }
 }
