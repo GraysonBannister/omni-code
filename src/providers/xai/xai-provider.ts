@@ -15,8 +15,6 @@ import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 /** Models that require the /v1/responses endpoint instead of /v1/chat/completions */
 const RESPONSES_API_MODELS = new Set([
   'grok-4.20-multi-agent-experimental-beta-0304',
-  'grok-4.20-experimental-beta-0304-reasoning',
-  'grok-4.20-experimental-beta-0304-non-reasoning',
 ]);
 
 /**
