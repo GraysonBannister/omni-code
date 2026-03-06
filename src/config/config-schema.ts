@@ -77,6 +77,28 @@ export const OmniCodeConfigSchema = z.object({
       debounceMs: z.number().optional(),
     })).default([]),
   }).default({ enabled: false, rules: [] }),
+  orchestration: z.object({
+    enabled: z.boolean().default(true),
+    maxConcurrentAgents: z.number().min(1).max(10).default(3),
+    maxTotalAgents: z.number().min(2).max(12).default(8),
+    costBudget: z.number().optional(),
+    analysisModel: z.string().optional(),
+    analysisProvider: z.string().optional(),
+    forceOrchestrate: z.boolean().default(false),
+    forceSingleAgent: z.boolean().default(false),
+    agentOverrides: z.record(z.string(), z.object({
+      temperature: z.number().optional(),
+      preferredModel: z.string().optional(),
+      maxTurns: z.number().optional(),
+    })).default({}),
+  }).default({
+    enabled: true,
+    maxConcurrentAgents: 3,
+    maxTotalAgents: 8,
+    forceOrchestrate: false,
+    forceSingleAgent: false,
+    agentOverrides: {},
+  }),
 });
 
 export type OmniCodeConfig = z.infer<typeof OmniCodeConfigSchema>;

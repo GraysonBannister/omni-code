@@ -1,6 +1,14 @@
 import type { UnifiedMessage, StreamDelta } from './message-types.js';
 import type { LLMProvider } from '../providers/provider-types.js';
 import type { ToolRegistration, ToolResult } from '../tools/tool-types.js';
+import type {
+  AgentCapability,
+  TaskAnalysis,
+  OrchestrationTaskStartEvent,
+  OrchestrationTaskEndEvent,
+  OrchestrationAnalysisEvent,
+  OrchestrationSynthesisEvent,
+} from './orchestration/orchestration-types.js';
 
 export type AgentEvent =
   | { type: 'stream_delta'; delta: StreamDelta }
@@ -15,12 +23,22 @@ export type AgentEvent =
   | { type: 'cost_update'; totalCost: number; turnCost: number }
   | { type: 'agent_phase_start'; role: AgentRole; description: string }
   | { type: 'agent_phase_end'; role: AgentRole }
-  | { type: 'orchestration_complete'; summary: string };
+  | { type: 'orchestration_complete'; summary: string }
+  | OrchestrationTaskStartEvent
+  | OrchestrationTaskEndEvent
+  | OrchestrationAnalysisEvent
+  | OrchestrationSynthesisEvent;
 
 export enum AgentRole {
   planner = 'planner',
   coder = 'coder',
-  reviewer = 'reviewer'
+  reviewer = 'reviewer',
+  researcher = 'researcher',
+  tester = 'tester',
+  debugger = 'debugger',
+  architect = 'architect',
+  documenter = 'documenter',
+  refactorer = 'refactorer',
 }
 
 export interface AgentConfig {

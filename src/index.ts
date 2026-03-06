@@ -34,6 +34,10 @@ import { SessionStore } from './session/session-store.js';
 import { ProjectContextLoader } from './memory/project-context.js';
 import { ProjectAnalyzer } from './memory/project-analyzer.js';
 
+// Orchestration
+import { AutoOrchestrator } from './core/orchestration/index.js';
+import type { OrchestrationConfig } from './core/orchestration/index.js';
+
 const SYSTEM_PROMPT = `You are omni-code, a powerful AI coding assistant running in the terminal.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
 
@@ -268,6 +272,18 @@ async function main() {
     existingMessages,
   );
 
+  // Initialize orchestrator
+  const orchestrationConfig: OrchestrationConfig = config.get('orchestration') as OrchestrationConfig;
+  const orchestrator = new AutoOrchestrator(
+    activeProvider!,
+    currentModel,
+    systemPrompt,
+    toolRegistry.getAll(),
+    toolRunner,
+    costTracker,
+    orchestrationConfig,
+  );
+
   // Session auto-save on exit
   const saveSession = () => {
     try {
@@ -334,7 +350,7 @@ async function main() {
   if (cliArgs.prompt) {
     // Non-interactive mode: run the prompt and exit
     console.log(`omni-code: Running with ${currentModel} (${currentProviderName})\n`);
-    for await (const event of agent.run(cliArgs.prompt)) {
+    for await (const event of orchestrator.execute(cliArgs.prompt, agent)) {
       if (event.type === 'stream_delta' && event.delta.type === 'text' && event.delta.text) {
         process.stdout.write(event.delta.text);
       }
@@ -347,6 +363,18 @@ async function main() {
       }
       if (event.type === 'error') {
         console.error(`\nError: ${event.error.message}`);
+      }
+      if (event.type === 'orchestration_task_start') {
+        console.log(`\n  🔄 [${event.capability}] ${event.description}`);
+      }
+      if (event.type === 'orchestration_task_end') {
+        console.log(`  ${event.success ? '✓' : '✗'} Task ${event.taskId} ${event.success ? 'completed' : 'failed'} (${event.durationMs}ms)`);
+      }
+      if (event.type === 'orchestration_synthesis') {
+        console.log(`\n📋 Synthesis:\n${event.summary}`);
+      }
+      if (event.type === 'orchestration_complete') {
+        console.log(`\n${event.summary}`);
       }
     }
     console.log('\n');
@@ -362,6 +390,7 @@ async function main() {
       model: currentModel,
       provider: currentProviderName,
       onSlashCommand: handleSlashCommand,
+      orchestrator,
     }),
   );
 

@@ -8,15 +8,17 @@ import { PermissionPrompt } from './PermissionPrompt.js';
 import type { Agent, AgentEvent } from '../../core/agent-types.js';
 import type { UnifiedMessage } from '../../core/message-types.js';
 import { getTextContent } from '../../core/message-types.js';
+import type { AutoOrchestrator } from '../../core/orchestration/index.js';
 
 interface REPLProps {
   agent: Agent;
   model: string;
   provider: string;
   onSlashCommand?: (command: string) => Promise<string | void>;
+  orchestrator?: AutoOrchestrator;
 }
 
-export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashCommand }) => {
+export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashCommand, orchestrator }) => {
   const { exit } = useApp();
   const [inputValue, setInputValue] = useState('');
   const [messages, setMessages] = useState<UnifiedMessage[]>([]);
@@ -27,6 +29,7 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
   const [outputTokens, setOutputTokens] = useState(0);
   const [commandOutput, setCommandOutput] = useState<string | null>(null);
   const [contextTokens, setContextTokens] = useState(0);
+  const [orchestrationStatus, setOrchestrationStatus] = useState<string | null>(null);
   const [permissionRequest, setPermissionRequest] = useState<{
     toolName: string;
     input: Record<string, unknown>;
@@ -77,7 +80,14 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
 
     try {
       let currentText = '';
-      for await (const event of agent.run(trimmed)) {
+      setOrchestrationStatus(null);
+
+      // Use orchestrator if available, otherwise direct agent
+      const eventSource = orchestrator
+        ? orchestrator.execute(trimmed, agent)
+        : agent.run(trimmed);
+
+      for await (const event of eventSource) {
         switch (event.type) {
           case 'stream_delta':
             if (event.delta.type === 'text' && event.delta.text) {
@@ -100,6 +110,33 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
             setTotalCost(event.totalCost);
             // Update token counts from agent after each cost update
             agent.getTokenCount().then(count => setContextTokens(count)).catch(() => {});
+            break;
+
+          case 'orchestration_analysis':
+            if (event.analysis.shouldOrchestrate) {
+              setOrchestrationStatus(`Orchestrating: ${event.analysis.capabilities.join(', ')} (${event.analysis.estimatedAgentCount} agents)`);
+            }
+            break;
+
+          case 'orchestration_task_start':
+            setOrchestrationStatus(`[${event.capability}] ${event.description}`);
+            break;
+
+          case 'orchestration_task_end':
+            setOrchestrationStatus(event.success ? null : `Task ${event.taskId} failed`);
+            break;
+
+          case 'orchestration_synthesis':
+            setMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: `## Orchestration Summary\n\n${event.summary}`,
+              timestamp: Date.now(),
+            }]);
+            break;
+
+          case 'orchestration_complete':
+            setOrchestrationStatus(null);
             break;
 
           case 'error':
@@ -140,6 +177,14 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
           <Text color="magenta" bold>{'● '}</Text>
           <Text>{streamingText}</Text>
           <Text dimColor>▊</Text>
+        </Box>
+      )}
+
+      {/* Orchestration status */}
+      {orchestrationStatus && (
+        <Box marginY={1}>
+          <Text color="cyan" bold>{'⚙ '}</Text>
+          <Text color="cyan">{orchestrationStatus}</Text>
         </Box>
       )}
 
