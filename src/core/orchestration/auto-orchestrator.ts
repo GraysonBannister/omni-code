@@ -37,6 +37,14 @@ export class AutoOrchestrator {
     this.synthesizer = new ResultSynthesizer(provider, model);
   }
 
+  updateModel(provider: LLMProvider, model: string): void {
+    this.provider = provider;
+    this.model = model;
+    this.analyzer = new TaskAnalyzer(provider, model, this.config);
+    this.decomposer = new TaskDecomposer(provider, model, this.config);
+    this.synthesizer = new ResultSynthesizer(provider, model);
+  }
+
   /**
    * Execute a user prompt, automatically deciding between single and multi-agent.
    * Yields AgentEvents for the UI to consume.

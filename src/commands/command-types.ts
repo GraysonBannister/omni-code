@@ -4,6 +4,7 @@ import type { ProviderRegistry } from '../providers/provider-registry.js';
 import type { CostTracker } from '../core/cost-tracker.js';
 import type { MemoryStore } from '../memory/memory-store.js';
 import type { SessionStore } from '../session/session-store.js';
+import type { AutoOrchestrator } from '../core/orchestration/index.js';
 
 export interface CommandContext {
   agent: Agent;
@@ -12,7 +13,9 @@ export interface CommandContext {
   costTracker: CostTracker;
   memoryStore?: MemoryStore;
   sessionStore?: SessionStore;
+  orchestrator?: AutoOrchestrator;
   setModel: (model: string, provider: string) => void;
+  updateUIState?: (updates: { model?: string; provider?: string; systemPrompt?: string; planMode?: boolean }) => void;
 }
 
 export interface SlashCommand {

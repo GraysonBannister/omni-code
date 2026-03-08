@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { UnifiedMessage } from '../../core/message-types.js';
 import { getTextContent, getToolUseBlocks } from '../../core/message-types.js';
+import { theme } from '../theme.js';
 
 interface MessageDisplayProps {
   message: UnifiedMessage;
@@ -15,8 +16,8 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
 
     return (
       <Box marginY={0}>
-        <Text color="blue" bold>
-          {'> '}
+        <Text color={theme.colors.userMessage} bold>
+          {`${theme.symbols.user} `}
         </Text>
         <Text>{text}</Text>
       </Box>
@@ -31,7 +32,7 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
       <Box flexDirection="column" marginY={0}>
         {/* Reasoning/thinking display */}
         {message.reasoning && (
-          <Box marginLeft={2} paddingX={1} borderStyle="single" borderColor="gray">
+          <Box marginLeft={2} paddingX={1} borderStyle="single" borderColor={theme.colors.border}>
             <Text dimColor italic>
               {'💭 '}
               {message.reasoning.length > 500
@@ -43,8 +44,8 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
 
         {text && (
           <Box>
-            <Text color="magenta" bold>
-              {'● '}
+            <Text color={theme.colors.assistantMessage} bold>
+              {`${theme.symbols.assistant} `}
             </Text>
             <Text>{text}</Text>
           </Box>
@@ -54,8 +55,8 @@ export const MessageDisplay: React.FC<MessageDisplayProps> = ({ message }) => {
           // Check if tool result contains diff output
           return (
             <Box key={tc.id} marginLeft={2}>
-              <Text color="yellow">
-                {'⚡ '}{tc.name}
+              <Text color={theme.colors.toolCall}>
+                {`${theme.symbols.tool} `}{tc.name}
               </Text>
               <Text dimColor>
                 {' '}({inputStr})
@@ -83,13 +84,13 @@ export const DiffDisplay: React.FC<{ diff: string }> = ({ diff }) => {
           return <Text key={i} bold dimColor>{line}</Text>;
         }
         if (line.startsWith('@@')) {
-          return <Text key={i} color="cyan">{line}</Text>;
+          return <Text key={i} color={theme.colors.secondary}>{line}</Text>;
         }
         if (line.startsWith('+')) {
-          return <Text key={i} color="green">{line}</Text>;
+          return <Text key={i} color={theme.colors.success}>{line}</Text>;
         }
         if (line.startsWith('-')) {
-          return <Text key={i} color="red">{line}</Text>;
+          return <Text key={i} color={theme.colors.error}>{line}</Text>;
         }
         return <Text key={i}>{line}</Text>;
       })}

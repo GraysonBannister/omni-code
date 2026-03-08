@@ -24,6 +24,7 @@ import { CheckpointTool } from './checkpoint.js';
 import { TestGenTool } from './test-gen.js';
 import { QueryCodebaseTool } from './query-codebase.js';
 import { RepoMapTool } from './repo-map.js';
+import { SelfAnalyzeTool } from './self-analyze.js';
 import { GitCommitTool } from './git-commit.js';
 import { GitDiffTool } from './git-diff.js';
 import { GitLogTool } from './git-log.js';
@@ -77,7 +78,8 @@ export function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(new QueryCodebaseTool());
 
   // Repository analysis
-  registry.register(new RepoMapTool());
+      registry.register(new RepoMapTool());
+    registry.register(new SelfAnalyzeTool());
 
   // Git workflow tools
   registry.register(new GitCommitTool());

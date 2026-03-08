@@ -54,7 +54,28 @@ export const modelCommand: SlashCommand = {
       return `Provider "${resolved.provider.name}" is not configured. Set the API key first.`;
     }
 
+    // Actually update the model in all components
     context.setModel(resolved.model.id, resolved.provider.name);
+
+    // Update the agent's config with new model and provider
+    context.agent.updateConfig({
+      model: resolved.model.id,
+      provider: resolved.provider,
+    });
+
+    // Update the orchestrator if available
+    if (context.orchestrator) {
+      context.orchestrator.updateModel(resolved.provider, resolved.model.id);
+    }
+
+    // Update the UI state if updater is available
+    if (context.updateUIState) {
+      context.updateUIState({
+        model: resolved.model.id,
+        provider: resolved.provider.name,
+      });
+    }
+
     return `Switched to ${resolved.model.displayName} (${resolved.provider.displayName})`;
   },
 };
@@ -116,7 +137,15 @@ export const clearCommand: SlashCommand = {
   aliases: ['c'],
   description: 'Clear conversation history',
   usage: '/clear',
-  async execute(_args, _context) {
+  async execute(_args, context) {
+    // Actually clear the agent's messages
+    context.agent.clearMessages();
+
+    // Update the UI state to clear messages if updater is available
+    if (context.updateUIState) {
+      context.updateUIState({});
+    }
+
     return 'Conversation cleared. Starting fresh.';
   },
 };
@@ -195,7 +224,7 @@ export const modeCommand: SlashCommand = {
   aliases: ['md'],
   description: 'Switch to a custom mode (architect, code, review, security, debug)',
   usage: '/mode [mode-name]',
-  async execute(args, _context) {
+  async execute(args, context) {
     if (!args.trim()) {
       const modeNames = Object.keys(BUILTIN_MODES);
       const lines = modeNames.map(name => {
@@ -210,6 +239,25 @@ export const modeCommand: SlashCommand = {
     const mode = BUILTIN_MODES[modeName];
     if (!mode) {
       return `Unknown mode: "${modeName}". Available: ${Object.keys(BUILTIN_MODES).join(', ')}`;
+    }
+
+    // Get current system prompt and append the mode's prompt
+    const currentSystemPrompt = context.agent.config.systemPrompt;
+    const basePrompt = currentSystemPrompt.split('## Mode Instructions')[0].trim();
+    const newSystemPrompt = `${basePrompt}\n\n## Mode Instructions\n${mode.systemPromptAppend}`;
+
+    // Update the agent's config with new system prompt and plan mode
+    context.agent.updateConfig({
+      systemPrompt: newSystemPrompt,
+      planMode: mode.planMode || false,
+    });
+
+    // Update the UI state if updater is available
+    if (context.updateUIState) {
+      context.updateUIState({
+        systemPrompt: newSystemPrompt,
+        planMode: mode.planMode || false,
+      });
     }
 
     return `Switched to ${modeName} mode.\n${mode.systemPromptAppend}${mode.planMode ? '\n(Read-only mode — file modifications disabled)' : ''}`;

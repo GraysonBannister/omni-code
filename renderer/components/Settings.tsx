@@ -1,0 +1,567 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2 } from 'lucide-react';
+import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
+import { useAppStore } from '../stores/appStore';
+import { SettingToggle } from './settings/SettingToggle';
+import { SettingSelect } from './settings/SettingSelect';
+import { SettingInput } from './settings/SettingInput';
+import './Settings.css';
+
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'privacy';
+
+interface SettingsPanelProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+  embedded?: boolean;
+}
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'ai', label: 'AI' },
+  { id: 'apiKeys', label: 'API Keys' },
+  { id: 'shortcuts', label: 'Shortcuts' },
+  { id: 'files', label: 'Files' },
+  { id: 'privacy', label: 'Privacy' },
+];
+
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onClose, embedded = false }) => {
+  const [activeTab, setActiveTab] = useState<TabId>('general');
+  const [isLoading, setIsLoading] = useState(false);
+  const { settings, loadSettings, setSetting, resetSetting } = useSettingsStore();
+  const { availableModels, availableProviders, setModel } = useAppStore();
+
+  // Load settings when panel opens or when embedded
+  useEffect(() => {
+    if ((isOpen || embedded) && !settings) {
+      loadSettings();
+    }
+  }, [isOpen, embedded, settings, loadSettings]);
+
+  // Handle keyboard shortcut to close (only in modal mode)
+  useEffect(() => {
+    if (embedded) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, embedded]);
+
+  if (!embedded && !isOpen) return null;
+
+  const handleReset = async (path?: string) => {
+    setIsLoading(true);
+    await resetSetting(path);
+    setIsLoading(false);
+  };
+
+  const currentSettings = settings || defaultSettings;
+
+  // API Key validation helper
+  const validateApiKey = useCallback((provider: string, key: string): boolean => {
+    if (!key || key.trim().length < 10) return false;
+    
+    const trimmed = key.trim();
+    
+    switch (provider) {
+      case 'anthropic':
+        return trimmed.startsWith('sk-ant-');
+      case 'openai':
+        return trimmed.startsWith('sk-') || trimmed.startsWith('sk-proj-');
+      case 'google':
+        return trimmed.startsWith('AIza');
+      case 'groq':
+        return trimmed.startsWith('gsk_');
+      case 'together':
+        return trimmed.startsWith('together-') || trimmed.startsWith('tg-');
+      case 'xai':
+        return trimmed.startsWith('xai-') || trimmed.startsWith('glpat-');
+      case 'ollama':
+        // Ollama is local, just check if URL-like or 'local'
+        return trimmed.length > 0 && (trimmed.includes('://') || trimmed === 'local');
+      case 'lmstudio':
+        // LM Studio is local, check if URL-like
+        return trimmed.length > 0 && trimmed.includes('://');
+      default:
+        return trimmed.length >= 10;
+    }
+  }, []);
+
+  const panelContent = (
+    <>
+      {/* Header - only show close button in modal mode */}
+      {!embedded && (
+        <div className="settings-header">
+          <div className="settings-header-title">
+            <SettingsIcon size={20} />
+            <span>Settings</span>
+          </div>
+          <button className="settings-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
+        {/* Tabs */}
+        <div className="settings-tabs">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="settings-content">
+          {isLoading && <div className="settings-loading">Loading...</div>}
+
+          {!isLoading && activeTab === 'general' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Appearance</h3>
+
+              <SettingSelect
+                label="Theme"
+                description="Choose your color theme"
+                value={currentSettings.general.theme}
+                options={[
+                  { value: 'dark', label: 'Dark' },
+                  { value: 'light', label: 'Light' },
+                  { value: 'system', label: 'System' },
+                ]}
+                onChange={(value) => setSetting('general.theme', value)}
+              />
+
+              <SettingInput
+                label="Font Size"
+                description="Editor font size in pixels"
+                value={currentSettings.general.fontSize}
+                type="number"
+                min={10}
+                max={24}
+                onChange={(value) => setSetting('general.fontSize', parseInt(value))}
+              />
+
+              <SettingToggle
+                label="Show Sidebar"
+                description="Show the file explorer sidebar by default"
+                checked={currentSettings.general.sidebarVisible}
+                onChange={(checked) => setSetting('general.sidebarVisible', checked)}
+              />
+
+              <SettingToggle
+                label="Show Chat Panel"
+                description="Show the AI chat panel by default"
+                checked={currentSettings.general.chatVisible}
+                onChange={(checked) => setSetting('general.chatVisible', checked)}
+              />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'editor' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Editor Behavior</h3>
+
+              <SettingSelect
+                label="Tab Size"
+                description="Number of spaces per tab"
+                value={String(currentSettings.editor.tabSize)}
+                options={[
+                  { value: '2', label: '2 spaces' },
+                  { value: '4', label: '4 spaces' },
+                ]}
+                onChange={(value) => setSetting('editor.tabSize', parseInt(value))}
+              />
+
+              <SettingSelect
+                label="Word Wrap"
+                description="How to wrap long lines"
+                value={currentSettings.editor.wordWrap}
+                options={[
+                  { value: 'on', label: 'On' },
+                  { value: 'off', label: 'Off' },
+                  { value: 'wordWrapColumn', label: 'At column' },
+                ]}
+                onChange={(value) => setSetting('editor.wordWrap', value)}
+              />
+
+              <SettingToggle
+                label="Show Minimap"
+                description="Show the code overview minimap"
+                checked={currentSettings.editor.minimap}
+                onChange={(checked) => setSetting('editor.minimap', checked)}
+              />
+
+              <SettingToggle
+                label="Line Numbers"
+                description="Show line numbers in the editor"
+                checked={currentSettings.editor.lineNumbers === 'on'}
+                onChange={(checked) => setSetting('editor.lineNumbers', checked ? 'on' : 'off')}
+              />
+
+              <SettingToggle
+                label="Format on Save"
+                description="Automatically format code when saving"
+                checked={currentSettings.editor.formatOnSave}
+                onChange={(checked) => setSetting('editor.formatOnSave', checked)}
+              />
+
+              <SettingSelect
+                label="Auto Save"
+                description="When to automatically save files"
+                value={currentSettings.editor.autoSave}
+                options={[
+                  { value: 'off', label: 'Off' },
+                  { value: 'afterDelay', label: 'After delay' },
+                  { value: 'onFocusChange', label: 'On focus change' },
+                ]}
+                onChange={(value) => setSetting('editor.autoSave', value)}
+              />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'ai' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">AI Preferences</h3>
+
+              <div className="setting-model-selector">
+                <label className="setting-label">
+                  <span className="setting-title">Default Model</span>
+                  <span className="setting-description">Select your preferred AI model</span>
+                </label>
+                <div className="model-list">
+                  {availableProviders.map((provider) => (
+                    <div key={provider.name} className="model-provider-group">
+                      <div className="model-provider-header">
+                        <Cpu size={14} />
+                        <span>{provider.name}</span>
+                        {!provider.available && (
+                          <span className="model-unavailable-badge">Configure API Key</span>
+                        )}
+                      </div>
+                      {availableModels
+                        .filter((m) => m.provider === provider.name)
+                        .map((model) => (
+                          <button
+                            key={model.id}
+                            className={`model-list-item ${
+                              model.id === currentSettings.ai.defaultModel ? 'active' : ''
+                            } ${!model.available ? 'disabled' : ''}`}
+                            onClick={() => {
+                              if (model.available) {
+                                setSetting('ai.defaultModel', model.id);
+                                setSetting('ai.defaultProvider', provider.name);
+                                setModel(model.id, provider.name);
+                              }
+                            }}
+                            disabled={!model.available}
+                          >
+                            <span className="model-name">{model.name}</span>
+                            {model.id === currentSettings.ai.defaultModel && (
+                              <Check size={14} className="model-check" />
+                            )}
+                          </button>
+                        ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <SettingInput
+                label="Temperature"
+                description="Randomness in AI responses (0-1)"
+                value={currentSettings.ai.temperature}
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                onChange={(value) => setSetting('ai.temperature', parseFloat(value))}
+              />
+
+              <SettingSelect
+                label="Auto-run Mode"
+                description="When to automatically run AI suggestions"
+                value={currentSettings.ai.autoRunMode}
+                options={[
+                  { value: 'ask', label: 'Always ask' },
+                  { value: 'always', label: 'Always run' },
+                  { value: 'never', label: 'Never auto-run' },
+                ]}
+                onChange={(value) => setSetting('ai.autoRunMode', value)}
+              />
+
+              <SettingToggle
+                label="Show Token Costs"
+                description="Display API costs in the status bar"
+                checked={currentSettings.ai.showTokenCosts}
+                onChange={(checked) => setSetting('ai.showTokenCosts', checked)}
+              />
+
+              <SettingToggle
+                label="Show Thinking"
+                description="Show AI reasoning process"
+                checked={currentSettings.ai.showThinking}
+                onChange={(checked) => setSetting('ai.showThinking', checked)}
+              />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'apiKeys' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">API Keys</h3>
+              <p className="settings-section-description">
+                Configure API keys for AI providers. Keys are stored locally and never shared.
+                <br />
+                <span className="validation-hint">
+                  <CheckCircle2 size={12} className="valid-icon" /> = Valid key format detected
+                </span>
+              </p>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Anthropic API Key"
+                  description="For Claude models (claude-sonnet, claude-opus, etc.)"
+                  value={currentSettings.apiKeys?.anthropic || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.anthropic', value)}
+                />
+                {validateApiKey('anthropic', currentSettings.apiKeys?.anthropic || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="OpenAI API Key"
+                  description="For GPT-4, GPT-3.5, GPT-4o models"
+                  value={currentSettings.apiKeys?.openai || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.openai', value)}
+                />
+                {validateApiKey('openai', currentSettings.apiKeys?.openai || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="xAI API Key"
+                  description="For Grok models (grok-2, grok-2-vision, etc.)"
+                  value={currentSettings.apiKeys?.xai || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.xai', value)}
+                />
+                {validateApiKey('xai', currentSettings.apiKeys?.xai || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Google AI API Key"
+                  description="For Gemini models"
+                  value={currentSettings.apiKeys?.google || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.google', value)}
+                />
+                {validateApiKey('google', currentSettings.apiKeys?.google || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Groq API Key"
+                  description="For fast LLM inference"
+                  value={currentSettings.apiKeys?.groq || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.groq', value)}
+                />
+                {validateApiKey('groq', currentSettings.apiKeys?.groq || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Together AI API Key"
+                  description="For open-source models"
+                  value={currentSettings.apiKeys?.together || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.together', value)}
+                />
+                {validateApiKey('together', currentSettings.apiKeys?.together || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Ollama Host"
+                  description="URL for Ollama (default: http://localhost:11434)"
+                  value={currentSettings.apiKeys?.ollama || ''}
+                  onChange={(value) => setSetting('apiKeys.ollama', value)}
+                />
+                {validateApiKey('ollama', currentSettings.apiKeys?.ollama || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="LM Studio Host"
+                  description="URL for LM Studio (default: http://localhost:1234)"
+                  value={currentSettings.apiKeys?.lmstudio || ''}
+                  onChange={(value) => setSetting('apiKeys.lmstudio', value)}
+                />
+                {validateApiKey('lmstudio', currentSettings.apiKeys?.lmstudio || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'shortcuts' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Keyboard Shortcuts</h3>
+              <p className="settings-section-description">
+                Keyboard shortcuts can be customized here. Format: CmdOrCtrl+Key or Ctrl+Shift+Key
+              </p>
+
+              <SettingInput
+                label="Open Chat"
+                value={currentSettings.shortcuts.openChat}
+                onChange={(value) => setSetting('shortcuts.openChat', value)}
+              />
+
+              <SettingInput
+                label="Toggle Sidebar"
+                value={currentSettings.shortcuts.toggleSidebar}
+                onChange={(value) => setSetting('shortcuts.toggleSidebar', value)}
+              />
+
+              <SettingInput
+                label="Send Message"
+                value={currentSettings.shortcuts.sendMessage}
+                onChange={(value) => setSetting('shortcuts.sendMessage', value)}
+              />
+
+              <SettingInput
+                label="Abort Agent"
+                value={currentSettings.shortcuts.abortAgent}
+                onChange={(value) => setSetting('shortcuts.abortAgent', value)}
+              />
+
+              <SettingInput
+                label="Open Settings"
+                value={currentSettings.shortcuts.openSettings}
+                onChange={(value) => setSetting('shortcuts.openSettings', value)}
+              />
+
+              <div className="settings-actions">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleReset('shortcuts')}
+                >
+                  Reset Shortcuts
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'files' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">File Preferences</h3>
+
+              <SettingInput
+                label="Exclude Patterns"
+                description="Comma-separated glob patterns to exclude from file explorer"
+                value={currentSettings.files.excludePatterns.join(', ')}
+                onChange={(value) =>
+                  setSetting(
+                    'files.excludePatterns',
+                    value.split(',').map((s) => s.trim()).filter(Boolean)
+                  )
+                }
+              />
+
+              <SettingToggle
+                label="Follow Symlinks"
+                description="Follow symbolic links when searching files"
+                checked={currentSettings.files.followSymlinks}
+                onChange={(checked) => setSetting('files.followSymlinks', checked)}
+              />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'privacy' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Privacy</h3>
+
+              <SettingToggle
+                label="Telemetry"
+                description="Send anonymous usage data to help improve the app"
+                checked={currentSettings.privacy.telemetryEnabled}
+                onChange={(checked) => setSetting('privacy.telemetryEnabled', checked)}
+              />
+
+              <SettingToggle
+                label="Crash Reports"
+                description="Automatically send crash reports"
+                checked={currentSettings.privacy.crashReportsEnabled}
+                onChange={(checked) => setSetting('privacy.crashReportsEnabled', checked)}
+              />
+
+              <div className="settings-actions">
+                <button
+                  className="btn btn-danger"
+                  onClick={() => handleReset()}
+                >
+                  Reset All Settings
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="settings-embedded">
+        {panelContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-overlay" onClick={onClose}>
+      <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+        {panelContent}
+      </div>
+    </div>
+  );
+};

@@ -239,7 +239,7 @@ export class AgentImpl implements Agent {
           toolCall.id,
           toolCall.input,
           {
-            cwd: process.cwd(),
+            cwd: this.config.cwd || process.cwd(),
             sessionId: this.id,
             planMode: this.config.planMode || false,
             abortSignal: this.abortController.signal,
@@ -378,5 +378,13 @@ export class AgentImpl implements Agent {
     };
 
     return new AgentImpl(subConfig, this.toolRunner, this.costTracker);
+  }
+
+  updateConfig(updates: Partial<AgentConfig>): void {
+    Object.assign(this.config, updates);
+  }
+
+  clearMessages(): void {
+    this._messages = [];
   }
 }

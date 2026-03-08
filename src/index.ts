@@ -318,6 +318,9 @@ async function main() {
     process.exit(0);
   });
 
+  // UI state updater - passed to commands so they can trigger re-renders
+  let uiStateUpdater: ((updates: { model?: string; provider?: string; systemPrompt?: string; planMode?: boolean }) => void) | undefined;
+
   // Handle slash commands
   const handleSlashCommand = async (input: string): Promise<string | void> => {
     return commandRegistry.execute(input, {
@@ -327,11 +330,18 @@ async function main() {
       costTracker,
       memoryStore,
       sessionStore,
+      orchestrator,
       setModel: (model: string, provider: string) => {
         currentModel = model;
         currentProviderName = provider;
       },
+      updateUIState: uiStateUpdater,
     });
+  };
+
+  // Callback to receive the UI state updater from the App component
+  const handleUIStateUpdaterReady = (updater: (updates: { model?: string; provider?: string; systemPrompt?: string; planMode?: boolean }) => void) => {
+    uiStateUpdater = updater;
   };
 
   // Handle permission requests from the event bus
@@ -391,6 +401,7 @@ async function main() {
       provider: currentProviderName,
       onSlashCommand: handleSlashCommand,
       orchestrator,
+      onUIStateUpdaterReady: handleUIStateUpdaterReady,
     }),
   );
 

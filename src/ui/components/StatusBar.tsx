@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { theme } from '../theme.js';
 
 interface StatusBarProps {
   model: string;
@@ -22,7 +23,7 @@ function renderContextBar(used: number, max: number): React.ReactElement {
   const filled = Math.round(ratio * CONTEXT_BAR_WIDTH);
   const empty = CONTEXT_BAR_WIDTH - filled;
   const pct = Math.round(ratio * 100);
-  const color = ratio > 0.9 ? 'red' : ratio > 0.7 ? 'yellow' : 'green';
+  const color = ratio > 0.9 ? theme.colors.error : ratio > 0.7 ? theme.colors.warning : theme.colors.success;
 
   return (
     <Text>
@@ -47,9 +48,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   maxContextTokens,
 }) => {
   return (
-    <Box borderStyle="single" borderColor="gray" paddingX={1}>
+    <Box borderStyle="single" borderColor={theme.colors.border} paddingX={1}>
       {planMode && (
-        <Text color="yellow" bold>
+        <Text color={theme.colors.warning} bold>
           [PLAN MODE]{' '}
         </Text>
       )}
@@ -89,7 +90,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       {isProcessing && (
         <>
           <Text dimColor> | </Text>
-          <Text color="yellow">thinking...</Text>
+          <Text color={theme.colors.warning}>thinking...</Text>
         </>
       )}
     </Box>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
+import { theme } from '../theme.js';
 
 interface PermissionPromptProps {
   toolName: string;
@@ -37,11 +38,11 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="yellow"
+      borderColor={theme.colors.warning}
       paddingX={1}
       marginY={1}
     >
-      <Text bold color="yellow">
+      <Text bold color={theme.colors.warning}>
         Permission Request
       </Text>
       <Text>
@@ -50,9 +51,9 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
       <Text dimColor>{formatInput(input)}</Text>
       <Box marginTop={1}>
         <Text>
-          <Text color="green">[y]</Text> Allow  {' '}
-          <Text color="red">[n]</Text> Deny  {' '}
-          <Text color="cyan">[a]</Text> Always allow
+          <Text color={theme.colors.success}>[y]</Text> Allow  {' '}
+          <Text color={theme.colors.error}>[n]</Text> Deny  {' '}
+          <Text color={theme.colors.secondary}>[a]</Text> Always allow
         </Text>
       </Box>
     </Box>

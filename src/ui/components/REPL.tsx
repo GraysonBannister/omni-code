@@ -5,6 +5,7 @@ import { WelcomeScreen } from './WelcomeScreen.js';
 import { StatusBar } from './StatusBar.js';
 import { MessageDisplay } from './MessageDisplay.js';
 import { PermissionPrompt } from './PermissionPrompt.js';
+import { theme } from '../theme.js';
 import type { Agent, AgentEvent } from '../../core/agent-types.js';
 import type { UnifiedMessage } from '../../core/message-types.js';
 import { getTextContent } from '../../core/message-types.js';
@@ -174,7 +175,7 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
       {/* Streaming text */}
       {streamingText && (
         <Box>
-          <Text color="magenta" bold>{'● '}</Text>
+          <Text color={theme.colors.assistantMessage} bold>{`${theme.symbols.assistant} `}</Text>
           <Text>{streamingText}</Text>
           <Text dimColor>▊</Text>
         </Box>
@@ -183,8 +184,8 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
       {/* Orchestration status */}
       {orchestrationStatus && (
         <Box marginY={1}>
-          <Text color="cyan" bold>{'⚙ '}</Text>
-          <Text color="cyan">{orchestrationStatus}</Text>
+          <Text color={theme.colors.secondary} bold>{'⚙ '}</Text>
+          <Text color={theme.colors.secondary}>{orchestrationStatus}</Text>
         </Box>
       )}
 
@@ -208,7 +209,7 @@ export const REPL: React.FC<REPLProps> = ({ agent, model, provider, onSlashComma
 
       {/* Input bar */}
       <Box marginTop={1}>
-        <Text color="green" bold>{'❯ '}</Text>
+        <Text color={theme.colors.success} bold>{'❯ '}</Text>
         <TextInput
           value={inputValue}
           onChange={setInputValue}

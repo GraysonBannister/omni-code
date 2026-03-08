@@ -174,7 +174,7 @@ export class BrowserAutomationTool implements Tool {
     }
 
     // Lazy-load puppeteer (optional dependency)
-    const puppeteer = await (import('puppeteer' as any) as Promise<any>);
+    const puppeteer = await (import('puppeteer').catch(() => null) as Promise<any>);
     browserInstance = await (puppeteer.default || puppeteer).launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],

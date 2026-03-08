@@ -1,0 +1,464 @@
+// Settings Manager for omni-code Electron app
+// Handles persistent storage of user preferences using electron-store
+
+import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import type StoreType from 'electron-store';
+
+// Dynamic import for electron-store to handle CJS/ESM compatibility
+let Store: typeof StoreType | null = null;
+let storeImportError: Error | null = null;
+
+async function initializeStore(): Promise<typeof StoreType> {
+  if (Store) return Store;
+  
+  try {
+    // Use dynamic import for proper ESM compatibility
+    const storeModule = await import('electron-store');
+    
+    // Handle various export patterns
+    const StoreClass = (storeModule as any).default || storeModule;
+    
+    if (typeof StoreClass !== 'function') {
+      throw new Error(`electron-store export is not a constructor. Got: ${typeof StoreClass}`);
+    }
+    
+    Store = StoreClass;
+    console.log('[Settings] electron-store initialized successfully');
+    return Store;
+  } catch (error) {
+    storeImportError = error as Error;
+    console.error('[Settings] Failed to initialize electron-store:', error);
+    throw error;
+  }
+}
+
+// Settings Schema Definition
+export interface SettingsSchema {
+  // General / Appearance
+  general: {
+    theme: 'dark' | 'light' | 'system';
+    fontFamily: string;
+    fontSize: number;
+    sidebarVisible: boolean;
+    chatVisible: boolean;
+    windowRestore: 'last' | 'default';
+  };
+
+  // Editor
+  editor: {
+    tabSize: 2 | 4;
+    wordWrap: 'on' | 'off' | 'wordWrapColumn';
+    minimap: boolean;
+    lineNumbers: 'on' | 'off' | 'relative';
+    formatOnSave: boolean;
+    autoSave: 'off' | 'afterDelay' | 'onFocusChange';
+    autoSaveDelay: number;
+    showWhitespace: boolean;
+    smoothScrolling: boolean;
+    cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
+  };
+
+  // AI / Agent
+  ai: {
+    defaultProvider: string;
+    defaultModel: string;
+    temperature: number;
+    maxContextTokens: number;
+    autoRunMode: 'ask' | 'always' | 'never';
+    showTokenCosts: boolean;
+    showThinking: boolean;
+    autoAcceptEdits: boolean;
+  };
+
+  // Keyboard Shortcuts
+  shortcuts: {
+    openChat: string;
+    toggleSidebar: string;
+    toggleChat: string;
+    sendMessage: string;
+    abortAgent: string;
+    acceptAllEdits: string;
+    rejectAllEdits: string;
+    openSettings: string;
+    newFile: string;
+    openFolder: string;
+    saveFile: string;
+    formatDocument: string;
+    searchFiles: string;
+  };
+
+  // Files
+  files: {
+    excludePatterns: string[];
+    defaultWorkspace: string | null;
+    recentWorkspaces: string[];
+    maxRecentWorkspaces: number;
+    followSymlinks: boolean;
+  };
+
+  // Privacy / Security
+  privacy: {
+    telemetryEnabled: boolean;
+    crashReportsEnabled: boolean;
+    analyticsEnabled: boolean;
+  };
+
+  // API Keys for LLM providers
+  apiKeys: {
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+    groq?: string;
+    together?: string;
+    xai?: string;
+    ollama?: string;
+    lmstudio?: string;
+  };
+}
+
+// Default Settings
+export const defaultSettings: SettingsSchema = {
+  general: {
+    theme: 'dark',
+    fontFamily: "'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace",
+    fontSize: 14,
+    sidebarVisible: true,
+    chatVisible: true,
+    windowRestore: 'last',
+  },
+
+  editor: {
+    tabSize: 2,
+    wordWrap: 'on',
+    minimap: true,
+    lineNumbers: 'on',
+    formatOnSave: true,
+    autoSave: 'off',
+    autoSaveDelay: 1000,
+    showWhitespace: false,
+    smoothScrolling: true,
+    cursorBlinking: 'blink',
+  },
+
+  ai: {
+    defaultProvider: 'anthropic',
+    defaultModel: 'claude-sonnet-4-5',
+    temperature: 0.7,
+    maxContextTokens: 128000,
+    autoRunMode: 'ask',
+    showTokenCosts: true,
+    showThinking: true,
+    autoAcceptEdits: false,
+  },
+
+  shortcuts: {
+    openChat: 'CmdOrCtrl+Shift+L',
+    toggleSidebar: 'CmdOrCtrl+B',
+    toggleChat: 'CmdOrCtrl+Shift+C',
+    sendMessage: 'CmdOrCtrl+Enter',
+    abortAgent: 'Escape',
+    acceptAllEdits: 'CmdOrCtrl+Shift+A',
+    rejectAllEdits: 'CmdOrCtrl+Shift+R',
+    openSettings: 'CmdOrCtrl+,',
+    newFile: 'CmdOrCtrl+N',
+    openFolder: 'CmdOrCtrl+O',
+    saveFile: 'CmdOrCtrl+S',
+    formatDocument: 'Shift+Alt+F',
+    searchFiles: 'CmdOrCtrl+Shift+F',
+  },
+
+  files: {
+    excludePatterns: [
+      'node_modules/**',
+      '.git/**',
+      'dist/**',
+      'build/**',
+      '.next/**',
+      '.cache/**',
+      '**/*.log',
+      '**/Thumbs.db',
+      '**/.DS_Store',
+    ],
+    defaultWorkspace: null,
+    recentWorkspaces: [],
+    maxRecentWorkspaces: 10,
+    followSymlinks: false,
+  },
+
+  privacy: {
+    telemetryEnabled: false,
+    crashReportsEnabled: false,
+    analyticsEnabled: false,
+  },
+
+  apiKeys: {},
+};
+
+// Settings Manager Class
+class SettingsManager {
+  private store: StoreType<SettingsSchema> | null = null;
+  private listeners: Set<(key: string, value: any) => void> = new Set();
+  private initialized: boolean = false;
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    
+    try {
+      const StoreClass = await initializeStore();
+      
+      this.store = new StoreClass<SettingsSchema>({
+        projectName: 'omni-code',
+        defaults: defaultSettings,
+        clearInvalidConfig: true,
+      });
+      
+      this.initialized = true;
+      console.log('[Settings] SettingsManager initialized successfully');
+    } catch (error) {
+      console.error('[Settings] Failed to initialize SettingsManager:', error);
+      throw error;
+    }
+  }
+
+  private ensureInitialized(): StoreType<SettingsSchema> {
+    if (!this.store || !this.initialized) {
+      throw new Error('SettingsManager not initialized. Call initialize() first.');
+    }
+    return this.store;
+  }
+
+  // Get a specific setting by path (e.g., 'general.theme')
+  get<T>(path: string): T {
+    return this.ensureInitialized().get(path) as T;
+  }
+
+  // Get all settings
+  getAll(): SettingsSchema {
+    return this.ensureInitialized().store;
+  }
+
+  // Set a specific setting by path
+  set<T>(path: string, value: T): void {
+    this.ensureInitialized().set(path, value);
+    this.notifyListeners(path, value);
+  }
+
+  // Reset a setting to default (or all if no path provided)
+  reset(path?: string): void {
+    const store = this.ensureInitialized();
+    if (path) {
+      const defaultValue = this.getDefaultValue(path);
+      this.set(path, defaultValue);
+    } else {
+      store.clear();
+      Object.entries(defaultSettings).forEach(([key, value]) => {
+        store.set(key, value);
+      });
+      this.notifyListeners('*', store.store);
+    }
+  }
+
+  // Get default value for a path
+  private getDefaultValue(path: string): any {
+    const parts = path.split('.');
+    let value: any = defaultSettings;
+    for (const part of parts) {
+      value = value[part];
+    }
+    return value;
+  }
+
+  // Subscribe to changes
+  onChange(callback: (key: string, value: any) => void): () => void {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
+
+  // Notify all listeners
+  private notifyListeners(key: string, value: any): void {
+    this.listeners.forEach((listener) => listener(key, value));
+  }
+
+  // Add a recent workspace
+  addRecentWorkspace(workspacePath: string): void {
+    const store = this.ensureInitialized();
+    const recent = store.get('files.recentWorkspaces');
+    const maxRecent = store.get('files.maxRecentWorkspaces');
+
+    // Remove if already exists
+    const filtered = recent.filter((w) => w !== workspacePath);
+    // Add to beginning
+    filtered.unshift(workspacePath);
+    // Limit to max
+    const limited = filtered.slice(0, maxRecent);
+
+    store.set('files.recentWorkspaces', limited);
+    console.log('[Settings] Added recent workspace:', workspacePath);
+  }
+
+  // Get recent workspaces
+  getRecentWorkspaces(): string[] {
+    return this.ensureInitialized().get('files.recentWorkspaces');
+  }
+}
+
+// Lazy singleton instance - created on first access
+let settingsManagerInstance: SettingsManager | null = null;
+let initializationPromise: Promise<SettingsManager> | null = null;
+
+export async function getSettingsManager(): Promise<SettingsManager> {
+  if (settingsManagerInstance) {
+    return settingsManagerInstance;
+  }
+  
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      const manager = new SettingsManager();
+      await manager.initialize();
+      settingsManagerInstance = manager;
+      return manager;
+    })();
+  }
+  
+  return initializationPromise;
+}
+
+// Synchronous wrapper for backward compatibility - throws if not initialized
+const syncManagerProxy = {
+  get: (path: string) => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.get(path);
+  },
+  getAll: () => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.getAll();
+  },
+  set: (path: string, value: any) => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.set(path, value);
+  },
+  reset: (path?: string) => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.reset(path);
+  },
+  addRecentWorkspace: (workspacePath: string) => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.addRecentWorkspace(workspacePath);
+  },
+  getRecentWorkspaces: () => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.getRecentWorkspaces();
+  },
+  onChange: (callback: (key: string, value: any) => void) => {
+    if (!settingsManagerInstance) {
+      throw new Error('SettingsManager not initialized');
+    }
+    return settingsManagerInstance.onChange(callback);
+  },
+};
+
+// Export for backward compatibility (will throw if not initialized)
+export const settingsManager = syncManagerProxy;
+
+// Setup IPC handlers for settings
+export function setupSettingsIpcHandlers(): void {
+  console.log('[Settings] Setting up IPC handlers...');
+  
+  // Initialize the manager when setting up handlers
+  getSettingsManager().then(() => {
+    console.log('[Settings] SettingsManager initialized via IPC setup');
+  }).catch(error => {
+    console.error('[Settings] Failed to initialize settings manager:', error);
+  });
+
+  // Get a specific setting
+  ipcMain.handle('settings:get', async (_: IpcMainInvokeEvent, path: string) => {
+    try {
+      const manager = await getSettingsManager();
+      return { value: manager.get(path), error: null };
+    } catch (error) {
+      return { value: null, error: (error as Error).message };
+    }
+  });
+
+  // Get all settings
+  ipcMain.handle('settings:getAll', async () => {
+    try {
+      const manager = await getSettingsManager();
+      return { value: manager.getAll(), error: null };
+    } catch (error) {
+      return { value: null, error: (error as Error).message };
+    }
+  });
+
+  // Set a specific setting
+  ipcMain.handle('settings:set', async (_: IpcMainInvokeEvent, path: string, value: any) => {
+    try {
+      const manager = await getSettingsManager();
+      manager.set(path, value);
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Reset settings
+  ipcMain.handle('settings:reset', async (_: IpcMainInvokeEvent, path?: string) => {
+    try {
+      const manager = await getSettingsManager();
+      manager.reset(path);
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Add recent workspace
+  ipcMain.handle('settings:addRecentWorkspace', async (_: IpcMainInvokeEvent, workspacePath: string) => {
+    try {
+      const manager = await getSettingsManager();
+      manager.addRecentWorkspace(workspacePath);
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[Settings] Error adding recent workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Get recent workspaces
+  ipcMain.handle('settings:getRecentWorkspaces', async () => {
+    try {
+      const manager = await getSettingsManager();
+      const value = manager.getRecentWorkspaces();
+      console.log('[Settings] Getting recent workspaces:', value);
+      return { value, error: null };
+    } catch (error) {
+      console.error('[Settings] Error getting recent workspaces:', error);
+      return { value: null, error: (error as Error).message };
+    }
+  });
+  
+  console.log('[Settings] IPC handlers setup complete');
+}
+
+// Cleanup IPC handlers (for hot reload support)
+export function cleanupSettingsIpcHandlers(): void {
+  ipcMain.removeHandler('settings:get');
+  ipcMain.removeHandler('settings:getAll');
+  ipcMain.removeHandler('settings:set');
+  ipcMain.removeHandler('settings:reset');
+  ipcMain.removeHandler('settings:addRecentWorkspace');
+  ipcMain.removeHandler('settings:getRecentWorkspaces');
+}

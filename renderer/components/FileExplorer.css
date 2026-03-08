@@ -1,0 +1,108 @@
+.file-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--sidebar-bg);
+}
+
+.file-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.file-explorer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-explorer-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+}
+
+.file-explorer-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-sm) 0;
+}
+
+.file-explorer-project {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--sidebar-border);
+  margin-bottom: var(--spacing-sm);
+}
+
+.file-explorer-loading,
+.file-explorer-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-explorer-empty p {
+  margin-bottom: 8px;
+}
+
+.file-explorer-tree {
+  user-select: none;
+}
+
+/* File Node Styles */
+.file-node {
+  width: 100%;
+}
+
+.file-node-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  transition: background 0.1s ease;
+}
+
+.file-node-row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.file-node-row.active {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+}
+
+.file-node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.file-node-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-node-children {
+  width: 100%;
+}

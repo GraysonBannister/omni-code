@@ -1,0 +1,99 @@
+/* App Layout Styles */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+/* Draggable title bar area for frameless window */
+.app::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  -webkit-app-region: drag;
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* Ensure interactive elements in the drag area are clickable */
+.app button,
+.app .file-explorer-header,
+.app .editor-tabs,
+.app .status-bar {
+  -webkit-app-region: no-drag;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Panel Styles - Let react-resizable-panels handle sizing */
+.sidebar-panel,
+.editor-panel,
+.chat-panel {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-panel {
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.editor-panel {
+  background: var(--editor-bg);
+}
+
+.chat-panel {
+  background: var(--chat-bg);
+  border-left: 1px solid var(--chat-border);
+}
+
+/* Main content panel fills remaining space */
+.main-content-panel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Ensure PanelGroup fills container */
+[data-panel-group] {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+[data-panel] {
+  overflow: hidden;
+}
+
+/* Resizer Styles */
+.resizer {
+  background: var(--color-border);
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.resizer:hover {
+  background: var(--color-accent);
+}
+
+.resizer-horizontal {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.resizer-vertical {
+  height: 4px;
+  cursor: row-resize;
+}

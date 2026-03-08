@@ -54,6 +54,7 @@ export interface AgentConfig {
   isSubAgent?: boolean;
   parentAgentId?: string;
   planMode?: boolean;
+  cwd?: string;
   thinking?: {
     enabled: boolean;
     budgetTokens: number;
@@ -71,4 +72,6 @@ export interface Agent {
   getTokenCount(): Promise<number>;
   abort(): void;
   spawnSubAgent(config: Partial<AgentConfig>): Agent;
+  updateConfig(updates: Partial<AgentConfig>): void;
+  clearMessages(): void;
 }

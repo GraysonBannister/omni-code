@@ -1,0 +1,151 @@
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--editor-bg);
+}
+
+/* Tab Bar */
+.editor-tabs {
+  display: flex;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.editor-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s ease;
+}
+
+.editor-tab:hover {
+  background: var(--color-bg-hover);
+}
+
+.editor-tab.active {
+  background: var(--editor-bg);
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-accent);
+  margin-bottom: -1px;
+}
+
+.editor-tab.dirty .editor-tab-name::after {
+  content: '';
+}
+
+.editor-tab-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-tab-dirty {
+  color: var(--color-text-primary);
+  fill: currentColor;
+}
+
+.editor-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, background 0.1s ease;
+}
+
+.editor-tab:hover .editor-tab-close {
+  opacity: 1;
+}
+
+.editor-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Editor Content */
+.editor-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-loading,
+.editor-no-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+/* Empty State */
+.editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--editor-bg);
+}
+
+.editor-empty-content {
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.editor-empty-icon {
+  margin-bottom: var(--spacing-lg);
+  opacity: 0.5;
+}
+
+.editor-empty-hint {
+  font-size: var(--font-size-sm);
+  margin-top: var(--spacing-sm);
+}
+
+/* Editor Status Bar */
+.editor-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: 4px 12px;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.editor-status span {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* Monaco Editor Customization */
+.monaco-editor {
+  background: var(--editor-bg) !important;
+}
+
+.monaco-editor .overflow-guard {
+  background: var(--editor-bg) !important;
+}

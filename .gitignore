@@ -1,4 +1,7 @@
 node_modules/
 dist/
+dist-electron/
+release/
 .env
 *.db
+.DS_Store
