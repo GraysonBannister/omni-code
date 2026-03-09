@@ -206,14 +206,14 @@ export class BedrockProvider extends BaseProvider {
         if (delta?.toolUse?.input) {
           yield {
             type: 'tool_use_delta',
-            toolUse: { inputDelta: delta.toolUse.input },
+            toolUse: { id: currentToolId, inputDelta: delta.toolUse.input },
           };
         }
       }
 
       if (event.contentBlockStop) {
         if (currentToolId) {
-          yield { type: 'tool_use_end' };
+          yield { type: 'tool_use_end', toolUse: { id: currentToolId } };
           currentToolId = undefined;
         }
       }

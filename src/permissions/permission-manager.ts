@@ -23,6 +23,7 @@ export class PermissionManager {
     tool: Tool,
     input: Record<string, unknown>,
     context: ToolContext,
+    toolId?: string,
   ): Promise<boolean> {
     // Plan mode: only allow tools marked as available
     if (context.planMode && !tool.availableInPlanMode) {
@@ -54,7 +55,7 @@ export class PermissionManager {
     if (sessionGrant === 'deny') return false;
 
     // Ask the user
-    return this.promptUser(tool, input);
+    return this.promptUser(tool, input, context, toolId);
   }
 
   grantSession(toolName: string): void {
@@ -69,10 +70,17 @@ export class PermissionManager {
     this.sessionPermissions.clear();
   }
 
-  private async promptUser(tool: Tool, input: Record<string, unknown>): Promise<boolean> {
+  private async promptUser(
+    tool: Tool,
+    input: Record<string, unknown>,
+    context: ToolContext,
+    toolId?: string,
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       this.eventBus.emit('permission_request', {
+        sessionId: context.sessionId,
         toolName: tool.name,
+        toolId,
         input,
         onAllow: () => resolve(true),
         onDeny: () => resolve(false),

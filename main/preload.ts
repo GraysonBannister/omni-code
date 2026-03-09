@@ -6,30 +6,95 @@ type AgentEvent =
   | { type: 'turn_complete'; message: unknown }
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: unknown }
+  | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
+  | { type: 'permission_request'; toolName: string; toolId: string; input: Record<string, unknown> }
+  | { type: 'permission_granted'; toolId: string }
+  | { type: 'permission_denied'; toolId: string }
+  | { type: 'file_change'; messageId: string; toolCallId: string; fileChanges: unknown[] }
   | { type: 'cost_update'; totalCost: number; turnCost: number }
   | { type: 'error'; error: { message: string } }
   | { type: 'orchestration_task_start'; taskId: string; capability: string; description: string }
   | { type: 'orchestration_task_end'; taskId: string; success: boolean; durationMs: number }
   | { type: 'orchestration_complete'; summary: string };
 
-// Agent API
+// Extended agent event with conversation ID for multi-tab support
+type ConversationAgentEvent = AgentEvent & { conversationId: string };
+
+// Agent API - now conversation-scoped for multi-tab chat support
+// Supports per-conversation model selection
 type AgentAPI = {
-  sendMessage: (message: string) => Promise<void>;
-  abort: () => Promise<void>;
-  switchModel: (model: string, provider: string) => Promise<boolean>;
-  onEvent: (callback: (event: AgentEvent) => void) => () => void;
-  clearConversation: () => Promise<void>;
+  createConversation: (conversationId: string, model?: string, provider?: string) => Promise<boolean>;
+  closeConversation: (conversationId: string) => Promise<boolean>;
+  hasConversation: (conversationId: string) => Promise<boolean>;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
+  abort: (conversationId: string) => Promise<void>;
+  switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
+  onEvent: (callback: (event: ConversationAgentEvent) => void) => () => void;
+  clearConversation: (conversationId: string) => Promise<void>;
+  getTokenCount: (conversationId: string) => Promise<number>;
+  setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
+  respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => Promise<{ success: boolean }>;
 };
+
+// File change tracking interface for backup/restore
+interface FileChange {
+  messageId: string;
+  toolCallId: string;
+  filePath: string;
+  beforeContent: string;
+  afterContent?: string;
+  timestamp: number;
+  changeType: 'write' | 'edit' | 'delete';
+}
 
 // File API
 type FileAPI = {
   read: (filePath: string) => Promise<{ content: string; error?: string }>;
-  write: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
+  write: (filePath: string, content: string) => Promise<{
+    success: boolean;
+    error?: string;
+    metadata?: {
+      chunkCount: number;
+      bytesWritten: number;
+      verified: boolean;
+      usedChunking: boolean;
+    };
+  }>;
   edit: (filePath: string, oldString: string, newString: string) => Promise<{ success: boolean; error?: string }>;
   list: (dirPath: string) => Promise<{ files: Array<{ name: string; isDirectory: boolean; path: string }>; error?: string }>;
   watch: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
   unwatch: (dirPath: string) => Promise<void>;
   onChange: (callback: (event: { type: 'add' | 'change' | 'unlink'; path: string }) => void) => () => void;
+  backup: (conversationId: string, messageId: string, toolCallId: string, filePath: string, changeType: 'write' | 'edit' | 'delete') => Promise<{ success: boolean }>;
+  restore: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; failedFiles: string[] }>;
+  getChanges: (conversationId: string, messageId: string) => Promise<{ changes: Array<{
+    filePath: string;
+    fileName: string;
+    extension: string;
+    changeType: 'added' | 'modified' | 'deleted';
+    additions: number;
+    deletions: number;
+    messageId: string;
+    timestamp: number;
+  }> }>;
+  hasChanges: (conversationId: string, messageId: string) => Promise<{ hasChanges: boolean }>;
+  getAllChanges: (conversationId: string) => Promise<{ changes: Array<{
+    filePath: string;
+    fileName: string;
+    extension: string;
+    changeType: 'added' | 'modified' | 'deleted';
+    lastMessageId: string;
+    lastTimestamp: number;
+    changeCount: number;
+    additions: number;
+    deletions: number;
+  }>, error?: string }>;
+  getDiff: (conversationId: string, messageId: string, filePath: string) => Promise<{
+    before: string;
+    after: string;
+    changeType?: string;
+    error?: string;
+  }>;
 };
 
 // Tool API
@@ -44,6 +109,8 @@ type ConfigAPI = {
   set: (key: string, value: unknown) => Promise<void>;
   getModels: () => Promise<Array<{ id: string; name: string; provider: string; available: boolean }>>;
   getProviders: () => Promise<Array<{ name: string; available: boolean; models: string[] }>>;
+  setCwd: (cwd: string) => Promise<void>;
+  getCwd: () => Promise<{ cwd: string }>;
 };
 
 // Dialog API
@@ -55,7 +122,7 @@ type DialogAPI = {
 type AppAPI = {
   platform: () => Promise<NodeJS.Platform>;
   version: () => Promise<string>;
-  onBeforeQuit: (callback: () => void) => () => void;
+  onBeforeQuit: (callback: () => Promise<void> | void) => () => void;
   onMenuAction: (callback: (action: string) => void) => () => void;
   onOpenRecent: (callback: (path: string) => void) => () => void;
 };
@@ -70,6 +137,32 @@ type SettingsAPI = {
   getRecentWorkspaces: () => Promise<{ value: string[]; error: string | null }>;
 };
 
+// Chat Storage API
+type ChatStorageAPI = {
+  saveConversation: (workspacePath: string, conversation: unknown) => Promise<{ success: boolean; error?: string }>;
+  loadConversations: (workspacePath: string) => Promise<{ conversations: unknown[]; error?: string }>;
+  deleteConversation: (workspacePath: string, conversationId: string) => Promise<{ success: boolean; error?: string }>;
+  listConversations: (workspacePath: string) => Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }>;
+};
+
+// Usage Tracking API
+type UsageAPI = {
+  get: (month?: string, workspacePath?: string) => Promise<{ usage?: unknown; error?: string }>;
+  getSummary: (month?: string, workspacePath?: string) => Promise<{
+    totalCost: number;
+    totalTokens: number;
+    requestCount: number;
+    byModel: Record<string, { cost: number; tokens: number }>;
+    byProvider: Record<string, { cost: number; tokens: number }>;
+    error?: string;
+  }>;
+  getAvailableMonths: (workspacePath?: string) => Promise<string[]>;
+  setLimit: (month: string, limit: number) => Promise<{ success: boolean; error?: string }>;
+  getLimits: () => Promise<Record<string, number>>;
+  cleanup: (monthsToKeep?: number) => Promise<{ deleted: number; error?: string }>;
+  export: (workspacePath?: string) => Promise<{ csv?: string; error?: string }>;
+};
+
 // Main Electron API
 type ElectronAPI = {
   agent: AgentAPI;
@@ -79,17 +172,28 @@ type ElectronAPI = {
   dialog: DialogAPI;
   app: AppAPI;
   settings: SettingsAPI;
+  chatStorage: ChatStorageAPI;
+  usage: UsageAPI;
 };
 
 // Expose APIs via contextBridge
 const api: ElectronAPI = {
   agent: {
-    sendMessage: (message: string) => ipcRenderer.invoke('agent:send-message', message),
-    abort: () => ipcRenderer.invoke('agent:abort'),
-    switchModel: (model: string, provider: string) => ipcRenderer.invoke('agent:switch-model', model, provider),
-    clearConversation: () => ipcRenderer.invoke('agent:clear-conversation'),
-    onEvent: (callback: (event: AgentEvent) => void) => {
-      const handler = (_: IpcRendererEvent, event: AgentEvent) => callback(event);
+    createConversation: (conversationId: string, model?: string, provider?: string) =>
+      ipcRenderer.invoke('agent:create-conversation', conversationId, model, provider),
+    closeConversation: (conversationId: string) => ipcRenderer.invoke('agent:close-conversation', conversationId),
+    hasConversation: (conversationId: string) => ipcRenderer.invoke('agent:has-conversation', conversationId),
+    sendMessage: (conversationId: string, message: string, workingDirectory?: string) =>
+      ipcRenderer.invoke('agent:send-message', conversationId, message, workingDirectory),
+    abort: (conversationId: string) => ipcRenderer.invoke('agent:abort', conversationId),
+    switchModel: (conversationId: string, model: string, provider: string) =>
+      ipcRenderer.invoke('agent:switch-model', conversationId, model, provider),
+    clearConversation: (conversationId: string) => ipcRenderer.invoke('agent:clear-conversation', conversationId),
+    getTokenCount: (conversationId: string) => ipcRenderer.invoke('agent:get-token-count', conversationId),
+    setMode: (conversationId, mode) => ipcRenderer.invoke('agent:set-mode', conversationId, mode),
+    respondPermission: (toolId, decision) => ipcRenderer.invoke('agent:respond-permission', toolId, decision),
+    onEvent: (callback: (event: ConversationAgentEvent) => void) => {
+      const handler = (_: IpcRendererEvent, event: ConversationAgentEvent) => callback(event);
       ipcRenderer.on('agent:event', handler);
       return () => ipcRenderer.off('agent:event', handler);
     },
@@ -108,6 +212,18 @@ const api: ElectronAPI = {
       ipcRenderer.on('file:change', handler);
       return () => ipcRenderer.off('file:change', handler);
     },
+    backup: (conversationId, messageId, toolCallId, filePath, changeType) =>
+      ipcRenderer.invoke('file:backup', conversationId, messageId, toolCallId, filePath, changeType),
+    restore: (conversationId, messageId) =>
+      ipcRenderer.invoke('file:restore', conversationId, messageId),
+    getChanges: (conversationId, messageId) =>
+      ipcRenderer.invoke('file:getChanges', conversationId, messageId),
+    getAllChanges: (conversationId) =>
+      ipcRenderer.invoke('file:getAllChanges', conversationId),
+    hasChanges: (conversationId, messageId) =>
+      ipcRenderer.invoke('file:hasChanges', conversationId, messageId),
+    getDiff: (conversationId, messageId, filePath) =>
+      ipcRenderer.invoke('file:getDiff', conversationId, messageId, filePath),
   },
 
   tool: {
@@ -136,6 +252,23 @@ const api: ElectronAPI = {
     reset: (path?: string) => ipcRenderer.invoke('settings:reset', path),
     addRecentWorkspace: (workspacePath: string) => ipcRenderer.invoke('settings:addRecentWorkspace', workspacePath),
     getRecentWorkspaces: () => ipcRenderer.invoke('settings:getRecentWorkspaces'),
+  },
+
+  chatStorage: {
+    saveConversation: (workspacePath: string, conversation: unknown) => ipcRenderer.invoke('chat:save', workspacePath, conversation),
+    loadConversations: (workspacePath: string) => ipcRenderer.invoke('chat:load', workspacePath),
+    deleteConversation: (workspacePath: string, conversationId: string) => ipcRenderer.invoke('chat:delete', workspacePath, conversationId),
+    listConversations: (workspacePath: string) => ipcRenderer.invoke('chat:list', workspacePath),
+  },
+
+  usage: {
+    get: (month?: string, workspacePath?: string) => ipcRenderer.invoke('usage:get', month, workspacePath),
+    getSummary: (month?: string, workspacePath?: string) => ipcRenderer.invoke('usage:getSummary', month, workspacePath),
+    getAvailableMonths: (workspacePath?: string) => ipcRenderer.invoke('usage:getAvailableMonths', workspacePath),
+    setLimit: (month: string, limit: number) => ipcRenderer.invoke('usage:setLimit', month, limit),
+    getLimits: () => ipcRenderer.invoke('usage:getLimits'),
+    cleanup: (monthsToKeep?: number) => ipcRenderer.invoke('usage:cleanup', monthsToKeep),
+    export: (workspacePath?: string) => ipcRenderer.invoke('usage:export', workspacePath),
   },
 
   app: {
@@ -199,4 +332,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI, SettingsAPI, AgentEvent };
+export type { ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI, SettingsAPI, ChatStorageAPI, AgentEvent, ConversationAgentEvent };

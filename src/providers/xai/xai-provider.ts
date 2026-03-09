@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from '../provider-types.js';
 import type { UnifiedMessage, StreamDelta, ContentBlock, ToolUseBlock, TextBlock } from '../../core/message-types.js';
-import { getTextContent, getToolUseBlocks, getToolResultBlocks } from '../../core/message-types.js';
+import { getTextContent, getToolUseBlocks, getToolResultBlocks, getToolResultText } from '../../core/message-types.js';
 import { getModelsForProvider } from '../model-registry.js';
 import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 
@@ -107,7 +107,7 @@ export class XAIProvider extends BaseProvider {
           result.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,
-            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+            content: getToolResultText(tr),
           });
         }
       } else {
@@ -199,16 +199,16 @@ export class XAIProvider extends BaseProvider {
             toolBuffers.set(tc.index, { id, name: tc.function.name, args: tc.function.arguments || '' });
             yield { type: 'tool_use_start', toolUse: { id, name: tc.function.name } };
             if (tc.function.arguments) {
-              yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } };
+              yield { type: 'tool_use_delta', toolUse: { id, inputDelta: tc.function.arguments } };
             }
           } else if (tc.function?.arguments) {
             const buf = toolBuffers.get(tc.index);
-            if (buf) { buf.args += tc.function.arguments; yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } }; }
+            if (buf) { buf.args += tc.function.arguments; yield { type: 'tool_use_delta', toolUse: { id: buf.id, inputDelta: tc.function.arguments } }; }
           }
         }
       }
       if (chunk.choices?.[0]?.finish_reason) {
-        for (const [,] of toolBuffers) yield { type: 'tool_use_end' };
+        for (const [, buf] of toolBuffers) yield { type: 'tool_use_end', toolUse: { id: buf.id } };
         yield { type: 'done' };
       }
     }

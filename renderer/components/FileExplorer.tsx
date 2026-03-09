@@ -72,7 +72,7 @@ const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) =
 };
 
 export const FileExplorer: React.FC = () => {
-  const { projectPath, files, setProjectPath, setFiles, loadDirectory, openFolder } = useAppStore();
+  const { projectPath, files, setProjectPath, setFiles, loadDirectory, openFolder, isAppInitialized } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
 
   // Check if electronAPI is available

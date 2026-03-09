@@ -90,6 +90,21 @@ export function getToolResultBlocks(message: UnifiedMessage): ToolResultBlock[] 
   return message.content.filter((b): b is ToolResultBlock => b.type === 'tool_result');
 }
 
+export function getToolResultText(block: ToolResultBlock): string {
+  const content = typeof block.content === 'string'
+    ? block.content
+    : block.content
+        .map((item) => {
+          if (item.type === 'text') {
+            return item.text;
+          }
+          return JSON.stringify(item);
+        })
+        .join('\n');
+
+  return block.isError ? `Tool execution failed: ${content}` : content;
+}
+
 export function createTextMessage(
   role: MessageRole,
   text: string,

@@ -9,9 +9,15 @@ import type {
 } from './message-types.js';
 import { getTextContent } from './message-types.js';
 import type { ToolRunner } from '../tools/tool-runner.js';
-import type { CostTracker } from './cost-tracker.js';
+import type { CostTracker, CostTrackerConfig } from './cost-tracker.js';
 import type { TokenUsage } from '../providers/provider-types.js';
-import { CONTEXT_COMPRESSION_THRESHOLD } from '../constants.js';
+import { CONTEXT_COMPRESSION_THRESHOLD, RECENT_MESSAGES_TO_KEEP } from '../constants.js';
+
+export interface AgentLimitCheck {
+  check: () => Promise<{ allowed: boolean; warning?: string; percentage: number }>;
+  onLimitWarning?: (percentage: number) => void;
+  onLimitExceeded?: () => void;
+}
 
 export class AgentImpl implements Agent {
   readonly id: string;
@@ -39,6 +45,25 @@ export class AgentImpl implements Agent {
   }
 
   async *run(userMessage: string): AsyncIterable<AgentEvent> {
+    // Check monthly limit before processing
+    if (this.config.limitCheck) {
+      const limitResult = await this.config.limitCheck.check();
+      if (!limitResult.allowed) {
+        yield {
+          type: 'error',
+          error: new Error(`Monthly spend limit exceeded (${limitResult.percentage.toFixed(0)}%). Please increase your limit or try again next month.`),
+        };
+        return;
+      }
+      if (limitResult.warning) {
+        yield {
+          type: 'cost_update',
+          totalCost: 0,
+          turnCost: 0,
+        } as any; // Will be extended with warning
+      }
+    }
+
     // Add user message
     const userMsg: UnifiedMessage = {
       id: crypto.randomUUID(),
@@ -59,7 +84,9 @@ export class AgentImpl implements Agent {
       if (maxCtx && this._messages.length > 10) {
         try {
           const currentTokens = await this.getTokenCount();
-          const threshold = maxCtx * CONTEXT_COMPRESSION_THRESHOLD;
+          // Use configurable threshold, falling back to default
+          const thresholdValue = this.config.contextCompressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
+          const threshold = maxCtx * thresholdValue;
           if (currentTokens > threshold) {
             const before = currentTokens;
             await this.compressContext();
@@ -137,8 +164,13 @@ export class AgentImpl implements Agent {
               break;
 
             case 'tool_use_delta':
-              if (activeToolId && delta.toolUse?.inputDelta) {
-                const buf = toolCallBuffers.get(activeToolId);
+              {
+                const targetToolId = delta.toolUse?.id || activeToolId;
+                if (!targetToolId || !delta.toolUse?.inputDelta) {
+                  break;
+                }
+
+                const buf = toolCallBuffers.get(targetToolId);
                 if (buf) {
                   buf.inputJson += delta.toolUse.inputDelta;
                 }
@@ -146,7 +178,13 @@ export class AgentImpl implements Agent {
               break;
 
             case 'tool_use_end':
-              activeToolId = undefined;
+              if (delta.toolUse?.id) {
+                if (activeToolId === delta.toolUse.id) {
+                  activeToolId = undefined;
+                }
+              } else {
+                activeToolId = undefined;
+              }
               break;
 
             case 'usage':
@@ -305,11 +343,15 @@ export class AgentImpl implements Agent {
 
   async compressContext(): Promise<void> {
     // Smart compression: try LLM-powered summarization, fall back to simple truncation
-    if (this._messages.length <= 10) return;
+    // Use configurable values, falling back to defaults
+    const recentMessagesToKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
+    const minMessagesBeforeCompress = recentMessagesToKeep + 4; // Need some messages to compress
+
+    if (this._messages.length <= minMessagesBeforeCompress) return;
 
     const firstMsg = this._messages[0];
-    const recentMessages = this._messages.slice(-6);
-    const oldMessages = this._messages.slice(1, -6);
+    const recentMessages = this._messages.slice(-recentMessagesToKeep);
+    const oldMessages = this._messages.slice(1, -recentMessagesToKeep);
     const removedCount = oldMessages.length;
 
     let summaryText = `[Context compressed: ${removedCount} messages removed. Keeping recent context.]`;

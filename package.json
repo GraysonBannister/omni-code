@@ -17,7 +17,7 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "electron:dev": "NODE_ENV=development concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && ELECTRON_RUN_AS_NODE= electron .\"",
+    "electron:dev": "node scripts/electron-dev.mjs",
     "electron:run": "ELECTRON_RUN_AS_NODE= electron .",
     "dev:vite": "vite -c electron.vite.config.ts",
     "electron:build": "npm run build && vite build -c electron.vite.config.ts && electron-builder",

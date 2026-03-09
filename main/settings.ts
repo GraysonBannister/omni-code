@@ -68,6 +68,15 @@ export interface SettingsSchema {
     showTokenCosts: boolean;
     showThinking: boolean;
     autoAcceptEdits: boolean;
+    contextCompressionThreshold: number;
+    contextRecentMessagesToKeep: number;
+  };
+
+  // Chat Persistence
+  chat: {
+    autoSave: boolean;
+    autoSaveIntervalMs: number;
+    maxSavedChatsPerWorkspace: number;
   };
 
   // Keyboard Shortcuts
@@ -111,8 +120,17 @@ export interface SettingsSchema {
     groq?: string;
     together?: string;
     xai?: string;
+    moonshot?: string;
     ollama?: string;
     lmstudio?: string;
+  };
+
+  // Usage tracking settings
+  usage: {
+    monthlyLimit: number | null;
+    alertThresholds: number[];
+    dataRetentionMonths: number;
+    showInStatusBar: boolean;
   };
 }
 
@@ -149,6 +167,14 @@ export const defaultSettings: SettingsSchema = {
     showTokenCosts: true,
     showThinking: true,
     autoAcceptEdits: false,
+    contextCompressionThreshold: 0.9,
+    contextRecentMessagesToKeep: 6,
+  },
+
+  chat: {
+    autoSave: true,
+    autoSaveIntervalMs: 3000,
+    maxSavedChatsPerWorkspace: 50,
   },
 
   shortcuts: {
@@ -192,6 +218,13 @@ export const defaultSettings: SettingsSchema = {
   },
 
   apiKeys: {},
+
+  usage: {
+    monthlyLimit: null,
+    alertThresholds: [0.8, 0.95, 1.0],
+    dataRetentionMonths: 12,
+    showInStatusBar: true,
+  },
 };
 
 // Settings Manager Class

@@ -1,11 +1,22 @@
 import type { TokenUsage, ModelInfo } from '../providers/provider-types.js';
 import { findModelInfo } from '../providers/model-registry.js';
+import type { UsageRecord } from './usage-types.js';
+
+export interface CostTrackerConfig {
+  onUsageRecorded?: (record: UsageRecord) => void;
+  conversationId?: string;
+}
 
 export class CostTracker {
   private _totalCost = 0;
   private _totalInputTokens = 0;
   private _totalOutputTokens = 0;
   private turns: Array<{ model: string; usage: TokenUsage; cost: number }> = [];
+  private config: CostTrackerConfig;
+
+  constructor(config: CostTrackerConfig = {}) {
+    this.config = config;
+  }
 
   get totalCost(): number {
     return this._totalCost;
@@ -23,7 +34,7 @@ export class CostTracker {
     return this.turns.length;
   }
 
-  calculateCost(modelId: string, usage: TokenUsage): number {
+  calculateCost(modelId: string, usage: TokenUsage, provider?: string): number {
     const model = findModelInfo(modelId);
     if (!model) return 0;
 
@@ -45,6 +56,20 @@ export class CostTracker {
     this._totalOutputTokens += usage.outputTokens;
     this.turns.push({ model: modelId, usage, cost: turnCost });
 
+    // Record usage if callback provided
+    if (this.config.onUsageRecorded) {
+      const record: UsageRecord = {
+        timestamp: Date.now(),
+        provider: provider || model.provider,
+        model: modelId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cost: turnCost,
+        conversationId: this.config.conversationId,
+      };
+      this.config.onUsageRecorded(record);
+    }
+
     return turnCost;
   }
 
@@ -62,5 +87,12 @@ export class CostTracker {
     this._totalInputTokens = 0;
     this._totalOutputTokens = 0;
     this.turns = [];
+  }
+
+  /**
+   * Update configuration (e.g., to set conversation ID after creation)
+   */
+  updateConfig(config: Partial<CostTrackerConfig>): void {
+    this.config = { ...this.config, ...config };
   }
 }

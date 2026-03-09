@@ -2,16 +2,30 @@ import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { setWorkingDirectory, getWorkingDirectory } from './core-integration.js';
+import { getChatStorage } from './chat-storage.js';
+import { getUsageStorage } from './usage-storage.js';
+import { getFileHistoryManager } from './file-history.js';
+import {
+  DEFAULT_CHUNK_THRESHOLD_BYTES,
+  writeLargeFile,
+} from '../src/utils/large-file-writer.js';
+import type { Conversation } from '../renderer/stores/appStore.js';
 
 // This file sets up IPC handlers that will be connected to the Agent and Tools
 // The actual implementations will be provided by the agent-bridge
 
 // Store references to be set by agent-bridge
+// Updated to support multiple conversations per the multi-tab chat feature
 let agentRef: {
-  sendMessage: (message: string) => Promise<void>;
-  abort: () => void;
-  switchModel: (model: string, provider: string) => Promise<boolean>;
-  clearConversation: () => void;
+  createConversation: (conversationId: string, model?: string, provider?: string) => boolean;
+  closeConversation: (conversationId: string) => boolean;
+  hasConversation: (conversationId: string) => boolean;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
+  abort: (conversationId: string) => void;
+  switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
+  clearConversation: (conversationId: string) => void;
+  getTokenCount: (conversationId: string) => Promise<number>;
+  respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => boolean;
   onEvent: (callback: (event: unknown) => void) => () => void;
 } | null = null;
 
@@ -27,8 +41,12 @@ let configRef: {
   getProviders: () => Array<{ name: string; available: boolean; models: string[] }>;
 } | null = null;
 
+// Chat storage reference
+let chatStorageRef = getChatStorage();
+
 // File watchers
 const fileWatchers = new Map<string, AbortController>();
+const FILE_WRITE_TIMEOUT_MS = 15000;
 
 export function setAgentRef(agent: typeof agentRef): void {
   agentRef = agent;
@@ -43,25 +61,75 @@ export function setConfigRef(config: typeof configRef): void {
 }
 
 export function setupIpcHandlers(): void {
-  // Agent handlers
-  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, message: string) => {
+  // Agent handlers - now conversation-scoped for multi-tab support
+  ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    await agentRef.sendMessage(message);
+    return agentRef.createConversation(conversationId, model, provider);
   });
 
-  ipcMain.handle('agent:abort', async () => {
+  ipcMain.handle('agent:close-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    agentRef.abort();
+    return agentRef.closeConversation(conversationId);
   });
 
-  ipcMain.handle('agent:switch-model', async (_: IpcMainInvokeEvent, model: string, provider: string) => {
+  ipcMain.handle('agent:has-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    return await agentRef.switchModel(model, provider);
+    return agentRef.hasConversation(conversationId);
   });
 
-  ipcMain.handle('agent:clear-conversation', async () => {
+  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    agentRef.clearConversation();
+    await agentRef.sendMessage(conversationId, message, workingDirectory);
+  });
+
+  ipcMain.handle('agent:abort', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    agentRef.abort(conversationId);
+  });
+
+  ipcMain.handle('agent:switch-model', async (_: IpcMainInvokeEvent, conversationId: string, model: string, provider: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.switchModel(conversationId, model, provider);
+  });
+
+  ipcMain.handle('agent:clear-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    agentRef.clearConversation(conversationId);
+  });
+
+  ipcMain.handle('agent:get-token-count', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.getTokenCount(conversationId);
+  });
+
+  ipcMain.handle('agent:respond-permission', async (_: IpcMainInvokeEvent, toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return { success: agentRef.respondPermission(toolId, decision) };
+  });
+
+  // Chat storage handlers
+  ipcMain.handle('chat:save', async (_: IpcMainInvokeEvent, workspacePath: string, conversation: Conversation) => {
+    return chatStorageRef.saveConversation(workspacePath, conversation);
+  });
+
+  ipcMain.handle('chat:load', async (_: IpcMainInvokeEvent, workspacePath: string) => {
+    return chatStorageRef.loadConversations(workspacePath);
+  });
+
+  ipcMain.handle('chat:delete', async (_: IpcMainInvokeEvent, workspacePath: string, conversationId: string) => {
+    const result = await chatStorageRef.deleteConversation(workspacePath, conversationId);
+    // Also clear file history for this conversation
+    try {
+      const fileHistoryManager = getFileHistoryManager(workspacePath);
+      await fileHistoryManager.clearConversation(conversationId);
+    } catch (error) {
+      console.error('[IPC] Failed to clear file history for conversation:', error);
+    }
+    return result;
+  });
+
+  ipcMain.handle('chat:list', async (_: IpcMainInvokeEvent, workspacePath: string) => {
+    return chatStorageRef.listConversations(workspacePath);
   });
 
   // File handlers
@@ -81,9 +149,49 @@ export function setupIpcHandlers(): void {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
       // Ensure directory exists
       await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-      await fs.writeFile(resolvedPath, content, 'utf-8');
-      return { success: true };
+
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => timeoutController.abort(), FILE_WRITE_TIMEOUT_MS);
+      const byteLength = Buffer.byteLength(content, 'utf-8');
+      const needsChunking = byteLength > DEFAULT_CHUNK_THRESHOLD_BYTES;
+
+      try {
+        if (needsChunking) {
+          const metadata = await writeLargeFile(resolvedPath, content, {
+            signal: timeoutController.signal,
+          });
+          return { success: true, metadata };
+        }
+
+        await fs.writeFile(resolvedPath, content, {
+          encoding: 'utf-8',
+          signal: timeoutController.signal,
+        });
+
+        const writtenContent = await fs.readFile(resolvedPath, 'utf-8');
+        if (writtenContent !== content) {
+          return { success: false, error: 'Write verification failed after saving file.' };
+        }
+
+        return {
+          success: true,
+          metadata: {
+            chunkCount: 1,
+            bytesWritten: byteLength,
+            verified: true,
+            usedChunking: false,
+          },
+        };
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        return {
+          success: false,
+          error: `Write timed out after ${FILE_WRITE_TIMEOUT_MS / 1000}s. Try saving a smaller file or chunking the content.`,
+        };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -171,6 +279,78 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // File history handlers for rollback support
+  ipcMain.handle('file:backup', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, toolCallId: string, filePath: string, changeType: 'write' | 'edit' | 'delete') => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      await fileHistoryManager.captureBeforeChange(conversationId, messageId, toolCallId, filePath, changeType);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:restore', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const result = await fileHistoryManager.rollbackToMessage(conversationId, messageId);
+      return result;
+    } catch (error) {
+      return { success: false, restoredFiles: [], failedFiles: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:getChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const changes = fileHistoryManager.getMessageChangesWithStats(conversationId, messageId);
+      return { changes };
+    } catch (error) {
+      return { changes: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:hasChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const hasChanges = fileHistoryManager.hasChanges(conversationId, messageId);
+      return { hasChanges };
+    } catch (error) {
+      return { hasChanges: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:getAllChanges', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const changes = fileHistoryManager.getAllConversationChanges(conversationId);
+      return { changes };
+    } catch (error) {
+      return { changes: [], error: (error as Error).message };
+    }
+  });
+
+  // Get diff for a specific file change
+  ipcMain.handle('file:getDiff', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, filePath: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const changes = fileHistoryManager.getMessageChanges(conversationId, messageId);
+      const change = changes.find(c => c.filePath === filePath);
+
+      if (!change) {
+        return { before: '', after: '', error: 'File change not found' };
+      }
+
+      return {
+        before: change.beforeContent,
+        after: change.afterContent || '',
+        changeType: change.changeType,
+      };
+    } catch (error) {
+      return { before: '', after: '', error: (error as Error).message };
+    }
+  });
+
   // Tool handlers
   ipcMain.handle('tool:execute', async (_: IpcMainInvokeEvent, toolName: string, input: Record<string, unknown>) => {
     if (!toolsRef) throw new Error('Tools not initialized');
@@ -242,6 +422,77 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('app:get-platform', async () => {
     return process.platform;
   });
+
+  // Usage tracking handlers
+  ipcMain.handle('usage:get', async (_: IpcMainInvokeEvent, month?: string, workspacePath?: string) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.getUsage(month, workspacePath);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('usage:getSummary', async (_: IpcMainInvokeEvent, month?: string, workspacePath?: string) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.getSummary(month, workspacePath);
+    } catch (error) {
+      return {
+        totalCost: 0,
+        totalTokens: 0,
+        requestCount: 0,
+        byModel: {},
+        byProvider: {},
+        error: (error as Error).message,
+      };
+    }
+  });
+
+  ipcMain.handle('usage:getAvailableMonths', async (_: IpcMainInvokeEvent, workspacePath?: string) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.getAvailableMonths(workspacePath);
+    } catch (error) {
+      return [];
+    }
+  });
+
+  ipcMain.handle('usage:setLimit', async (_: IpcMainInvokeEvent, month: string, limit: number) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.setMonthlyLimit(month, limit);
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('usage:getLimits', async () => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.getAllMonthlyLimits();
+    } catch (error) {
+      return {};
+    }
+  });
+
+  ipcMain.handle('usage:cleanup', async (_: IpcMainInvokeEvent, monthsToKeep?: number) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.cleanupOldData(monthsToKeep);
+    } catch (error) {
+      return { deleted: 0, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('usage:export', async (_: IpcMainInvokeEvent, workspacePath?: string) => {
+    try {
+      const usageStorage = await getUsageStorage();
+      return await usageStorage.exportToCSV(workspacePath);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -250,16 +501,30 @@ export function cleanupIpcHandlers(): void {
   fileWatchers.clear();
   
   // Remove all IPC handlers
+  ipcMain.removeHandler('agent:create-conversation');
+  ipcMain.removeHandler('agent:close-conversation');
+  ipcMain.removeHandler('agent:has-conversation');
   ipcMain.removeHandler('agent:send-message');
   ipcMain.removeHandler('agent:abort');
   ipcMain.removeHandler('agent:switch-model');
   ipcMain.removeHandler('agent:clear-conversation');
+  ipcMain.removeHandler('agent:get-token-count');
+  ipcMain.removeHandler('agent:respond-permission');
+  ipcMain.removeHandler('chat:save');
+  ipcMain.removeHandler('chat:load');
+  ipcMain.removeHandler('chat:delete');
+  ipcMain.removeHandler('chat:list');
   ipcMain.removeHandler('file:read');
   ipcMain.removeHandler('file:write');
   ipcMain.removeHandler('file:edit');
   ipcMain.removeHandler('file:list');
   ipcMain.removeHandler('file:watch');
   ipcMain.removeHandler('file:unwatch');
+  ipcMain.removeHandler('file:backup');
+  ipcMain.removeHandler('file:restore');
+  ipcMain.removeHandler('file:getChanges');
+  ipcMain.removeHandler('file:hasChanges');
+  ipcMain.removeHandler('file:getAllChanges');
   ipcMain.removeHandler('tool:execute');
   ipcMain.removeHandler('tool:list');
   ipcMain.removeHandler('config:get');
@@ -269,4 +534,11 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('dialog:open-folder');
   ipcMain.removeHandler('app:get-version');
   ipcMain.removeHandler('app:get-platform');
+  ipcMain.removeHandler('usage:get');
+  ipcMain.removeHandler('usage:getSummary');
+  ipcMain.removeHandler('usage:getAvailableMonths');
+  ipcMain.removeHandler('usage:setLimit');
+  ipcMain.removeHandler('usage:getLimits');
+  ipcMain.removeHandler('usage:cleanup');
+  ipcMain.removeHandler('usage:export');
 }

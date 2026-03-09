@@ -1,8 +1,9 @@
-import { BrowserWindow, Menu, MenuItemConstructorOptions, shell } from 'electron';
+import { BrowserWindow, Menu, MenuItemConstructorOptions, shell, ipcMain } from 'electron';
 import * as path from 'node:path';
 import { settingsManager } from './settings.js';
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -204,7 +205,7 @@ export function rebuildMenu(): void {
 
 export function setupAppEventHandlers(): void {
   const { app } = require('electron');
-  
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -217,8 +218,37 @@ export function setupAppEventHandlers(): void {
     }
   });
 
-  app.on('before-quit', () => {
-    mainWindow?.webContents.send('app:before-quit');
+  app.on('before-quit', async (e) => {
+    if (isQuitting || !mainWindow) return;
+
+    // Prevent immediate quit
+    e.preventDefault();
+    isQuitting = true;
+
+    try {
+      // Wait for renderer to save (with 5 second timeout)
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          // Set up one-time handler for save complete
+          ipcMain.handleOnce('app:save-complete', () => {
+            console.log('[Main] Renderer signaled save complete');
+            resolve();
+          });
+          // Notify renderer to start saving
+          mainWindow?.webContents.send('app:before-quit');
+        }),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Save timeout')), 5000)
+        )
+      ]);
+
+      console.log('[Main] Save complete, quitting now');
+    } catch (error) {
+      console.error('[Main] Save failed or timed out, quitting anyway:', error);
+    }
+
+    // Now actually quit
+    app.quit();
   });
 }
 

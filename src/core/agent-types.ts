@@ -14,6 +14,7 @@ export type AgentEvent =
   | { type: 'stream_delta'; delta: StreamDelta }
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: ToolResult }
+  | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
   | { type: 'permission_request'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'permission_granted'; toolId: string }
   | { type: 'permission_denied'; toolId: string }
@@ -51,6 +52,8 @@ export interface AgentConfig {
   temperature?: number;
   maxTokens?: number;
   maxContextTokens?: number;
+  contextCompressionThreshold?: number; // 0.5 - 0.95, default 0.9
+  contextRecentMessagesToKeep?: number; // 3 - 20, default 6
   isSubAgent?: boolean;
   parentAgentId?: string;
   planMode?: boolean;
@@ -58,6 +61,9 @@ export interface AgentConfig {
   thinking?: {
     enabled: boolean;
     budgetTokens: number;
+  };
+  limitCheck?: {
+    check: () => Promise<{ allowed: boolean; warning?: string; percentage: number }>;
   };
 }
 

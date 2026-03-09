@@ -5,9 +5,10 @@ import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
 import { SettingSelect } from './settings/SettingSelect';
 import { SettingInput } from './settings/SettingInput';
+import { UsageDashboard } from './UsageDashboard';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'privacy';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'privacy' | 'usage';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -23,6 +24,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'files', label: 'Files' },
   { id: 'privacy', label: 'Privacy' },
+  { id: 'usage', label: 'Usage' },
 ];
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onClose, embedded = false }) => {
@@ -64,9 +66,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   // API Key validation helper
   const validateApiKey = useCallback((provider: string, key: string): boolean => {
     if (!key || key.trim().length < 10) return false;
-    
+
     const trimmed = key.trim();
-    
+
     switch (provider) {
       case 'anthropic':
         return trimmed.startsWith('sk-ant-');
@@ -80,6 +82,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
         return trimmed.startsWith('together-') || trimmed.startsWith('tg-');
       case 'xai':
         return trimmed.startsWith('xai-') || trimmed.startsWith('glpat-');
+      case 'moonshot':
+        return trimmed.startsWith('sk-');
       case 'ollama':
         // Ollama is local, just check if URL-like or 'local'
         return trimmed.length > 0 && (trimmed.includes('://') || trimmed === 'local');
@@ -310,6 +314,62 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 checked={currentSettings.ai.showThinking}
                 onChange={(checked) => setSetting('ai.showThinking', checked)}
               />
+
+              <h3 className="settings-section-title" style={{ marginTop: '24px' }}>Context Management</h3>
+
+              <SettingInput
+                label="Context Compression Threshold"
+                description="Compress conversation when context exceeds this percentage of max (0.5-0.95)"
+                value={currentSettings.ai.contextCompressionThreshold}
+                type="number"
+                min={0.5}
+                max={0.95}
+                step={0.05}
+                onChange={(value) => setSetting('ai.contextCompressionThreshold', parseFloat(value))}
+              />
+
+              <SettingInput
+                label="Recent Messages to Keep"
+                description="Number of recent messages to preserve during compression (3-20)"
+                value={currentSettings.ai.contextRecentMessagesToKeep}
+                type="number"
+                min={3}
+                max={20}
+                step={1}
+                onChange={(value) => setSetting('ai.contextRecentMessagesToKeep', parseInt(value))}
+              />
+
+              <h3 className="settings-section-title" style={{ marginTop: '24px' }}>Chat Persistence</h3>
+
+              <SettingToggle
+                label="Auto-save Chats"
+                description="Automatically save conversation history to workspace"
+                checked={currentSettings.chat?.autoSave ?? true}
+                onChange={(checked) => setSetting('chat.autoSave', checked)}
+              />
+
+              <SettingInput
+                label="Auto-save Interval"
+                description="Milliseconds between auto-saves (1000-30000)"
+                value={currentSettings.chat?.autoSaveIntervalMs ?? 3000}
+                type="number"
+                min={1000}
+                max={30000}
+                step={500}
+                disabled={!(currentSettings.chat?.autoSave ?? true)}
+                onChange={(value) => setSetting('chat.autoSaveIntervalMs', parseInt(value))}
+              />
+
+              <SettingInput
+                label="Max Saved Chats per Workspace"
+                description="Maximum number of conversations to keep per workspace (10-100)"
+                value={currentSettings.chat?.maxSavedChatsPerWorkspace ?? 50}
+                type="number"
+                min={10}
+                max={100}
+                step={5}
+                onChange={(value) => setSetting('chat.maxSavedChatsPerWorkspace', parseInt(value))}
+              />
             </div>
           )}
 
@@ -363,6 +423,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   onChange={(value) => setSetting('apiKeys.xai', value)}
                 />
                 {validateApiKey('xai', currentSettings.apiKeys?.xai || '') && (
+                  <div className="validation-badge valid">
+                    <CheckCircle2 size={14} />
+                  </div>
+                )}
+              </div>
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="Moonshot API Key"
+                  description="For Kimi models (kimi-k2.5, kimi-k1.6, etc.)"
+                  value={currentSettings.apiKeys?.moonshot || ''}
+                  type="password"
+                  onChange={(value) => setSetting('apiKeys.moonshot', value)}
+                />
+                {validateApiKey('moonshot', currentSettings.apiKeys?.moonshot || '') && (
                   <div className="validation-badge valid">
                     <CheckCircle2 size={14} />
                   </div>
@@ -543,6 +618,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   Reset All Settings
                 </button>
               </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'usage' && (
+            <div className="settings-section">
+              <UsageDashboard />
             </div>
           )}
         </div>

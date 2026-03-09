@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from '../provider-types.js';
 import type { UnifiedMessage, StreamDelta, ContentBlock, ToolUseBlock, TextBlock } from '../../core/message-types.js';
-import { getTextContent, getToolUseBlocks, getToolResultBlocks } from '../../core/message-types.js';
+import { getTextContent, getToolUseBlocks, getToolResultBlocks, getToolResultText } from '../../core/message-types.js';
 import { getModelsForProvider } from '../model-registry.js';
 import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 
@@ -62,7 +62,10 @@ export class GoogleProvider extends BaseProvider {
         const parts = toolResults.map(tr => ({
           functionResponse: {
             name: tr.toolUseId, // Google uses name, not ID
-            response: { content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content) },
+            response: {
+              content: getToolResultText(tr),
+              isError: !!tr.isError,
+            },
           },
         }));
         result.push({ role: 'user', parts });
@@ -138,9 +141,9 @@ export class GoogleProvider extends BaseProvider {
           };
           yield {
             type: 'tool_use_delta',
-            toolUse: { inputDelta: JSON.stringify(part.functionCall.args || {}) },
+            toolUse: { id, inputDelta: JSON.stringify(part.functionCall.args || {}) },
           };
-          yield { type: 'tool_use_end' };
+          yield { type: 'tool_use_end', toolUse: { id } };
         }
       }
 

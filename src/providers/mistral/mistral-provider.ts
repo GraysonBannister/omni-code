@@ -4,7 +4,7 @@ import type {
   ProviderInitConfig, ModelInfo, CompletionRequest, CompletionResponse, ToolDefinition,
 } from '../provider-types.js';
 import type { UnifiedMessage, StreamDelta, ContentBlock, ToolUseBlock, TextBlock } from '../../core/message-types.js';
-import { getTextContent, getToolUseBlocks, getToolResultBlocks } from '../../core/message-types.js';
+import { getTextContent, getToolUseBlocks, getToolResultBlocks, getToolResultText } from '../../core/message-types.js';
 import { getModelsForProvider } from '../model-registry.js';
 import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 
@@ -45,7 +45,7 @@ export class MistralProvider extends BaseProvider {
       const toolResults = getToolResultBlocks(msg);
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
-          result.push({ role: 'tool', toolCallId: tr.toolUseId, content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content) });
+          result.push({ role: 'tool', toolCallId: tr.toolUseId, content: getToolResultText(tr) });
         }
       } else { result.push({ role: 'user', content: getTextContent(msg) }); }
     }
@@ -91,16 +91,16 @@ export class MistralProvider extends BaseProvider {
             toolBuffers.set(i, { id, name: tc.function.name, args: tc.function.arguments || '' });
             yield { type: 'tool_use_start', toolUse: { id, name: tc.function.name } };
             if (tc.function.arguments) {
-              yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } };
+              yield { type: 'tool_use_delta', toolUse: { id, inputDelta: tc.function.arguments } };
             }
           } else if (tc.function?.arguments) {
             const buf = toolBuffers.get(i);
-            if (buf) { buf.args += tc.function.arguments; yield { type: 'tool_use_delta', toolUse: { inputDelta: tc.function.arguments } }; }
+            if (buf) { buf.args += tc.function.arguments; yield { type: 'tool_use_delta', toolUse: { id: buf.id, inputDelta: tc.function.arguments } }; }
           }
         }
       }
       if (chunk?.choices?.[0]?.finishReason) {
-        for (const [,] of toolBuffers) yield { type: 'tool_use_end' };
+        for (const [, buf] of toolBuffers) yield { type: 'tool_use_end', toolUse: { id: buf.id } };
         yield { type: 'done' };
       }
     }

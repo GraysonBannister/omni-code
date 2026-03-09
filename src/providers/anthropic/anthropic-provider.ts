@@ -93,7 +93,7 @@ export class AnthropicProvider extends BaseProvider {
           } else if (event.delta.type === 'input_json_delta') {
             yield {
               type: 'tool_use_delta',
-              toolUse: { inputDelta: event.delta.partial_json },
+              toolUse: { id: currentToolId, inputDelta: event.delta.partial_json },
             };
           } else if ((event.delta as any).type === 'thinking_delta') {
             yield { type: 'thinking', text: (event.delta as any).thinking };
@@ -102,7 +102,7 @@ export class AnthropicProvider extends BaseProvider {
 
         case 'content_block_stop':
           if (currentToolId) {
-            yield { type: 'tool_use_end' };
+            yield { type: 'tool_use_end', toolUse: { id: currentToolId } };
             currentToolId = undefined;
           }
           break;

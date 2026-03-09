@@ -33,6 +33,14 @@ export interface SettingsSchema {
     showTokenCosts: boolean;
     showThinking: boolean;
     autoAcceptEdits: boolean;
+    contextCompressionThreshold: number; // 0.5 - 0.95
+    contextRecentMessagesToKeep: number; // 3 - 20
+  };
+
+  chat: {
+    autoSave: boolean;
+    autoSaveIntervalMs: number;
+    maxSavedChatsPerWorkspace: number;
   };
 
   shortcuts: {
@@ -72,8 +80,16 @@ export interface SettingsSchema {
     groq?: string;
     together?: string;
     xai?: string;
+    moonshot?: string;
     ollama?: string;
     lmstudio?: string;
+  };
+
+  usage: {
+    monthlyLimit: number | null;
+    alertThresholds: number[];
+    dataRetentionMonths: number;
+    showInStatusBar: boolean;
   };
 }
 
@@ -125,6 +141,14 @@ export const defaultSettings: SettingsSchema = {
     showTokenCosts: true,
     showThinking: true,
     autoAcceptEdits: false,
+    contextCompressionThreshold: 0.9,
+    contextRecentMessagesToKeep: 6,
+  },
+
+  chat: {
+    autoSave: true,
+    autoSaveIntervalMs: 3000,
+    maxSavedChatsPerWorkspace: 50,
   },
 
   shortcuts: {
@@ -165,6 +189,25 @@ export const defaultSettings: SettingsSchema = {
     telemetryEnabled: false,
     crashReportsEnabled: false,
     analyticsEnabled: false,
+  },
+
+  apiKeys: {
+    anthropic: '',
+    openai: '',
+    google: '',
+    groq: '',
+    together: '',
+    xai: '',
+    moonshot: '',
+    ollama: '',
+    lmstudio: '',
+  },
+
+  usage: {
+    monthlyLimit: null,
+    alertThresholds: [0.8, 0.95, 1.0],
+    dataRetentionMonths: 12,
+    showInStatusBar: true,
   },
 };
 

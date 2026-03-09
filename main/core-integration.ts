@@ -8,6 +8,7 @@ import { MistralProvider } from '../src/providers/mistral/mistral-provider.js';
 import { GroqProvider } from '../src/providers/groq/groq-provider.js';
 import { XAIProvider } from '../src/providers/xai/xai-provider.js';
 import { BedrockProvider } from '../src/providers/aws/bedrock-provider.js';
+import { MoonshotProvider } from '../src/providers/moonshot/moonshot-provider.js';
 import { ToolRegistry } from '../src/tools/tool-registry.js';
 import { registerBuiltinTools } from '../src/tools/builtin/index.js';
 import { PermissionManager } from '../src/permissions/permission-manager.js';
@@ -17,6 +18,8 @@ import { CostTracker } from '../src/core/cost-tracker.js';
 import { EventBus } from '../src/utils/event-bus.js';
 import { agentBridge } from './agent-bridge.js';
 import { setToolsRef, setConfigRef, setAgentRef } from './ipc-handlers.js';
+import { getUsageStorage } from './usage-storage.js';
+import type { UsageRecord } from '../src/core/usage-types.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
@@ -46,13 +49,15 @@ Always use this working directory for file operations and searches unless specif
 export function setWorkingDirectory(cwd: string): void {
   currentWorkingDirectory = cwd;
   console.log('Working directory updated to:', cwd);
-  
-  // Update agent's system prompt and cwd if agent exists
+
+  const newSystemPrompt = buildSystemPrompt(cwd);
+  agentBridge.updateWorkspaceContext(cwd, newSystemPrompt);
+
+  // Keep the legacy singleton in sync as well if one is ever assigned.
   if (agentInstance) {
-    const newSystemPrompt = buildSystemPrompt(cwd);
-    agentInstance.updateConfig({ 
+    agentInstance.updateConfig({
       systemPrompt: newSystemPrompt,
-      cwd: cwd,
+      cwd,
     });
     console.log('Agent updated with new working directory:', cwd);
   }
@@ -83,6 +88,7 @@ export async function initializeCore(): Promise<void> {
     providerRegistry.register(new GroqProvider());
     providerRegistry.register(new XAIProvider());
     providerRegistry.register(new BedrockProvider());
+    providerRegistry.register(new MoonshotProvider());
 
     // Build provider configs from environment variables
     const providerConfigs: Record<string, any> = { ...config.get('providers') };
@@ -94,6 +100,7 @@ export async function initializeCore(): Promise<void> {
       GROQ_API_KEY: 'groq',
       XAI_API_KEY: 'xai',
       AWS_ACCESS_KEY_ID: 'bedrock',
+      MOONSHOT_API_KEY: 'moonshot',
     };
 
     for (const [envVar, providerName] of Object.entries(envKeys)) {
@@ -128,11 +135,54 @@ export async function initializeCore(): Promise<void> {
       toolRegistry.setEnabled(toolName, false);
     }
 
-    // Initialize permission manager
+    // Always auto-allow in the Electron GUI — the user is actively watching the
+    // AI, can stop it at any time, and rollback is available for every file change.
+    // The 'ask' default is designed for unattended CLI use, not an interactive GUI.
     const permissionManager = new PermissionManager(
-      config.get('permissionMode'),
+      'auto-allow',
       eventBus,
     );
+
+    eventBus.on('permission_request', (request: {
+      sessionId: string;
+      toolName: string;
+      toolId?: string;
+      input: Record<string, unknown>;
+      onAllow: () => void;
+      onDeny: () => void;
+      onAllowAlways: () => void;
+    }) => {
+      if (!request.toolId) {
+        request.onDeny();
+        return;
+      }
+
+      if (config.get('permissionMode') === 'auto-allow') {
+        request.onAllowAlways();
+        return;
+      }
+
+      agentBridge.requestPermission(
+        request.sessionId,
+        request.toolName,
+        request.toolId,
+        request.input,
+        {
+          onAllow: request.onAllow,
+          onDeny: request.onDeny,
+          onAllowAlways: request.onAllowAlways,
+        },
+      );
+    });
+
+    eventBus.on('tool_call_progress', (event: {
+      sessionId: string;
+      toolName: string;
+      toolId: string;
+      message: string;
+    }) => {
+      agentBridge.emitToolProgress(event.sessionId, event.toolName, event.toolId, event.message);
+    });
 
     // Initialize tool runner
     const toolRunner = new ToolRunner(toolRegistry, permissionManager, eventBus, config.get('autoLintFix'));
@@ -142,22 +192,6 @@ export async function initializeCore(): Promise<void> {
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt(currentWorkingDirectory);
-
-    // Create the agent
-    agentInstance = new AgentImpl(
-      {
-        provider: activeProvider!,
-        model: currentModel,
-        systemPrompt,
-        tools: toolRegistry.getAll(),
-        temperature: config.get('temperature'),
-        maxContextTokens: config.get('maxContextTokens'),
-        planMode: false,
-        cwd: currentWorkingDirectory,
-      },
-      toolRunner,
-      costTracker,
-    );
 
     // Set up refs for IPC handlers
     setToolsRef({
@@ -171,7 +205,7 @@ export async function initializeCore(): Promise<void> {
           input,
           {
             cwd: currentWorkingDirectory,
-            sessionId: agentInstance!.id,
+            sessionId: 'temp-session',
             planMode: false,
             abortSignal: new AbortController().signal,
             spawnSubAgent: async () => '',
@@ -227,10 +261,120 @@ export async function initializeCore(): Promise<void> {
       },
     });
 
-    // Initialize agent bridge
-    await agentBridge.initialize(agentInstance as any);
+    // Initialize agent bridge with a factory function for creating new agent instances
+    // This supports the multi-conversation feature where each tab gets its own agent
+    // Now supports per-conversation model selection
+    agentBridge.initialize((conversationId?: string, conversationModel?: string, conversationProvider?: string) => {
+      const systemPrompt = buildSystemPrompt(currentWorkingDirectory);
 
-    // Set agent ref for IPC handlers
+      // Use conversation-specific model/provider if provided, otherwise fall back to global defaults
+      const model = conversationModel || currentModel;
+      const providerName = conversationProvider || currentProviderName;
+
+      // Resolve the provider for this conversation
+      let resolvedProvider: typeof activeProvider;
+      if (conversationProvider && conversationProvider !== currentProviderName) {
+        // Need to get a different provider than the global one
+        resolvedProvider = providerRegistry.getProvider(conversationProvider);
+      } else {
+        resolvedProvider = activeProvider;
+      }
+
+      if (!resolvedProvider || !resolvedProvider.isAvailable()) {
+        console.warn(`Provider "${providerName}" is not available for conversation ${conversationId}, falling back to global provider`);
+        resolvedProvider = activeProvider;
+      }
+
+      // Create a cost tracker that records usage
+      const conversationCostTracker = new CostTracker({
+        conversationId,
+        onUsageRecorded: async (record: UsageRecord) => {
+          try {
+            const usageStorage = await getUsageStorage();
+            await usageStorage.recordUsage(record, currentWorkingDirectory);
+          } catch (error) {
+            console.error('[CostTracker] Failed to record usage:', error);
+          }
+        },
+      });
+
+      return new AgentImpl(
+        {
+          provider: resolvedProvider!,
+          model: model,
+          systemPrompt,
+          tools: toolRegistry.getAll(),
+          temperature: config.get('temperature'),
+          maxContextTokens: config.get('maxContextTokens'),
+          contextCompressionThreshold: config.get('contextCompressionThreshold'),
+          contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
+          planMode: false,
+          cwd: currentWorkingDirectory,
+          limitCheck: {
+            check: async () => {
+              try {
+                const usageStorage = await getUsageStorage();
+                const now = new Date();
+                const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+                // Get summary for current month
+                const summary = await usageStorage.getSummary(month, currentWorkingDirectory);
+                if (summary.error) {
+                  return { allowed: true, percentage: 0 };
+                }
+
+                // Get monthly limit from settings
+                const limits = await usageStorage.getAllMonthlyLimits();
+                const monthlyLimit = limits[month] || config.get('usage.monthlyLimit') || 0;
+
+                if (!monthlyLimit || monthlyLimit <= 0) {
+                  return { allowed: true, percentage: 0 };
+                }
+
+                const percentage = (summary.totalCost / monthlyLimit) * 100;
+
+                if (percentage >= 100) {
+                  return {
+                    allowed: false,
+                    percentage,
+                    warning: `Monthly limit exceeded: $${summary.totalCost.toFixed(2)} / $${monthlyLimit.toFixed(2)}`,
+                  };
+                }
+
+                if (percentage >= 95) {
+                  return {
+                    allowed: true,
+                    percentage,
+                    warning: `Warning: You've used ${percentage.toFixed(0)}% of your monthly limit`,
+                  };
+                }
+
+                if (percentage >= 80) {
+                  return {
+                    allowed: true,
+                    percentage,
+                    warning: `Notice: You've used ${percentage.toFixed(0)}% of your monthly limit`,
+                  };
+                }
+
+                return { allowed: true, percentage };
+              } catch (error) {
+                console.error('[LimitCheck] Failed to check limit:', error);
+                return { allowed: true, percentage: 0 };
+              }
+            },
+          },
+        },
+        toolRunner,
+        conversationCostTracker,
+      ) as any;
+    });
+
+    // Set provider registry on agent bridge for model switching support
+    agentBridge.setProviderRegistry(providerRegistry);
+    agentBridge.setWorkspacePath(currentWorkingDirectory);
+
+    // Set agent ref for IPC handlers with the new conversation-scoped API
     setAgentRef(agentBridge);
 
     coreInitialized = true;

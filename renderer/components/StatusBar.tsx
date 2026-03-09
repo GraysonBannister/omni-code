@@ -19,16 +19,9 @@ export const StatusBar: React.FC = () => {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   const handleModelSwitch = useCallback(async (modelId: string, providerName: string) => {
-    if (!window.electronAPI) return;
-    try {
-      const success = await window.electronAPI.agent.switchModel(modelId, providerName);
-      if (success) {
-        setModel(modelId, providerName);
-        setModelDropdownOpen(false);
-      }
-    } catch (error) {
-      console.error('Failed to switch model:', error);
-    }
+    // Update the global default model for new conversations
+    setModel(modelId, providerName);
+    setModelDropdownOpen(false);
   }, [setModel]);
 
   // Close dropdown when clicking outside
@@ -54,7 +47,7 @@ export const StatusBar: React.FC = () => {
         )}
       </div>
 
-      {/* Center - Model selector */}
+      {/* Center - Default Model selector */}
       <div className="status-bar-section center">
         <div
           className="status-item model-selector"
@@ -62,8 +55,10 @@ export const StatusBar: React.FC = () => {
             e.stopPropagation();
             setModelDropdownOpen(!modelDropdownOpen);
           }}
+          title="Default model for new conversations. Each conversation can use a different model."
         >
           <Cpu size={14} />
+          <span className="model-label">Default:</span>
           <span>{currentModelInfo?.name || currentModel}</span>
           {modelDropdownOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
         </div>

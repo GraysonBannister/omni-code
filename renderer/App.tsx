@@ -14,25 +14,19 @@ export const App: React.FC = () => {
     sidebarVisible,
     chatVisible,
     projectPath,
-    setModel,
-    setAvailableModels,
-    setAvailableProviders,
     openFolder,
     openRecentWorkspace,
   } = useAppStore();
-
-  const { loadSettings, settings, getRecentWorkspaces } = useSettingsStore();
   const [isElectron, setIsElectron] = React.useState(true);
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const openSettings = useAppStore(state => state.openSettings);
 
-  // Debug logging for welcome screen
-  console.log('[App] Current projectPath:', projectPath);
-  console.log('[App] Show welcome screen?', !projectPath);
 
   // Check if we're running in Electron
+  // IMPORTANT: Empty dependency array - use getState() inside for store access
+  // to prevent infinite re-renders when AI streams content
   useEffect(() => {
     if (!window.electronAPI) {
       console.warn('Not running in Electron - electronAPI not available');
@@ -42,10 +36,56 @@ export const App: React.FC = () => {
 
     // Setup keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isMetaOrCtrl = e.metaKey || e.ctrlKey;
+      const appState = useAppStore.getState();
+      const { conversations, activeConversationId, createConversation, closeConversation, setActiveConversation } = appState;
+      
       // Cmd/Ctrl + , for settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+      if (isMetaOrCtrl && e.key === ',') {
         e.preventDefault();
         openSettings();
+      }
+      
+      // Cmd/Ctrl + T for new conversation
+      if (isMetaOrCtrl && e.key === 't' && !e.shiftKey) {
+        e.preventDefault();
+        createConversation();
+      }
+      
+      // Cmd/Ctrl + W for close active conversation
+      if (isMetaOrCtrl && e.key === 'w' && !e.shiftKey) {
+        e.preventDefault();
+        if (activeConversationId) {
+          const activeConv = conversations.find(c => c.id === activeConversationId);
+          if (activeConv) {
+            const hasMessages = activeConv.messages.length > 0;
+            if (hasMessages) {
+              const confirmed = window.confirm('Close this conversation? All messages will be lost.');
+              if (!confirmed) return;
+            }
+            closeConversation(activeConversationId);
+          }
+        }
+      }
+      
+      // Cmd/Ctrl + Shift + [ for previous conversation
+      if (isMetaOrCtrl && e.shiftKey && (e.key === '{' || e.key === '[')) {
+        e.preventDefault();
+        if (conversations.length > 1 && activeConversationId) {
+          const currentIndex = conversations.findIndex(c => c.id === activeConversationId);
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : conversations.length - 1;
+          setActiveConversation(conversations[prevIndex].id);
+        }
+      }
+      
+      // Cmd/Ctrl + Shift + ] for next conversation
+      if (isMetaOrCtrl && e.shiftKey && (e.key === '}' || e.key === ']')) {
+        e.preventDefault();
+        if (conversations.length > 1 && activeConversationId) {
+          const currentIndex = conversations.findIndex(c => c.id === activeConversationId);
+          const nextIndex = currentIndex < conversations.length - 1 ? currentIndex + 1 : 0;
+          setActiveConversation(conversations[nextIndex].id);
+        }
       }
     };
 
@@ -57,6 +97,10 @@ export const App: React.FC = () => {
       setInitError(null);
       
       try {
+        // Get store functions via getState() to avoid dependency issues
+        const { setAvailableModels, setAvailableProviders, setModel, setAppInitialized } = useAppStore.getState();
+        const { loadSettings, getRecentWorkspaces } = useSettingsStore.getState();
+
         // Load settings first
         console.log('[App] Loading settings...');
         await loadSettings();
@@ -97,9 +141,11 @@ export const App: React.FC = () => {
         setRecentWorkspaces(recent);
         
         console.log('[App] Initialization complete');
+        setAppInitialized(true);
       } catch (error) {
         console.error('[App] Failed to initialize:', error);
         setInitError((error as Error).message);
+        setAppInitialized(true); // Still mark as initialized to allow usage
       } finally {
         setIsInitializing(false);
       }
@@ -114,13 +160,22 @@ export const App: React.FC = () => {
 
     // Setup open-recent handler from menu
     const unsubscribeOpenRecent = window.electronAPI!.app.onOpenRecent((path: string) => {
+      const { openRecentWorkspace } = useAppStore.getState();
       openRecentWorkspace(path);
     });
 
     // Setup before quit handler
-    const unsubscribeQuit = window.electronAPI!.app.onBeforeQuit(() => {
-      // Save any pending state
+    const unsubscribeQuit = window.electronAPI!.app.onBeforeQuit(async () => {
       console.log('App quitting, saving state...');
+
+      // Force save all dirty conversations before app quits
+      const { saveAllConversations } = useAppStore.getState();
+      try {
+        await saveAllConversations();
+        console.log('Saved all conversations before quit');
+      } catch (error) {
+        console.error('Failed to save conversations before quit:', error);
+      }
     });
 
     return () => {
@@ -129,9 +184,7 @@ export const App: React.FC = () => {
       unsubscribeQuit();
       window.removeEventListener('keydown', handleKeyDown);
     };
-  // IMPORTANT: Removed 'settings' from deps to prevent infinite loop
-  // loadSettings() updates settings, which would trigger this effect again
-  }, [setAvailableModels, setAvailableProviders, setModel, loadSettings, getRecentWorkspaces, openRecentWorkspace]);
+  }, []);
 
   const handleMenuAction = useCallback((action: string, ...args: any[]) => {
     if (!window.electronAPI) return;
@@ -254,7 +307,6 @@ export const App: React.FC = () => {
   }
 
   // Show welcome screen when no project is open
-  console.log('[App] Rendering welcome screen?', !projectPath, 'projectPath:', projectPath);
   if (!projectPath) {
     return (
       <WelcomeScreen

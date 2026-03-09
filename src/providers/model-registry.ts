@@ -41,6 +41,54 @@ export const MODEL_REGISTRY: ModelInfo[] = [
 
   // ── OpenAI ──
   {
+    id: 'gpt-4.5-preview',
+    provider: 'openai',
+    displayName: 'GPT-4.5 Preview',
+    aliases: ['gpt-4.5', '4.5'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 128_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 75, outputPerMillion: 150 },
+  },
+  {
+    id: 'gpt-4.1',
+    provider: 'openai',
+    displayName: 'GPT-4.1',
+    aliases: ['4.1'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 1_047_576, maxOutputTokens: 32_768,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+  },
+  {
+    id: 'gpt-4.1-mini',
+    provider: 'openai',
+    displayName: 'GPT-4.1 Mini',
+    aliases: ['4.1-mini'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 1_047_576, maxOutputTokens: 32_768,
+    },
+    pricing: { inputPerMillion: 0.4, outputPerMillion: 1.6 },
+  },
+  {
+    id: 'gpt-4.1-nano',
+    provider: 'openai',
+    displayName: 'GPT-4.1 Nano',
+    aliases: ['4.1-nano'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 1_047_576, maxOutputTokens: 32_768,
+    },
+    pricing: { inputPerMillion: 0.1, outputPerMillion: 0.4 },
+  },
+  {
     id: 'gpt-4o',
     provider: 'openai',
     displayName: 'GPT-4o',
@@ -83,6 +131,30 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['o3m'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 100_000,
+    },
+    pricing: { inputPerMillion: 1.1, outputPerMillion: 4.4 },
+  },
+  {
+    id: 'o4-mini',
+    provider: 'openai',
+    displayName: 'o4 Mini',
+    aliases: ['o4m', 'o4-mini'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 100_000,
+    },
+    pricing: { inputPerMillion: 1.1, outputPerMillion: 4.4 },
+  },
+  {
+    id: 'o4-mini-high',
+    provider: 'openai',
+    displayName: 'o4 Mini High',
+    aliases: ['o4m-high', 'o4-mini-high'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: false, extendedThinking: true,
       maxContextWindow: 200_000, maxOutputTokens: 100_000,
     },
@@ -311,6 +383,56 @@ export const MODEL_REGISTRY: ModelInfo[] = [
       maxContextWindow: 32_768, maxOutputTokens: 16_384,
     },
     pricing: { inputPerMillion: 2, outputPerMillion: 10 },
+  },
+
+  // ── Moonshot / Kimi ──
+  {
+    id: 'kimi-k2.5',
+    provider: 'moonshot',
+    displayName: 'Kimi K2.5',
+    aliases: ['kimi', 'k2.5', 'kimi-k2'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 256_000, maxOutputTokens: 8_192,
+    },
+    pricing: { inputPerMillion: 0.5, outputPerMillion: 2 },
+  },
+  {
+    id: 'kimi-k1.6',
+    provider: 'moonshot',
+    displayName: 'Kimi K1.6',
+    aliases: ['k1.6', 'kimi-k1'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 256_000, maxOutputTokens: 8_192,
+    },
+    pricing: { inputPerMillion: 0.5, outputPerMillion: 2 },
+  },
+  {
+    id: 'kimi-k1.6-long-context',
+    provider: 'moonshot',
+    displayName: 'Kimi K1.6 Long Context',
+    aliases: ['k1.6-long', 'kimi-long'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 8_192,
+    },
+    pricing: { inputPerMillion: 0.5, outputPerMillion: 2 },
+  },
+  {
+    id: 'kimi-moonshot-v1',
+    provider: 'moonshot',
+    displayName: 'Kimi Moonshot v1',
+    aliases: ['moonshot', 'kimi-v1'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 128_000, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0.5, outputPerMillion: 2 },
   },
 
   // ── AWS Bedrock ──

@@ -9,7 +9,7 @@ import type {
   TokenUsage,
 } from '../provider-types.js';
 import type { UnifiedMessage, StreamDelta, ContentBlock, ToolUseBlock, TextBlock, ToolResultBlock } from '../../core/message-types.js';
-import { getTextContent, getToolUseBlocks, getToolResultBlocks } from '../../core/message-types.js';
+import { getTextContent, getToolUseBlocks, getToolResultBlocks, getToolResultText } from '../../core/message-types.js';
 import { getModelsForProvider } from '../model-registry.js';
 import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 
@@ -106,7 +106,7 @@ export class OpenAIProvider extends BaseProvider {
           result.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,
-            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+            content: getToolResultText(tr),
           });
         }
       } else {
@@ -191,7 +191,7 @@ export class OpenAIProvider extends BaseProvider {
             if (tc.function.arguments) {
               yield {
                 type: 'tool_use_delta',
-                toolUse: { inputDelta: tc.function.arguments },
+                toolUse: { id, inputDelta: tc.function.arguments },
               };
             }
           } else if (tc.function?.arguments) {
@@ -200,7 +200,7 @@ export class OpenAIProvider extends BaseProvider {
               buf.args += tc.function.arguments;
               yield {
                 type: 'tool_use_delta',
-                toolUse: { inputDelta: tc.function.arguments },
+                toolUse: { id: buf.id, inputDelta: tc.function.arguments },
               };
             }
           }
@@ -210,7 +210,7 @@ export class OpenAIProvider extends BaseProvider {
       if (chunk.choices?.[0]?.finish_reason) {
         // Emit tool_use_end for each completed tool call
         for (const [, buf] of toolBuffers) {
-          yield { type: 'tool_use_end' };
+          yield { type: 'tool_use_end', toolUse: { id: buf.id } };
         }
         yield { type: 'done' };
       }

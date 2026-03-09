@@ -66,6 +66,13 @@
   background: var(--color-bg-hover);
 }
 
+.model-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-weight: normal;
+  margin-right: 2px;
+}
+
 /* Model Dropdown */
 .model-dropdown {
   position: absolute;
