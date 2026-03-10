@@ -184,6 +184,31 @@ export async function initializeCore(): Promise<void> {
       agentBridge.emitToolProgress(event.sessionId, event.toolName, event.toolId, event.message);
     });
 
+    // Handle user input requests from AskUser tool
+    eventBus.on('user_input_request', (request: {
+      sessionId: string;
+      requestId: string;
+      prompt: string;
+      terminalCommand?: string;
+      waitForInput: boolean;
+      placeholder?: string;
+      onResponse: (response: string) => void;
+      onCancel: () => void;
+    }) => {
+      agentBridge.requestUserInput(
+        request.sessionId,
+        request.requestId,
+        request.prompt,
+        request.terminalCommand,
+        request.waitForInput,
+        request.placeholder,
+        {
+          onResponse: request.onResponse,
+          onCancel: request.onCancel,
+        },
+      );
+    });
+
     // Initialize tool runner
     const toolRunner = new ToolRunner(toolRegistry, permissionManager, eventBus, config.get('autoLintFix'));
 
@@ -306,6 +331,7 @@ export async function initializeCore(): Promise<void> {
           tools: toolRegistry.getAll(),
           temperature: config.get('temperature'),
           maxContextTokens: config.get('maxContextTokens'),
+          maxTurns: config.get('maxTurns'),
           contextCompressionThreshold: config.get('contextCompressionThreshold'),
           contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
           planMode: false,

@@ -18,7 +18,10 @@ type AgentEvent =
   | { type: 'orchestration_task_start'; taskId: string; capability: string; description: string }
   | { type: 'orchestration_task_end'; taskId: string; success: boolean; durationMs: number }
   | { type: 'orchestration_complete'; summary: string }
-  | { type: 'file_change'; conversationId: string; messageId: string; toolCallId: string; fileChanges: Array<{ filePath: string; changeType: string; hasBeforeContent: boolean; hasAfterContent: boolean }> };
+  | { type: 'file_change'; conversationId: string; messageId: string; toolCallId: string; fileChanges: Array<{ filePath: string; changeType: string; hasBeforeContent: boolean; hasAfterContent: boolean }> }
+  | { type: 'user_input_request'; requestId: string; prompt: string; terminalCommand?: string; waitForInput: boolean; placeholder?: string }
+  | { type: 'user_input_responded'; requestId: string; response: string }
+  | { type: 'user_input_cancelled'; requestId: string };
 
 // Extended agent event with conversation ID for routing
 export type ConversationAgentEvent = AgentEvent & { conversationId: string };
@@ -49,6 +52,7 @@ interface AgentConfig {
   }>;
   temperature?: number;
   maxContextTokens?: number;
+  maxTurns?: number;
   planMode?: boolean;
   cwd?: string;
   thinking?: { enabled: boolean; budgetTokens: number };
@@ -150,6 +154,11 @@ export class AgentBridge {
     onDeny: () => void;
     onAllowAlways: () => void;
   }>();
+  private pendingUserInputRequests = new Map<string, {
+    conversationId: string;
+    onResponse: (response: string) => void;
+    onCancel: () => void;
+  }>();
 
   // Factory function to create new agent instances
   private agentFactory: AgentFactory | null = null;
@@ -230,6 +239,14 @@ export class AgentBridge {
       if (pending.conversationId === conversationId) {
         pending.onDeny();
         this.pendingPermissionRequests.delete(toolId);
+      }
+    }
+
+    // Cancel any pending user input requests for this conversation
+    for (const [requestId, pending] of this.pendingUserInputRequests.entries()) {
+      if (pending.conversationId === conversationId) {
+        pending.onCancel();
+        this.pendingUserInputRequests.delete(requestId);
       }
     }
 
@@ -488,6 +505,58 @@ export class AgentBridge {
     }
 
     this.emitEvent(pending.conversationId, { type: 'permission_granted', toolId });
+    return true;
+  }
+
+  requestUserInput(
+    sessionId: string,
+    requestId: string,
+    prompt: string,
+    terminalCommand: string | undefined,
+    waitForInput: boolean,
+    placeholder: string | undefined,
+    callbacks: {
+      onResponse: (response: string) => void;
+      onCancel: () => void;
+    },
+  ): void {
+    const conversationId = this.getConversationIdForSession(sessionId);
+    if (!conversationId) {
+      callbacks.onCancel();
+      return;
+    }
+
+    this.pendingUserInputRequests.set(requestId, {
+      conversationId,
+      ...callbacks,
+    });
+
+    this.emitEvent(conversationId, {
+      type: 'user_input_request',
+      requestId,
+      prompt,
+      terminalCommand,
+      waitForInput,
+      placeholder,
+    });
+  }
+
+  respondUserInput(requestId: string, response: string, cancelled: boolean): boolean {
+    const pending = this.pendingUserInputRequests.get(requestId);
+    if (!pending) {
+      return false;
+    }
+
+    this.pendingUserInputRequests.delete(requestId);
+
+    if (cancelled) {
+      pending.onCancel();
+      this.emitEvent(pending.conversationId, { type: 'user_input_cancelled', requestId });
+      return true;
+    }
+
+    pending.onResponse(response);
+    this.emitEvent(pending.conversationId, { type: 'user_input_responded', requestId, response });
     return true;
   }
 

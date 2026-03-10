@@ -35,6 +35,7 @@ export interface SettingsSchema {
     autoAcceptEdits: boolean;
     contextCompressionThreshold: number; // 0.5 - 0.95
     contextRecentMessagesToKeep: number; // 3 - 20
+    maxTurns: number; // max agent turns per task (10 - 200)
   };
 
   chat: {
@@ -143,6 +144,7 @@ export const defaultSettings: SettingsSchema = {
     autoAcceptEdits: false,
     contextCompressionThreshold: 0.9,
     contextRecentMessagesToKeep: 6,
+    maxTurns: 50,
   },
 
   chat: {

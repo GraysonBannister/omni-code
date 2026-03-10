@@ -19,6 +19,8 @@ interface SerializedConversation {
   messageCount: number;
   model?: string; // Per-conversation model selection
   provider?: string; // Per-conversation provider selection
+  contextTokens?: number; // Token usage count
+  maxContextTokens?: number; // Max context limit
 }
 
 /**
@@ -57,6 +59,8 @@ export class ChatStorage {
         messageCount: conversation.messages.length,
         model: conversation.model,
         provider: conversation.provider,
+        contextTokens: conversation.contextTokens,
+        maxContextTokens: conversation.maxContextTokens,
       };
 
       // Write to temp file first, then rename for atomic operation
@@ -108,18 +112,21 @@ export class ChatStorage {
           // Handle version migration if needed
           const migrated = this.migrateIfNeeded(serialized);
 
-          conversations.push({
+          const loadedConv = {
             id: migrated.id,
             title: migrated.title,
             messages: migrated.messages,
             toolCalls: migrated.toolCalls,
             createdAt: migrated.createdAt,
             updatedAt: migrated.updatedAt,
+            contextTokens: migrated.contextTokens,
+            maxContextTokens: migrated.maxContextTokens,
             // Reset runtime state
             isProcessing: false,
             streamingContent: '',
             orchestrationStatus: null,
-          });
+          };
+          conversations.push(loadedConv);
         } catch (error) {
           console.error(`[ChatStorage] Failed to load conversation ${file.name}:`, error);
           // Continue loading other conversations

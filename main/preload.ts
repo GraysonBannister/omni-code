@@ -34,6 +34,7 @@ type AgentAPI = {
   getTokenCount: (conversationId: string) => Promise<number>;
   setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => Promise<{ success: boolean }>;
+  respondUserInput: (requestId: string, response: string, cancelled: boolean) => Promise<{ success: boolean }>;
 };
 
 // File change tracking interface for backup/restore
@@ -95,6 +96,14 @@ type FileAPI = {
     changeType?: string;
     error?: string;
   }>;
+  searchContent: (projectPath: string, searchTerm: string) => Promise<{
+    results: Array<{
+      path: string;
+      lineNumber: number;
+      preview: string;
+    }>;
+    error?: string;
+  }>;
 };
 
 // Tool API
@@ -125,6 +134,7 @@ type AppAPI = {
   onBeforeQuit: (callback: () => Promise<void> | void) => () => void;
   onMenuAction: (callback: (action: string) => void) => () => void;
   onOpenRecent: (callback: (path: string) => void) => () => void;
+  notifySaveComplete: () => void;
 };
 
 // Settings API
@@ -192,6 +202,7 @@ const api: ElectronAPI = {
     getTokenCount: (conversationId: string) => ipcRenderer.invoke('agent:get-token-count', conversationId),
     setMode: (conversationId, mode) => ipcRenderer.invoke('agent:set-mode', conversationId, mode),
     respondPermission: (toolId, decision) => ipcRenderer.invoke('agent:respond-permission', toolId, decision),
+    respondUserInput: (requestId, response, cancelled) => ipcRenderer.invoke('agent:respond-user-input', requestId, response, cancelled),
     onEvent: (callback: (event: ConversationAgentEvent) => void) => {
       const handler = (_: IpcRendererEvent, event: ConversationAgentEvent) => callback(event);
       ipcRenderer.on('agent:event', handler);
@@ -224,6 +235,8 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('file:hasChanges', conversationId, messageId),
     getDiff: (conversationId, messageId, filePath) =>
       ipcRenderer.invoke('file:getDiff', conversationId, messageId, filePath),
+    searchContent: (projectPath, searchTerm) =>
+      ipcRenderer.invoke('file:searchContent', projectPath, searchTerm),
   },
 
   tool: {
@@ -278,6 +291,9 @@ const api: ElectronAPI = {
       const handler = () => callback();
       ipcRenderer.on('app:before-quit', handler);
       return () => ipcRenderer.off('app:before-quit', handler);
+    },
+    notifySaveComplete: () => {
+      ipcRenderer.invoke('app:save-complete');
     },
     onMenuAction: (callback: (action: string) => void) => {
       const handler = (_: IpcRendererEvent, action: string) => callback(action);

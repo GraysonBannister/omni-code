@@ -1,0 +1,206 @@
+/* Search Bar Container */
+.search-bar-container {
+  position: relative;
+  width: 100%;
+  max-width: 500px;
+  -webkit-app-region: no-drag;
+}
+
+/* Search Input Wrapper */
+.search-bar-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--sidebar-bg, #1e1e1e);
+  border: 1px solid var(--sidebar-border, #333);
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.search-bar-input-wrapper:focus-within {
+  border-color: var(--color-accent, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Search Icon */
+.search-bar-icon {
+  color: var(--color-text-secondary, #888);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Search Input */
+.search-bar-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--color-text, #e0e0e0);
+  font-size: 13px;
+  outline: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.search-bar-input::placeholder {
+  color: var(--color-text-secondary, #888);
+}
+
+/* Mode Indicator */
+.search-bar-mode {
+  font-size: 11px;
+  color: var(--color-accent, #3b82f6);
+  background: rgba(59, 130, 246, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* Keyboard Shortcut Hint */
+.search-bar-shortcut {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+/* Dropdown */
+.search-bar-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--sidebar-bg, #1e1e1e);
+  border: 1px solid var(--sidebar-border, #333);
+  border-radius: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Results Count */
+.search-bar-results-count {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #888);
+  border-bottom: 1px solid var(--sidebar-border, #333);
+}
+
+/* Results List */
+.search-bar-results-list {
+  padding: 4px;
+}
+
+/* Individual Result */
+.search-bar-result {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.search-bar-result:hover,
+.search-bar-result.selected {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.search-bar-result.selected {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* Result Icon */
+.search-bar-result-icon {
+  color: var(--color-text-secondary, #888);
+  margin-right: 10px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Result Content */
+.search-bar-result-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Result Name */
+.search-bar-result-name {
+  font-size: 13px;
+  color: var(--color-text, #e0e0e0);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Result Path */
+.search-bar-result-path {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.search-bar-result-line {
+  color: var(--color-accent, #3b82f6);
+  margin-left: 4px;
+}
+
+/* Result Preview (for content search) */
+.search-bar-result-preview {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+/* Loading State */
+.search-bar-loading {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary, #888);
+  font-size: 13px;
+}
+
+/* No Results */
+.search-bar-no-results {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary, #888);
+  font-size: 13px;
+}
+
+/* Scrollbar styling for dropdown */
+.search-bar-dropdown::-webkit-scrollbar {
+  width: 8px;
+}
+
+.search-bar-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.search-bar-dropdown::-webkit-scrollbar-thumb {
+  background: var(--sidebar-border, #333);
+  border-radius: 4px;
+}
+
+.search-bar-dropdown::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary, #888);
+}

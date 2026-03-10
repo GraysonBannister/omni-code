@@ -1,0 +1,179 @@
+.user-input-card {
+  margin: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.15), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.user-input-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(88, 166, 255, 0.12);
+  border-bottom: 1px solid rgba(88, 166, 255, 0.2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.user-input-card-header svg {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.user-input-card-header span {
+  flex: 1;
+}
+
+.user-input-card-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.user-input-card-close:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.user-input-card-prompt {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Terminal command block */
+.user-input-card-command {
+  margin: 0 var(--spacing-md) var(--spacing-sm);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.user-input-card-command-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.user-input-card-command-block {
+  display: flex;
+  align-items: center;
+  background: #0d1117;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  gap: var(--spacing-xs);
+}
+
+.user-input-card-command-block code {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: #a5d6ff;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.user-input-card-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.user-input-card-copy:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
+/* Text input */
+.user-input-card-textarea {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  box-sizing: border-box;
+  background: var(--color-bg-secondary);
+  border: none;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  resize: vertical;
+  outline: none;
+  transition: background 0.15s;
+}
+
+.user-input-card-textarea:focus {
+  background: var(--color-bg-primary);
+}
+
+.user-input-card-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* Action buttons */
+.user-input-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.user-input-card-btn-cancel,
+.user-input-card-btn-submit {
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.user-input-card-btn-cancel {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.user-input-card-btn-cancel:hover {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-primary);
+}
+
+.user-input-card-btn-submit {
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.user-input-card-btn-submit:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}

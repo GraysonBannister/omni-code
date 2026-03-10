@@ -22,6 +22,8 @@ export interface ToolResult {
   metadata?: Record<string, unknown>;
 }
 
+import type { EventBus } from '../utils/event-bus.js';
+
 export interface ToolContext {
   cwd: string;
   sessionId: string;
@@ -29,6 +31,7 @@ export interface ToolContext {
   abortSignal: AbortSignal;
   onProgress?: (message: string) => void;
   spawnSubAgent?: (task: string, planMode: boolean) => Promise<string>;
+  eventBus?: EventBus;
 }
 
 export interface Tool {

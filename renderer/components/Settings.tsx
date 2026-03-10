@@ -339,6 +339,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 onChange={(value) => setSetting('ai.contextRecentMessagesToKeep', parseInt(value))}
               />
 
+              <SettingInput
+                label="Max Agent Turns"
+                description="Maximum LLM calls per task before stopping — increase for complex multi-step workflows (10-200)"
+                value={currentSettings.ai.maxTurns ?? 50}
+                type="number"
+                min={10}
+                max={200}
+                step={5}
+                onChange={(value) => setSetting('ai.maxTurns', parseInt(value))}
+              />
+
               <h3 className="settings-section-title" style={{ marginTop: '24px' }}>Chat Persistence</h3>
 
               <SettingToggle

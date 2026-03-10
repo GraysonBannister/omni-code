@@ -1,0 +1,149 @@
+.permission-card {
+  margin: var(--spacing-sm) var(--spacing-md);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Risk-level border colors */
+.permission-card--low {
+  border: 1px solid var(--color-text-success);
+  box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.15), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.permission-card--medium {
+  border: 1px solid var(--color-text-warning);
+  box-shadow: 0 0 0 1px rgba(210, 153, 34, 0.15), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.permission-card--high {
+  border: 1px solid var(--color-text-error);
+  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.15), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Header */
+.permission-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.permission-card--low .permission-card-header {
+  background: rgba(63, 185, 80, 0.1);
+  border-bottom: 1px solid rgba(63, 185, 80, 0.2);
+  color: var(--color-text-success);
+}
+
+.permission-card--medium .permission-card-header {
+  background: rgba(210, 153, 34, 0.1);
+  border-bottom: 1px solid rgba(210, 153, 34, 0.2);
+  color: var(--color-text-warning);
+}
+
+.permission-card--high .permission-card-header {
+  background: rgba(248, 81, 73, 0.1);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.2);
+  color: var(--color-text-error);
+}
+
+.permission-card-header svg {
+  flex-shrink: 0;
+}
+
+/* Body */
+.permission-card-body {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-tertiary);
+}
+
+.permission-card-tool {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  margin-bottom: 6px;
+}
+
+.permission-card-tool-name {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.permission-card-tool-action {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.permission-card-detail {
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: #0d1117;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.permission-card-detail code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: #a5d6ff;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Action buttons */
+.permission-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.permission-card-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.permission-card-btn--deny {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.permission-card-btn--deny:hover {
+  border-color: var(--color-text-error);
+  color: var(--color-text-error);
+}
+
+.permission-card-btn--allow-once {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.permission-card-btn--allow-once:hover {
+  border-color: var(--color-text-warning);
+  color: var(--color-text-warning);
+}
+
+.permission-card-btn--allow-always {
+  background: var(--color-text-success);
+  border: 1px solid var(--color-text-success);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.permission-card-btn--allow-always:hover {
+  filter: brightness(1.15);
+}

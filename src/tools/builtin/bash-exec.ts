@@ -48,6 +48,17 @@ export class BashExecTool implements Tool {
       let stdout = '';
       let stderr = '';
       let killed = false;
+      let lastProgressAt = 0;
+
+      const emitProgress = () => {
+        const now = Date.now();
+        if (now - lastProgressAt > 500) {
+          lastProgressAt = now;
+          const combined = (stdout + (stderr ? '\n' + stderr : '')).trimEnd();
+          const lines = combined.split('\n').slice(-8).join('\n');
+          if (lines) context.onProgress?.(lines);
+        }
+      };
 
       const proc = spawn('bash', ['-c', command], {
         cwd: context.cwd,
@@ -63,6 +74,7 @@ export class BashExecTool implements Tool {
           if (proc.pid) treeKill(proc.pid);
           killed = true;
         }
+        emitProgress();
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
@@ -70,6 +82,7 @@ export class BashExecTool implements Tool {
         if (stderr.length > 500_000) {
           stderr = stderr.substring(0, 500_000) + '\n\n[Stderr truncated at 500KB]';
         }
+        emitProgress();
       });
 
       const timer = setTimeout(() => {

@@ -29,6 +29,24 @@
   -webkit-app-region: no-drag;
 }
 
+/* Top Header with Search Bar */
+.app-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+  pointer-events: none;
+}
+
+.app-header > * {
+  pointer-events: auto;
+}
+
 .app-body {
   flex: 1;
   display: flex;

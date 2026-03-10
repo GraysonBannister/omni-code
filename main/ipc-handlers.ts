@@ -26,6 +26,7 @@ let agentRef: {
   clearConversation: (conversationId: string) => void;
   getTokenCount: (conversationId: string) => Promise<number>;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => boolean;
+  respondUserInput: (requestId: string, response: string, cancelled: boolean) => boolean;
   onEvent: (callback: (event: unknown) => void) => () => void;
 } | null = null;
 
@@ -105,6 +106,11 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('agent:respond-permission', async (_: IpcMainInvokeEvent, toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => {
     if (!agentRef) throw new Error('Agent not initialized');
     return { success: agentRef.respondPermission(toolId, decision) };
+  });
+
+  ipcMain.handle('agent:respond-user-input', async (_: IpcMainInvokeEvent, requestId: string, response: string, cancelled: boolean) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return { success: agentRef.respondUserInput(requestId, response, cancelled) };
   });
 
   // Chat storage handlers
@@ -276,6 +282,110 @@ export function setupIpcHandlers(): void {
     if (watcher) {
       watcher.abort();
       fileWatchers.delete(resolvedPath);
+    }
+  });
+
+  // Content search handler for search bar
+  ipcMain.handle('file:searchContent', async (_: IpcMainInvokeEvent, projectPath: string, searchTerm: string) => {
+    try {
+      const results: Array<{ path: string; lineNumber: number; preview: string }> = [];
+      const MAX_RESULTS = 100;
+      const MAX_FILE_SIZE = 1024 * 1024; // 1MB limit per file
+
+      // Common patterns to ignore
+      const ignorePatterns = [
+        'node_modules',
+        '.git',
+        'dist',
+        'build',
+        '.next',
+        'out',
+        'coverage',
+        '.cache',
+        'vendor',
+      ];
+
+      // Binary file extensions to skip
+      const binaryExtensions = new Set([
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.ico',
+        '.mp3', '.mp4', '.wav', '.avi', '.mov',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+        '.zip', '.tar', '.gz', '.rar', '.7z',
+        '.exe', '.dll', '.so', '.dylib',
+        '.woff', '.woff2', '.ttf', '.eot',
+      ]);
+
+      const shouldIgnore = (filePath: string): boolean => {
+        const normalizedPath = filePath.toLowerCase();
+        return ignorePatterns.some(pattern =>
+          normalizedPath.includes(`/${pattern}/`) ||
+          normalizedPath.includes(`\\${pattern}\\`)
+        );
+      };
+
+      const isBinary = (filePath: string): boolean => {
+        const ext = path.extname(filePath).toLowerCase();
+        return binaryExtensions.has(ext);
+      };
+
+      const searchFile = async (filePath: string): Promise<void> => {
+        if (results.length >= MAX_RESULTS) return;
+        if (isBinary(filePath)) return;
+
+        try {
+          const stats = await fs.stat(filePath);
+          if (stats.size > MAX_FILE_SIZE) return;
+
+          const content = await fs.readFile(filePath, 'utf-8');
+          const lines = content.split('\n');
+          const lowerTerm = searchTerm.toLowerCase();
+
+          lines.forEach((line, index) => {
+            if (results.length >= MAX_RESULTS) return;
+
+            if (line.toLowerCase().includes(lowerTerm)) {
+              // Get preview with context (30 chars before and after match)
+              const linePreview = line.trim().slice(0, 100);
+              results.push({
+                path: filePath,
+                lineNumber: index + 1,
+                preview: linePreview,
+              });
+            }
+          });
+        } catch (error) {
+          // Skip files we can't read (binary, permissions, etc.)
+        }
+      };
+
+      const searchDirectory = async (dirPath: string): Promise<void> => {
+        if (results.length >= MAX_RESULTS) return;
+        if (shouldIgnore(dirPath)) return;
+
+        try {
+          const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+          for (const entry of entries) {
+            if (results.length >= MAX_RESULTS) return;
+
+            const fullPath = path.join(dirPath, entry.name);
+
+            if (entry.isDirectory()) {
+              await searchDirectory(fullPath);
+            } else if (entry.isFile()) {
+              await searchFile(fullPath);
+            }
+          }
+        } catch (error) {
+          // Skip directories we can't read
+        }
+      };
+
+      await searchDirectory(projectPath);
+
+      return { results };
+    } catch (error) {
+      return { results: [], error: (error as Error).message };
     }
   });
 
@@ -520,6 +630,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('file:list');
   ipcMain.removeHandler('file:watch');
   ipcMain.removeHandler('file:unwatch');
+  ipcMain.removeHandler('file:searchContent');
   ipcMain.removeHandler('file:backup');
   ipcMain.removeHandler('file:restore');
   ipcMain.removeHandler('file:getChanges');

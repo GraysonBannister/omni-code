@@ -5,6 +5,7 @@ import { CodeEditor } from './components/Editor';
 import { ChatPanel } from './components/ChatPanel';
 import { StatusBar } from './components/StatusBar';
 import { WelcomeScreen } from './components/WelcomeScreen';
+import { SearchBar } from './components/SearchBar';
 import { useAppStore } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
@@ -175,6 +176,10 @@ export const App: React.FC = () => {
         console.log('Saved all conversations before quit');
       } catch (error) {
         console.error('Failed to save conversations before quit:', error);
+      } finally {
+        // Signal the main process that saving is complete so it doesn't have
+        // to wait for the 5-second timeout before quitting.
+        window.electronAPI!.app.notifySaveComplete();
       }
     });
 
@@ -319,6 +324,13 @@ export const App: React.FC = () => {
 
   return (
     <div className="app">
+      {/* Top Search Bar Header */}
+      {projectPath && (
+        <div className="app-header">
+          <SearchBar />
+        </div>
+      )}
+
       <div className="app-body">
         <PanelGroup direction="horizontal">
           {/* Sidebar - File Explorer */}

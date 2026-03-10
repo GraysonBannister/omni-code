@@ -74,7 +74,7 @@ export class AgentImpl implements Agent {
     this._messages.push(userMsg);
 
     let turns = 0;
-    const maxTurns = this.config.maxTurns || 25;
+    const maxTurns = this.config.maxTurns || 50;
 
     while (turns < maxTurns) {
       turns++;
@@ -281,6 +281,7 @@ export class AgentImpl implements Agent {
             sessionId: this.id,
             planMode: this.config.planMode || false,
             abortSignal: this.abortController.signal,
+            eventBus: this.toolRunner.getEventBus(),
             spawnSubAgent: async (task: string, planMode: boolean): Promise<string> => {
               const subAgent = this.spawnSubAgent({ planMode });
               let subResult = '';

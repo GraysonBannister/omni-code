@@ -19,6 +19,13 @@ export class ToolRunner {
     this.autoLintFix = autoLintFix;
   }
 
+  /**
+   * Get access to the EventBus for tools that need to emit events
+   */
+  getEventBus(): EventBus {
+    return this.eventBus;
+  }
+
   async execute(
     toolName: string,
     toolId: string,

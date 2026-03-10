@@ -37,6 +37,11 @@ import { BrowserAutomationTool } from './browser-automation.js';
 import { DebuggerTool } from './debugger.js';
 import { DocGenTool } from './doc-gen.js';
 import { NotebookTool } from './notebook.js';
+import { SupabaseTool } from './supabase-cli.js';
+import { NetlifyTool } from './netlify-cli.js';
+import { RailwayTool } from './railway-cli.js';
+import { AskUserTool } from './ask-user.js';
+import { ProcessManagerTool } from './process-manager.js';
 
 export function registerBuiltinTools(registry: ToolRegistry): void {
   // Core tools
@@ -102,4 +107,15 @@ export function registerBuiltinTools(registry: ToolRegistry): void {
   // Documentation & notebook tools
   registry.register(new DocGenTool());
   registry.register(new NotebookTool());
+
+  // Deployment platform CLI tools
+  registry.register(new SupabaseTool());
+  registry.register(new NetlifyTool());
+  registry.register(new RailwayTool());
+
+  // User interaction tool
+  registry.register(new AskUserTool());
+
+  // Process management tool
+  registry.register(new ProcessManagerTool());
 }

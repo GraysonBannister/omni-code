@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { ModeSelector, AIMode } from './ModeSelector';
+import { UserInputCard, type UserInputRequest } from './UserInputCard';
+import { PermissionCard, type PermissionRequest } from './PermissionCard';
 import { useAppStore } from '../stores/appStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import './ChatPanel.css';
@@ -348,6 +350,8 @@ export const ChatPanel: React.FC = () => {
   const [pastChatsPanelOpen, setPastChatsPanelOpen] = useState(false);
   const [messageFileChanges, setMessageFileChanges] = useState<Map<string, FileChange[]>>(new Map());
   const [conversationFileChanges, setConversationFileChanges] = useState<FileChange[]>([]);
+  const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null);
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -527,21 +531,28 @@ export const ChatPanel: React.FC = () => {
     const timeouts: NodeJS.Timeout[] = [];
 
     for (const conversation of dirtyConversations) {
+      // Capture only the ID to avoid a stale closure over the whole conversation
+      // object. At fire time we read the latest state from the store so that any
+      // messages added after this effect ran (e.g. the assistant turn_complete)
+      // are included in the save.
+      const convId = conversation.id;
       const timeout = setTimeout(async () => {
         try {
+          const freshState = useAppStore.getState();
+          const freshConv = freshState.conversations.find(c => c.id === convId);
+          if (!freshConv?.isDirty || !freshState.projectPath) return;
           await window.electronAPI!.chatStorage.saveConversation(
-            // Get workspace path from store or fallback
-            useAppStore.getState().projectPath,
-            conversation
+            freshState.projectPath,
+            freshConv
           );
           // Mark as saved in the store
           useAppStore.setState(state => ({
             conversations: state.conversations.map(c =>
-              c.id === conversation.id ? { ...c, isDirty: false } : c
+              c.id === convId ? { ...c, isDirty: false } : c
             ),
           }));
         } catch (error) {
-          console.error(`Auto-save failed for conversation ${conversation.id}:`, error);
+          console.error(`Auto-save failed for conversation ${convId}:`, error);
         }
       }, autoSaveIntervalMs);
 
@@ -665,6 +676,9 @@ export const ChatPanel: React.FC = () => {
           setConversationStreaming(conversationId, '');
           if ((msg.metadata as Record<string, unknown> | undefined)?.stopReason !== 'tool_use') {
             setConversationProcessing(conversationId, false);
+            // Immediately persist the completed response so it survives a quit
+            // before the 3-second auto-save debounce fires.
+            useAppStore.getState().saveConversation(conversationId).catch(console.error);
           }
           break;
 
@@ -689,22 +703,11 @@ export const ChatPanel: React.FC = () => {
               phase: 'waiting_permission',
               detail: `Waiting for permission to run ${agentEvent.toolName || 'this tool'}.`,
             });
-
-            window.setTimeout(async () => {
-              const targetConversation = useAppStore.getState().conversations.find(c => c.id === conversationId);
-              if (!targetConversation?.isProcessing) return;
-
-              const filePath = typeof agentEvent.input?.file_path === 'string'
-                ? `\n\nPath:\n${agentEvent.input.file_path}`
-                : '';
-              const allowed = window.confirm(
-                `Allow ${agentEvent.toolName || 'this tool'} to run?${filePath}`
-              );
-              await window.electronAPI!.agent.respondPermission(
-                agentEvent.toolId!,
-                allowed ? 'allowAlways' : 'deny',
-              );
-            }, 0);
+            setPendingPermission({
+              toolId: agentEvent.toolId,
+              toolName: agentEvent.toolName || 'Tool',
+              input: agentEvent.input || {},
+            });
           }
           break;
 
@@ -727,6 +730,30 @@ export const ChatPanel: React.FC = () => {
               completedAt: Date.now(),
             });
           }
+          break;
+
+        case 'user_input_request': {
+          const targetConversation = useAppStore.getState().conversations.find(c => c.id === conversationId);
+          if (!targetConversation?.isProcessing) {
+            window.electronAPI!.agent.respondUserInput(agentEvent.requestId, '', true);
+            break;
+          }
+          setPendingUserInput({
+            requestId: agentEvent.requestId,
+            prompt: agentEvent.prompt as string,
+            terminalCommand: agentEvent.terminalCommand as string | undefined,
+            waitForInput: agentEvent.waitForInput as boolean,
+            placeholder: agentEvent.placeholder as string | undefined,
+          });
+          break;
+        }
+
+        case 'user_input_responded':
+          // User responded to the input request, nothing to do here
+          break;
+
+        case 'user_input_cancelled':
+          // User cancelled the input request, nothing to do here
           break;
 
         case 'tool_call_progress':
@@ -844,6 +871,24 @@ export const ChatPanel: React.FC = () => {
       console.error('Failed to abort:', error);
     }
   }, [activeConversationId, setConversationProcessing]);
+
+  const handleUserInputRespond = useCallback(async (requestId: string, response: string, cancelled: boolean) => {
+    setPendingUserInput(null);
+    try {
+      await window.electronAPI!.agent.respondUserInput(requestId, response, cancelled);
+    } catch (error) {
+      console.error('Failed to respond to user input:', error);
+    }
+  }, []);
+
+  const handlePermissionRespond = useCallback(async (toolId: string, decision: 'allowAlways' | 'allow' | 'deny') => {
+    setPendingPermission(null);
+    try {
+      await window.electronAPI!.agent.respondPermission(toolId, decision);
+    } catch (error) {
+      console.error('Failed to respond to permission request:', error);
+    }
+  }, []);
 
   const handleClear = useCallback(async () => {
     if (!activeConversationId) return;
@@ -1135,6 +1180,22 @@ export const ChatPanel: React.FC = () => {
             {!tool.error && tool.result && <span className="chat-tool-call-detail">{tool.result}</span>}
           </div>
         ))}
+
+        {/* Inline permission card */}
+        {pendingPermission && (
+          <PermissionCard
+            request={pendingPermission}
+            onRespond={handlePermissionRespond}
+          />
+        )}
+
+        {/* Inline user input card */}
+        {pendingUserInput && (
+          <UserInputCard
+            request={pendingUserInput}
+            onRespond={handleUserInputRespond}
+          />
+        )}
 
         <div ref={messagesEndRef} />
       </div>
