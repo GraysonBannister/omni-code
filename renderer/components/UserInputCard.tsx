@@ -23,7 +23,9 @@ export const UserInputCard: React.FC<Props> = memo(({ request, onRespond }) => {
 
   useEffect(() => {
     if (waitForInput) {
-      textareaRef.current?.focus();
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
     }
   }, [waitForInput]);
 

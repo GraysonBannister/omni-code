@@ -47,6 +47,7 @@
     },
     "files": [
       "dist-electron/**/*",
+      "logo.png",
       "!dist-electron/main/*.map",
       "!dist-electron/renderer/*.map"
     ],

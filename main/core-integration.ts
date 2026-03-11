@@ -278,7 +278,8 @@ export async function initializeCore(): Promise<void> {
       list: () => toolRegistry.getAll().map(t => ({
         name: t.tool.name,
         description: t.tool.description,
-        category: t.category,
+        category: t.tool.category,
+        permissionLevel: t.tool.permissionLevel,
       })),
     });
 

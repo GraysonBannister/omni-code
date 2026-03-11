@@ -4,7 +4,8 @@ import { FileHistoryPopup } from './FileHistoryPopup';
 import { ModeSelector, AIMode } from './ModeSelector';
 import { UserInputCard, type UserInputRequest } from './UserInputCard';
 import { PermissionCard, type PermissionRequest } from './PermissionCard';
-import { useAppStore } from '../stores/appStore';
+import { CollapsibleToolSummary } from './CollapsibleToolSummary';
+import { useAppStore, type ToolCall } from '../stores/appStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import './ChatPanel.css';
 
@@ -306,6 +307,80 @@ const RollbackButton: React.FC<RollbackButtonProps> = ({ conversationId, message
   );
 };
 
+// Group consecutive SAFE tools together for collapsible display
+type ToolGroup = { type: 'single'; tool: ToolCall } | { type: 'group'; tools: ToolCall[] };
+
+function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
+  const groups: ToolGroup[] = [];
+  let currentSafeGroup: ToolCall[] = [];
+
+  for (const tool of toolCalls) {
+    const isSafe = tool.permissionLevel === 'safe';
+    const isCompleted = tool.status === 'completed';
+    
+    if (isSafe && isCompleted) {
+      currentSafeGroup.push(tool);
+    } else {
+      if (currentSafeGroup.length > 0) {
+        groups.push({ type: 'group', tools: currentSafeGroup });
+        currentSafeGroup = [];
+      }
+      groups.push({ type: 'single', tool });
+    }
+  }
+
+  if (currentSafeGroup.length > 0) {
+    groups.push({ type: 'group', tools: currentSafeGroup });
+  }
+
+  return groups;
+}
+
+// Create unified timeline of messages and tool calls
+type TimelineItem = 
+  | { type: 'message'; data: Message; timestamp: number }
+  | { type: 'tool-group'; data: ToolCall[]; timestamp: number }
+  | { type: 'tool-single'; data: ToolCall; timestamp: number };
+
+function createTimeline(messages: Message[], toolCalls: ToolCall[]): TimelineItem[] {
+  const timeline: TimelineItem[] = [];
+  
+  // Add messages to timeline
+  messages.forEach(msg => {
+    timeline.push({ 
+      type: 'message', 
+      data: msg, 
+      timestamp: msg.timestamp 
+    });
+  });
+  
+  // Add grouped tool calls to timeline
+  const groups = groupToolCalls(toolCalls);
+  groups.forEach(group => {
+    if (group.type === 'group') {
+      const firstToolTime = group.tools[0]?.startedAt || 0;
+      timeline.push({ 
+        type: 'tool-group', 
+        data: group.tools, 
+        timestamp: firstToolTime 
+      });
+    } else {
+      timeline.push({ 
+        type: 'tool-single', 
+        data: group.tool, 
+        timestamp: group.tool.startedAt || 0 
+      });
+    }
+  });
+  
+  // Sort by timestamp
+  timeline.sort((a, b) => a.timestamp - b.timestamp);
+  
+  return timeline;
+}
+
+type Message = import('../stores/appStore').Message;
+
 export const ChatPanel: React.FC = () => {
   const {
     // Multi-conversation state
@@ -357,6 +432,16 @@ export const ChatPanel: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const pastChatsPanelRef = useRef<HTMLDivElement>(null);
+  const userInputCardRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to UserInputCard when it appears
+  useEffect(() => {
+    if (pendingUserInput && userInputCardRef.current) {
+      setTimeout(() => {
+        userInputCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, [pendingUserInput]);
 
   const loadMessageFileChanges = useCallback(async (messageId: string) => {
     if (!activeConversationId || !window.electronAPI) return;
@@ -641,6 +726,11 @@ export const ChatPanel: React.FC = () => {
         taskId?: string;
         success?: boolean;
         durationMs?: number;
+        requestId?: string;
+        prompt?: string;
+        terminalCommand?: string;
+        waitForInput?: boolean;
+        placeholder?: string;
         summary?: string;
         messageId?: string;
         fileChanges?: FileChange[];
@@ -704,9 +794,24 @@ export const ChatPanel: React.FC = () => {
 
         case 'tool_call_start':
           if (agentEvent.toolId) {
+            const toolName = agentEvent.toolName || 'unknown';
+            // Fetch tool metadata asynchronously
+            if (agentEvent.toolId) {
+              window.electronAPI!.tool.getMetadata(toolName).then((metadata: any) => {
+                if (metadata && agentEvent.toolId) {
+                  updateToolCallInConversation(conversationId, agentEvent.toolId, {
+                    permissionLevel: metadata.permissionLevel || 'unknown',
+                    category: metadata.category || 'unknown',
+                  });
+                }
+              }).catch(() => {
+                // Metadata fetch failed, continue without it
+              });
+            }
+            
             addToolCallToConversation(conversationId, {
               id: agentEvent.toolId,
-              toolName: agentEvent.toolName || 'unknown',
+              toolName,
               input: agentEvent.input || {},
               status: 'running',
               phase: 'validating',
@@ -755,16 +860,20 @@ export const ChatPanel: React.FC = () => {
         case 'user_input_request': {
           const targetConversation = useAppStore.getState().conversations.find(c => c.id === conversationId);
           if (!targetConversation?.isProcessing) {
-            window.electronAPI!.agent.respondUserInput(agentEvent.requestId, '', true);
+            if (agentEvent.requestId) {
+              window.electronAPI!.agent.respondUserInput(agentEvent.requestId, '', true);
+            }
             break;
           }
-          setPendingUserInput({
-            requestId: agentEvent.requestId as string,
-            prompt: agentEvent.prompt as string,
-            terminalCommand: agentEvent.terminalCommand as string | undefined,
-            waitForInput: agentEvent.waitForInput as boolean,
-            placeholder: agentEvent.placeholder as string | undefined,
-          });
+          if (agentEvent.requestId) {
+            setPendingUserInput({
+              requestId: agentEvent.requestId,
+              prompt: agentEvent.prompt as string,
+              terminalCommand: agentEvent.terminalCommand as string | undefined,
+              waitForInput: agentEvent.waitForInput as boolean,
+              placeholder: agentEvent.placeholder as string | undefined,
+            });
+          }
           break;
         }
 
@@ -1126,45 +1235,73 @@ export const ChatPanel: React.FC = () => {
           </div>
         )}
 
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`chat-message ${isToolResultMessageContent(message.content) ? 'tool' : message.role} ${hasToolErrorContent(message.content) ? 'tool-error' : ''}`}
-          >
-            <div className="chat-message-header">
-              {isToolResultMessageContent(message.content)
-                ? <Terminal size={14} />
-                : message.role === 'user'
-                  ? <User size={14} />
-                  : <Bot size={14} />}
-              <span>
-                {isToolResultMessageContent(message.content)
-                  ? (hasToolErrorContent(message.content) ? 'Tool Error' : 'Tool Output')
-                  : message.role === 'user'
-                    ? 'You'
-                    : 'Assistant'}
-              </span>
-              {message.metadata?.model && (
-                <span className="chat-message-model">
-                  {message.metadata.model as string}
-                </span>
-              )}
-            </div>
-            <div className="chat-message-content">
-              <MessageContent content={message.content} />
-            </div>
-            {message.role === 'assistant' && (
-              <div className="message-actions">
-                <RollbackButton
-                  conversationId={activeConversationId!}
-                  messageId={message.id}
-                  fileChanges={messageFileChanges.get(message.id) || []}
-                  onRollback={handleRollback}
-                />
+        {/* Unified timeline of messages and tool calls */}
+        {createTimeline(messages, toolCalls).map((item, index) => {
+          if (item.type === 'message') {
+            const message = item.data;
+            return (
+              <div
+                key={message.id}
+                className={`chat-message ${isToolResultMessageContent(message.content) ? 'tool' : message.role} ${hasToolErrorContent(message.content) ? 'tool-error' : ''}`}
+              >
+                <div className="chat-message-header">
+                  {isToolResultMessageContent(message.content)
+                    ? <Terminal size={14} />
+                    : message.role === 'user'
+                      ? <User size={14} />
+                      : <Bot size={14} />}
+                  <span>
+                    {isToolResultMessageContent(message.content)
+                      ? (hasToolErrorContent(message.content) ? 'Tool Error' : 'Tool Output')
+                      : message.role === 'user'
+                        ? 'You'
+                        : 'Assistant'}
+                  </span>
+                  {message.metadata?.model && (
+                    <span className="chat-message-model">
+                      {message.metadata.model as string}
+                    </span>
+                  )}
+                </div>
+                <div className="chat-message-content">
+                  <MessageContent content={message.content} />
+                </div>
+                {message.role === 'assistant' && (
+                  <div className="message-actions">
+                    <RollbackButton
+                      conversationId={activeConversationId!}
+                      messageId={message.id}
+                      fileChanges={messageFileChanges.get(message.id) || []}
+                      onRollback={handleRollback}
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            );
+          } else if (item.type === 'tool-group') {
+            return (
+              <CollapsibleToolSummary
+                key={`tool-group-${index}`}
+                tools={item.data}
+                now={now}
+              />
+            );
+          } else {
+            const tool = item.data;
+            return (
+              <div key={tool.id} className={`chat-tool-call ${tool.status}`}>
+                <Terminal size={14} />
+                <span className="chat-tool-call-name">{tool.toolName}</span>
+                <span className="chat-tool-call-status">{tool.status}</span>
+                {!tool.error && !tool.result && getToolStatusDetail(tool, now) && (
+                  <span className="chat-tool-call-detail">{getToolStatusDetail(tool, now)}</span>
+                )}
+                {tool.error && <span className="chat-tool-call-detail">{tool.error}</span>}
+                {!tool.error && tool.result && <span className="chat-tool-call-detail">{tool.result}</span>}
+              </div>
+            );
+          }
+        })}
 
         {/* Streaming message */}
         {streamingContent && (
@@ -1187,20 +1324,6 @@ export const ChatPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Tool calls */}
-        {toolCalls.map((tool) => (
-          <div key={tool.id} className={`chat-tool-call ${tool.status}`}>
-            <Terminal size={14} />
-            <span className="chat-tool-call-name">{tool.toolName}</span>
-            <span className="chat-tool-call-status">{tool.status}</span>
-            {!tool.error && !tool.result && getToolStatusDetail(tool, now) && (
-              <span className="chat-tool-call-detail">{getToolStatusDetail(tool, now)}</span>
-            )}
-            {tool.error && <span className="chat-tool-call-detail">{tool.error}</span>}
-            {!tool.error && tool.result && <span className="chat-tool-call-detail">{tool.result}</span>}
-          </div>
-        ))}
-
         {/* Inline permission card */}
         {pendingPermission && (
           <PermissionCard
@@ -1211,10 +1334,12 @@ export const ChatPanel: React.FC = () => {
 
         {/* Inline user input card */}
         {pendingUserInput && (
-          <UserInputCard
-            request={pendingUserInput}
-            onRespond={handleUserInputRespond}
-          />
+          <div ref={userInputCardRef} className="user-input-card-wrapper">
+            <UserInputCard
+              request={pendingUserInput}
+              onRespond={handleUserInputRespond}
+            />
+          </div>
         )}
 
         <div ref={messagesEndRef} />

@@ -46,6 +46,8 @@ export interface ToolCall {
   error?: string;
   startedAt?: number;
   completedAt?: number;
+  permissionLevel?: string;
+  category?: string;
 }
 
 export interface OpenFile {

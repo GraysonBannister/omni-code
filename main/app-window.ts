@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, MenuItemConstructorOptions, shell, ipcMain } from 'electron';
+import { BrowserWindow, Menu, MenuItemConstructorOptions, shell, ipcMain, nativeImage } from 'electron';
 import * as path from 'node:path';
 import { settingsManager } from './settings.js';
 
@@ -149,6 +149,28 @@ export async function createWindow(): Promise<BrowserWindow> {
   console.log('__dirname:', __dirname);
   console.log('Preload path:', preloadPath);
 
+  // Resolve icon path - try multiple locations for dev and production
+  const iconPaths = [
+    path.join(process.resourcesPath, 'logo.png'),
+    path.join(__dirname, '..', 'logo.png'),
+    path.join(__dirname, '..', '..', 'logo.png'),
+    path.join(__dirname, 'logo.png'),
+  ];
+
+  let icon = undefined;
+  for (const iconPath of iconPaths) {
+    try {
+      const img = nativeImage.createFromPath(iconPath);
+      if (!img.isEmpty()) {
+        icon = img;
+        console.log('[Main] Using icon:', iconPath);
+        break;
+      }
+    } catch {
+      // Try next path
+    }
+  }
+
   // Create the browser window
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -156,6 +178,7 @@ export async function createWindow(): Promise<BrowserWindow> {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    icon,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

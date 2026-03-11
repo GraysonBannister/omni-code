@@ -40,7 +40,7 @@ let agentRef: {
 
 let toolsRef: {
   execute: (toolName: string, input: Record<string, unknown>) => Promise<unknown>;
-  list: () => Array<{ name: string; description: string; category: string }>;
+  list: () => Array<{ name: string; description: string; category: string; permissionLevel: string }>;
 } | null = null;
 
 let configRef: {
@@ -128,6 +128,13 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('agent:set-permission-mode', (_: IpcMainInvokeEvent, autoRunMode: string) => {
     setPermissionMode(autoRunMode);
+  });
+
+  // Tools metadata handler
+  ipcMain.handle('tools:get-metadata', async (_: IpcMainInvokeEvent, toolName: string) => {
+    if (!toolsRef) return null;
+    const tools = toolsRef.list();
+    return tools.find(t => t.name === toolName) || null;
   });
 
   // Chat storage handlers
@@ -815,6 +822,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('agent:respond-user-input');
   ipcMain.removeHandler('agent:set-mode');
   ipcMain.removeHandler('agent:set-permission-mode');
+  ipcMain.removeHandler('tools:get-metadata');
   ipcMain.removeHandler('chat:save');
   ipcMain.removeHandler('chat:load');
   ipcMain.removeHandler('chat:delete');

@@ -111,7 +111,8 @@ type FileAPI = {
 // Tool API
 type ToolAPI = {
   execute: (toolName: string, input: Record<string, unknown>) => Promise<{ result: unknown; error?: string }>;
-  list: () => Promise<Array<{ name: string; description: string; category: string }>>;
+  list: () => Promise<Array<{ name: string; description: string; category: string; permissionLevel: string }>>;
+  getMetadata: (toolName: string) => Promise<{ name: string; description: string; category: string; permissionLevel: string } | null>;
 };
 
 // Config API
@@ -296,6 +297,7 @@ const api: ElectronAPI = {
     execute: (toolName: string, input: Record<string, unknown>) =>
       ipcRenderer.invoke('tool:execute', toolName, input),
     list: () => ipcRenderer.invoke('tool:list'),
+    getMetadata: (toolName: string) => ipcRenderer.invoke('tools:get-metadata', toolName),
   },
 
   config: {
