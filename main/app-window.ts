@@ -162,6 +162,7 @@ export async function createWindow(): Promise<BrowserWindow> {
       nodeIntegration: false,
       sandbox: false,
       spellcheck: false,
+      webviewTag: true,
     },
     show: false,
   });

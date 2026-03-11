@@ -60,7 +60,8 @@ export class AskUserTool implements Tool {
     return new Promise((resolve) => {
       // Emit event to request user input
       // The UI layer will listen for this event and show a modal/prompt
-      const eventBus = (context as any).eventBus;
+      const ctx = context as ToolContext & { eventBus?: { emit: (event: string, data: unknown) => void } };
+      const eventBus = ctx.eventBus;
 
       if (!eventBus) {
         resolve({

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, File as FileIcon, Circle, Settings } from 'lucide-react';
+import { X, File as FileIcon, Circle, Settings, Globe } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { SettingsPanel } from './Settings';
+import { BrowserPanel } from './BrowserPanel';
 import './Editor.css';
 
 // TypeScript type for the Monaco editor
@@ -123,9 +124,12 @@ export const CodeEditor: React.FC = () => {
             className={`editor-tab ${file.path === activeFilePath ? 'active' : ''} ${file.isDirty ? 'dirty' : ''}`}
             onClick={() => setActiveFile(file.path)}
           >
-            {file.type === 'settings' ? <Settings size={14} /> : <FileIcon size={14} />}
+            {file.type === 'settings' ? <Settings size={14} /> :
+             file.type === 'browser' ? <Globe size={14} /> : <FileIcon size={14} />}
             <span className="editor-tab-name">
-              {file.type === 'settings' ? 'Settings' : file.path.split('/').pop()}
+              {file.type === 'settings' ? 'Settings' :
+               file.type === 'browser' ? (file.url || file.path).split('/')[2] || 'Browser' :
+               file.path.split('/').pop()}
             </span>
             {file.isDirty && <Circle size={6} className="editor-tab-dirty" />}
             <button
@@ -148,6 +152,8 @@ export const CodeEditor: React.FC = () => {
             <div className="editor-loading">Loading...</div>
           ) : activeFile.type === 'settings' ? (
             <SettingsPanel embedded />
+          ) : activeFile.type === 'browser' ? (
+            <BrowserPanel url={activeFile.url || activeFile.path} />
           ) : (
             <Editor
               height="100%"

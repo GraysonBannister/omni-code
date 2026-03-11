@@ -52,6 +52,8 @@
 
 /* Actions Section */
 .welcome-actions {
+  display: flex;
+  gap: 12px;
   margin-bottom: 48px;
 }
 
@@ -83,6 +85,22 @@
 }
 
 .welcome-btn.primary:active {
+  transform: translateY(0);
+}
+
+.welcome-btn.secondary {
+  background: transparent;
+  color: var(--color-text-primary, #e0e0e0);
+  border-color: var(--color-border, #333);
+}
+
+.welcome-btn.secondary:hover {
+  background: var(--color-bg-secondary, #2a2a2a);
+  border-color: var(--color-accent, #3b82f6);
+  transform: translateY(-1px);
+}
+
+.welcome-btn.secondary:active {
   transform: translateY(0);
 }
 

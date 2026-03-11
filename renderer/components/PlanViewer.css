@@ -1,0 +1,273 @@
+/* PlanViewer Component Styles */
+
+.plan-viewer {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--bg-secondary, #252526);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #3e3e42);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.plan-viewer.loading {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted, #808080);
+  min-height: 100px;
+}
+
+.plan-viewer.empty {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted, #808080);
+  min-height: 100px;
+  text-align: center;
+}
+
+.plan-viewer.empty .hint {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Header */
+.plan-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, #3e3e42);
+}
+
+.plan-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-title-row svg {
+  color: var(--accent-color, #4ec9b0);
+  flex-shrink: 0;
+}
+
+.plan-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #cccccc);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-refresh-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-muted, #808080);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.plan-refresh-btn:hover {
+  background: var(--bg-hover, #2a2d2e);
+  color: var(--text-primary, #cccccc);
+}
+
+.plan-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Progress Bar */
+.plan-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-tertiary, #1e1e1e);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-color, #4ec9b0), var(--success-color, #89d185));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 11px;
+  color: var(--text-muted, #808080);
+  white-space: nowrap;
+}
+
+/* Description */
+.plan-description {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+/* Sections */
+.plan-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-section {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  color: var(--text-primary, #cccccc);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.section-header:hover {
+  background: var(--bg-hover, #2a2d2e);
+}
+
+.section-header svg {
+  color: var(--text-muted, #808080);
+  flex-shrink: 0;
+}
+
+.section-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-count {
+  font-size: 10px;
+  color: var(--text-muted, #808080);
+  background: var(--bg-tertiary, #1e1e1e);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+/* Tasks */
+.section-tasks {
+  padding-left: 24px;
+  padding-bottom: 8px;
+}
+
+.plan-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.plan-task:hover {
+  background: var(--bg-hover, #2a2d2e);
+}
+
+.plan-task.checked {
+  opacity: 0.6;
+}
+
+.plan-task.checked .task-description {
+  text-decoration: line-through;
+  color: var(--text-muted, #808080);
+}
+
+.task-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-muted, #808080);
+  transition: color 0.2s;
+}
+
+.task-checkbox.checked {
+  color: var(--success-color, #89d185);
+}
+
+.task-description {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* Notes */
+.plan-notes {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #3e3e42);
+}
+
+.plan-notes h4 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #cccccc);
+}
+
+.plan-notes pre {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary, #a0a0a0);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+  line-height: 1.5;
+}
+
+/* Compact mode */
+@media (max-width: 300px) {
+  .plan-viewer {
+    padding: 8px;
+  }
+
+  .section-count {
+    display: none;
+  }
+
+  .progress-text {
+    font-size: 10px;
+  }
+}

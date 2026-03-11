@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown, RefreshCw, FolderOpen as FolderOpenIcon } from 'lucide-react';
+import { Folder, FolderOpen, File, ChevronRight, ChevronDown, RefreshCw, FolderOpen as FolderOpenIcon, FilePlus, FolderPlus } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import './FileExplorer.css';
 
@@ -8,23 +8,53 @@ interface FileNodeProps {
   path: string;
   isDirectory: boolean;
   depth: number;
+  selectedFolderPath?: string | null;
+  onSelectFolder?: (path: string) => void;
+  isCreatingFile?: boolean;
+  isCreatingFolder?: boolean;
+  newItemName?: string;
+  setNewItemName?: (name: string) => void;
+  handleKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
-const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) => {
-  const { expandedDirs, toggleDir, openFile, activeFilePath, loadDirectory, files } = useAppStore();
-  const isExpanded = expandedDirs.has(path);
-  const isActive = activeFilePath === path;
+const FileNode: React.FC<FileNodeProps> = ({
+  name,
+  path,
+  isDirectory,
+  depth,
+  selectedFolderPath,
+  onSelectFolder,
+  isCreatingFile,
+  isCreatingFolder,
+  newItemName,
+  setNewItemName,
+  handleKeyDown
+}) => {
+  const { expandedDirs, toggleDir, openFile, activeFilePath, files } = useAppStore();
+  const isExpanded = expandedDirs.has(path) || ((isCreatingFile || isCreatingFolder) && selectedFolderPath === path);
+  const isActiveFile = activeFilePath === path;
+  const isSelectedFolder = selectedFolderPath === path;
 
-  const handleClick = useCallback(() => {
+  // Check if we're creating an item in this folder
+  const showCreateInput = (isCreatingFile || isCreatingFolder) && selectedFolderPath === path;
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (isDirectory) {
+      // If clicking a folder, select it and optionally toggle expansion
+      if (onSelectFolder) {
+        onSelectFolder(path);
+      }
+      // Double-click or normal click to toggle
       toggleDir(path);
       if (!isExpanded) {
+        // Get loadDirectory from store to avoid dependency cycle
+        const { loadDirectory } = useAppStore.getState();
         loadDirectory(path);
       }
     } else {
       openFile(path);
     }
-  }, [isDirectory, path, isExpanded, toggleDir, loadDirectory, openFile]);
+  }, [isDirectory, path, isExpanded, toggleDir, openFile, onSelectFolder]);
 
   const childFiles = files.filter(f => {
     const parentDir = path;
@@ -35,9 +65,10 @@ const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) =
   return (
     <div className="file-node">
       <div
-        className={`file-node-row ${isActive ? 'active' : ''}`}
+        className={`file-node-row ${isActiveFile ? 'active' : ''} ${isSelectedFolder ? 'selected-folder' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
+        title={isDirectory ? 'Click to select folder, click again to expand/collapse' : ''}
       >
         <span className="file-node-icon">
           {isDirectory ? (
@@ -54,8 +85,24 @@ const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) =
         <span className="file-node-name">{name}</span>
       </div>
       
-      {isDirectory && isExpanded && childFiles.length > 0 && (
+      {isDirectory && isExpanded && (
         <div className="file-node-children">
+          {showCreateInput && (
+            <div className="file-explorer-new-item" style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}>
+              <span className="file-node-icon">
+                {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
+              </span>
+              <input
+                type="text"
+                className="file-explorer-new-item-input"
+                value={newItemName}
+                onChange={(e) => setNewItemName?.(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={isCreatingFile ? 'filename.ext' : 'foldername'}
+                autoFocus
+              />
+            </div>
+          )}
           {childFiles.map((child) => (
             <FileNode
               key={child.path}
@@ -63,6 +110,13 @@ const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) =
               path={child.path}
               isDirectory={child.isDirectory}
               depth={depth + 1}
+              selectedFolderPath={selectedFolderPath}
+              onSelectFolder={onSelectFolder}
+              isCreatingFile={isCreatingFile}
+              isCreatingFolder={isCreatingFolder}
+              newItemName={newItemName}
+              setNewItemName={setNewItemName}
+              handleKeyDown={handleKeyDown}
             />
           ))}
         </div>
@@ -72,8 +126,17 @@ const FileNode: React.FC<FileNodeProps> = ({ name, path, isDirectory, depth }) =
 };
 
 export const FileExplorer: React.FC = () => {
-  const { projectPath, files, setProjectPath, setFiles, loadDirectory, openFolder, isAppInitialized } = useAppStore();
+  const { projectPath, files, setProjectPath, setFiles, openFolder, isAppInitialized } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [isCreatingFile, setIsCreatingFile] = useState(false);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+
+  // Clear selected folder when project path changes
+  useEffect(() => {
+    setSelectedFolderPath(null);
+  }, [projectPath]);
 
   // Check if electronAPI is available
   if (!window.electronAPI) {
@@ -101,9 +164,11 @@ export const FileExplorer: React.FC = () => {
           const cwd = result.cwd;
           if (cwd && cwd !== '/' && cwd !== process.cwd()) {
             setProjectPath(cwd);
-            
+
             try {
               setIsLoading(true);
+              // Get loadDirectory from store to avoid dependency cycle
+              const { loadDirectory } = useAppStore.getState();
               await loadDirectory(cwd);
             } finally {
               setIsLoading(false);
@@ -124,22 +189,96 @@ export const FileExplorer: React.FC = () => {
       console.log('File changed:', event);
       // Refresh directory on changes
       if (projectPath) {
+        // Get loadDirectory from store to avoid dependency cycle
+        const { loadDirectory } = useAppStore.getState();
         loadDirectory(projectPath);
       }
     });
 
     return () => unsubscribe();
-  }, [projectPath, setProjectPath, loadDirectory]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, setProjectPath]);
 
   const handleRefresh = useCallback(async () => {
     if (!projectPath) return;
     setIsLoading(true);
     try {
+      // Get loadDirectory from store to avoid dependency cycle
+      const { loadDirectory } = useAppStore.getState();
       await loadDirectory(projectPath);
     } finally {
       setIsLoading(false);
     }
-  }, [projectPath, loadDirectory]);
+  }, [projectPath]);
+
+  const handleAddFileClick = useCallback(() => {
+    if (!projectPath) return;
+    setIsCreatingFile(true);
+    setIsCreatingFolder(false);
+    setNewItemName('');
+  }, [projectPath]);
+
+  const handleAddFolderClick = useCallback(() => {
+    if (!projectPath) return;
+    setIsCreatingFolder(true);
+    setIsCreatingFile(false);
+    setNewItemName('');
+  }, [projectPath]);
+
+  const handleCreateItem = useCallback(async () => {
+    // Use selected folder path if available, otherwise use project root
+    const targetPath = selectedFolderPath || projectPath;
+
+    if (!targetPath || !newItemName.trim()) {
+      setIsCreatingFile(false);
+      setIsCreatingFolder(false);
+      return;
+    }
+
+    try {
+      const itemPath = `${targetPath}/${newItemName.trim()}`;
+
+      if (isCreatingFile) {
+        const result = await window.electronAPI!.file.write(itemPath, '');
+        if (result.success) {
+          // Refresh the directory where the file was created
+          const { loadDirectory } = useAppStore.getState();
+          await loadDirectory(targetPath);
+        } else {
+          console.error(`Failed to create file: ${result.error}`);
+        }
+      } else if (isCreatingFolder) {
+        const result = await window.electronAPI!.file.mkdir(itemPath);
+        if (result.success) {
+          // Refresh the directory where the folder was created
+          const { loadDirectory } = useAppStore.getState();
+          await loadDirectory(targetPath);
+        } else {
+          console.error(`Failed to create folder: ${result.error}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to create item: ${(error as Error).message}`);
+    } finally {
+      setIsCreatingFile(false);
+      setIsCreatingFolder(false);
+      setNewItemName('');
+    }
+  }, [projectPath, selectedFolderPath, newItemName, isCreatingFile, isCreatingFolder]);
+
+  const handleCancelCreate = useCallback(() => {
+    setIsCreatingFile(false);
+    setIsCreatingFolder(false);
+    setNewItemName('');
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleCreateItem();
+    } else if (e.key === 'Escape') {
+      handleCancelCreate();
+    }
+  }, [handleCreateItem, handleCancelCreate]);
 
   // Group files by parent directory
   const rootFiles = files.filter(f => {
@@ -152,6 +291,22 @@ export const FileExplorer: React.FC = () => {
       <div className="file-explorer-header">
         <span className="file-explorer-title">Explorer</span>
         <div className="file-explorer-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleAddFileClick}
+            disabled={!projectPath}
+            title="New File"
+          >
+            <FilePlus size={14} />
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleAddFolderClick}
+            disabled={!projectPath}
+            title="New Folder"
+          >
+            <FolderPlus size={14} />
+          </button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={openFolder}
@@ -174,6 +329,11 @@ export const FileExplorer: React.FC = () => {
         {projectPath && (
           <div className="file-explorer-project">
             {projectPath.split('/').pop() || projectPath}
+            {selectedFolderPath && selectedFolderPath !== projectPath && (
+              <span className="file-explorer-selected-indicator">
+                {' '}/ {selectedFolderPath.replace(projectPath + '/', '').split('/').pop()}
+              </span>
+            )}
           </div>
         )}
         
@@ -193,6 +353,23 @@ export const FileExplorer: React.FC = () => {
           </div>
         ) : (
           <div className="file-explorer-tree">
+            {/* Show input at root only if no folder is selected */}
+            {(isCreatingFile || isCreatingFolder) && !selectedFolderPath && (
+              <div className="file-explorer-new-item" style={{ paddingLeft: '8px' }}>
+                <span className="file-node-icon">
+                  {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
+                </span>
+                <input
+                  type="text"
+                  className="file-explorer-new-item-input"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={isCreatingFile ? 'filename.ext' : 'foldername'}
+                  autoFocus
+                />
+              </div>
+            )}
             {rootFiles.map((file) => (
               <FileNode
                 key={file.path}
@@ -200,6 +377,13 @@ export const FileExplorer: React.FC = () => {
                 path={file.path}
                 isDirectory={file.isDirectory}
                 depth={0}
+                selectedFolderPath={selectedFolderPath}
+                onSelectFolder={setSelectedFolderPath}
+                isCreatingFile={isCreatingFile}
+                isCreatingFolder={isCreatingFolder}
+                newItemName={newItemName}
+                setNewItemName={setNewItemName}
+                handleKeyDown={handleKeyDown}
               />
             ))}
           </div>

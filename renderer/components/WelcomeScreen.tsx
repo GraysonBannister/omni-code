@@ -1,15 +1,17 @@
 import React from 'react';
-import { FolderOpen, Folder, Clock, Zap } from 'lucide-react';
+import { FolderOpen, FolderPlus, Folder, Clock, Zap } from 'lucide-react';
 import './WelcomeScreen.css';
 
 interface WelcomeScreenProps {
   onOpenFolder: () => void;
+  onCreateFolder: () => void;
   onOpenRecent: (path: string) => void;
   recentWorkspaces: string[];
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenFolder,
+  onCreateFolder,
   onOpenRecent,
   recentWorkspaces,
 }) => {
@@ -37,6 +39,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <button onClick={onOpenFolder} className="welcome-btn primary">
             <FolderOpen size={20} />
             <span>Open Folder</span>
+          </button>
+          <button onClick={onCreateFolder} className="welcome-btn secondary">
+            <FolderPlus size={20} />
+            <span>Create Folder</span>
           </button>
         </div>
 

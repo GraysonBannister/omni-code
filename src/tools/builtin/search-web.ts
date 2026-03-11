@@ -39,15 +39,25 @@ export class SearchWebTool implements Tool {
 
     try {
       // Dynamic import for ESM compatibility
-      const { search } = await import('duckduckgo-search');
-      const results = await search(query, { maxResults });
+      const searchApi = await import('duckduckgo-search');
+
+      // The duckduckgo-search package exports a SearchApi instance with text() async generator
+      const results: Array<{ title: string; href: string; body: string }> = [];
+      for await (const result of searchApi.text(query)) {
+        results.push({
+          title: result.title,
+          href: result.href,
+          body: result.body,
+        });
+        if (results.length >= maxResults) break;
+      }
 
       if (!results || results.length === 0) {
         return { content: `No results found for: "${query}"` };
       }
 
-      const formatted = results.slice(0, maxResults).map((r: any, i: number) => {
-        return `${i + 1}. **${r.title}**\n   ${r.link}\n   ${r.snippet || r.description || ''}`;
+      const formatted = results.map((r, i) => {
+        return `${i + 1}. **${r.title}**\n   ${r.href}\n   ${r.body || ''}`;
       }).join('\n\n');
 
       return {

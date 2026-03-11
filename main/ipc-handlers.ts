@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { setWorkingDirectory, getWorkingDirectory } from './core-integration.js';
+import { setWorkingDirectory, getWorkingDirectory, setPermissionMode } from './core-integration.js';
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
 import { getFileHistoryManager } from './file-history.js';
@@ -10,6 +10,13 @@ import {
   writeLargeFile,
 } from '../src/utils/large-file-writer.js';
 import type { Conversation } from '../renderer/stores/appStore.js';
+import {
+  getProjectIndexer,
+  closeProjectIndexer,
+  closeAllProjectIndexers,
+  type IndexingState,
+} from '../src/memory/project-indexer.js';
+import type { MemoryChunk } from '../src/memory/persistent-store.js';
 
 // This file sets up IPC handlers that will be connected to the Agent and Tools
 // The actual implementations will be provided by the agent-bridge
@@ -23,6 +30,7 @@ let agentRef: {
   sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
   abort: (conversationId: string) => void;
   switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
+  setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
   clearConversation: (conversationId: string) => void;
   getTokenCount: (conversationId: string) => Promise<number>;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => boolean;
@@ -111,6 +119,15 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('agent:respond-user-input', async (_: IpcMainInvokeEvent, requestId: string, response: string, cancelled: boolean) => {
     if (!agentRef) throw new Error('Agent not initialized');
     return { success: agentRef.respondUserInput(requestId, response, cancelled) };
+  });
+
+  ipcMain.handle('agent:set-mode', async (_: IpcMainInvokeEvent, conversationId: string, mode: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.setMode(conversationId, mode);
+  });
+
+  ipcMain.handle('agent:set-permission-mode', (_: IpcMainInvokeEvent, autoRunMode: string) => {
+    setPermissionMode(autoRunMode);
   });
 
   // Chat storage handlers
@@ -233,6 +250,16 @@ export function setupIpcHandlers(): void {
       return { files };
     } catch (error) {
       return { files: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:mkdir', async (_: IpcMainInvokeEvent, dirPath: string) => {
+    try {
+      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
+      await fs.mkdir(resolvedPath, { recursive: true });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
     }
   });
 
@@ -512,16 +539,74 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('dialog:open-folder', async () => {
     const window = BrowserWindow.getFocusedWindow();
     if (!window) return { canceled: true, path: null };
-    
+
     const result = await dialog.showOpenDialog(window, {
       properties: ['openDirectory'],
       title: 'Open Folder',
     });
-    
+
     return {
       canceled: result.canceled,
       path: result.filePaths[0] || null,
     };
+  });
+
+  ipcMain.handle('dialog:create-folder', async () => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (!window) return { canceled: true, path: null, error: 'No window available' };
+
+    // First, let user select parent directory
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Parent Directory for New Folder',
+      buttonLabel: 'Select Parent',
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { canceled: true, path: null };
+    }
+
+    const parentPath = result.filePaths[0];
+
+    // Prompt for folder name using input dialog
+    // Note: Electron doesn't have a built-in input dialog, so we use a custom prompt
+    // For simplicity, we'll create the folder with a default name and let user rename it later
+    // Or we can show a message box with input
+    const { response: folderName } = await dialog.showMessageBox(window, {
+      type: 'question',
+      buttons: ['Create', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Create New Folder',
+      message: 'Enter a name for the new folder:',
+      detail: 'The folder will be created in: ' + parentPath,
+    });
+
+    if (response === 1) {
+      return { canceled: true, path: null };
+    }
+
+    // Use a simple approach - create with timestamp and let user rename via file explorer
+    // or we can use a more sophisticated approach with a custom dialog
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    const defaultFolderName = `new-project-${timestamp}`;
+
+    const newFolderPath = path.join(parentPath, defaultFolderName);
+
+    try {
+      // Check if folder already exists
+      try {
+        await fs.access(newFolderPath);
+        return { canceled: false, path: null, error: `Folder "${defaultFolderName}" already exists` };
+      } catch {
+        // Folder doesn't exist, we can create it
+      }
+
+      await fs.mkdir(newFolderPath, { recursive: false });
+      return { canceled: false, path: newFolderPath };
+    } catch (error) {
+      return { canceled: false, path: null, error: (error as Error).message };
+    }
   });
 
   ipcMain.handle('app:get-version', async () => {
@@ -603,6 +688,113 @@ export function setupIpcHandlers(): void {
       return { error: (error as Error).message };
     }
   });
+
+  // Indexing handlers
+  ipcMain.handle('indexing:start', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      await indexer.startIndexing();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to start indexing:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:reindex', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      await indexer.reindex();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to reindex:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:stop', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      indexer.abort();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to stop indexing:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:getState', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      const state = indexer.getState();
+      return { state, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to get indexing state:', error);
+      return { state: null, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:query', async (_: IpcMainInvokeEvent, projectPath: string, query: string, topK?: number) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      const results = await indexer.query(query, topK || 5);
+      return { results, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to query index:', error);
+      return { results: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:clear', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      const indexer = await getProjectIndexer(projectPath);
+      await indexer.clearIndex();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to clear index:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:close', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      await closeProjectIndexer(projectPath);
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to close indexer:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('indexing:closeAll', async () => {
+    try {
+      await closeAllProjectIndexers();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to close all indexers:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Window control handlers
+  ipcMain.handle('window:minimize', () => {
+    const window = BrowserWindow.getFocusedWindow();
+    window?.minimize();
+  });
+
+  ipcMain.handle('window:maximize', () => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (window?.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window?.maximize();
+    }
+  });
+
+  ipcMain.handle('window:close', () => {
+    const window = BrowserWindow.getFocusedWindow();
+    window?.close();
+  });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -620,6 +812,9 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('agent:clear-conversation');
   ipcMain.removeHandler('agent:get-token-count');
   ipcMain.removeHandler('agent:respond-permission');
+  ipcMain.removeHandler('agent:respond-user-input');
+  ipcMain.removeHandler('agent:set-mode');
+  ipcMain.removeHandler('agent:set-permission-mode');
   ipcMain.removeHandler('chat:save');
   ipcMain.removeHandler('chat:load');
   ipcMain.removeHandler('chat:delete');
@@ -643,6 +838,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('config:get-models');
   ipcMain.removeHandler('config:get-providers');
   ipcMain.removeHandler('dialog:open-folder');
+  ipcMain.removeHandler('dialog:create-folder');
   ipcMain.removeHandler('app:get-version');
   ipcMain.removeHandler('app:get-platform');
   ipcMain.removeHandler('usage:get');
@@ -652,4 +848,15 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('usage:getLimits');
   ipcMain.removeHandler('usage:cleanup');
   ipcMain.removeHandler('usage:export');
+  ipcMain.removeHandler('indexing:start');
+  ipcMain.removeHandler('indexing:reindex');
+  ipcMain.removeHandler('indexing:stop');
+  ipcMain.removeHandler('indexing:getState');
+  ipcMain.removeHandler('indexing:query');
+  ipcMain.removeHandler('indexing:clear');
+  ipcMain.removeHandler('indexing:close');
+  ipcMain.removeHandler('indexing:closeAll');
+  ipcMain.removeHandler('window:minimize');
+  ipcMain.removeHandler('window:maximize');
+  ipcMain.removeHandler('window:close');
 }

@@ -1,0 +1,186 @@
+/* IndexingStatus Component Styles */
+
+.indexing-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.indexing-status:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.1));
+  border-radius: 4px;
+}
+
+.indexing-status-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+}
+
+.indexing-status-icon {
+  color: var(--text-muted, #888);
+  flex-shrink: 0;
+}
+
+.indexing-status-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.indexing-status-icon.complete {
+  color: var(--success-color, #4caf50);
+}
+
+.indexing-status-icon.error {
+  color: var(--error-color, #f44336);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.indexing-status-text {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+}
+
+/* Progress bar */
+.indexing-progress-container {
+  width: 40px;
+  height: 3px;
+  background-color: var(--progress-bg, #333);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.indexing-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color, #4a9eff), var(--accent-color, #00d4aa));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Semantic search indicator */
+.semantic-search-indicator {
+  color: var(--accent-color, #00d4aa);
+  margin-left: 2px;
+}
+
+/* Action buttons */
+.indexing-action-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted, #888);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.indexing-status:hover .indexing-action-btn {
+  opacity: 1;
+}
+
+.indexing-action-btn:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.15));
+  color: var(--text-color, #fff);
+}
+
+/* Tooltip */
+.indexing-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background-color: var(--tooltip-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 220px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  animation: tooltip-fade-in 0.15s ease;
+}
+
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.indexing-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--tooltip-bg, #2a2a2a);
+}
+
+.indexing-tooltip pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-color, #ddd);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+}
+
+.indexing-tooltip-actions {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, #3a3a3a);
+  display: flex;
+  gap: 8px;
+}
+
+.indexing-tooltip-actions button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background-color: var(--button-bg, #3a3a3a);
+  border: 1px solid var(--border-color, #4a4a4a);
+  color: var(--text-color, #ddd);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.indexing-tooltip-actions button:hover {
+  background-color: var(--button-hover-bg, #4a4a4a);
+}
+
+/* Compact mode for small status bars */
+@media (max-width: 600px) {
+  .indexing-status-text {
+    display: none;
+  }
+
+  .indexing-progress-container {
+    width: 30px;
+  }
+}

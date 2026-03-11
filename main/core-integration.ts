@@ -12,6 +12,7 @@ import { MoonshotProvider } from '../src/providers/moonshot/moonshot-provider.js
 import { ToolRegistry } from '../src/tools/tool-registry.js';
 import { registerBuiltinTools } from '../src/tools/builtin/index.js';
 import { PermissionManager } from '../src/permissions/permission-manager.js';
+import type { PermissionMode } from '../src/config/config-schema.js';
 import { ToolRunner } from '../src/tools/tool-runner.js';
 import { AgentImpl } from '../src/core/agent.js';
 import { CostTracker } from '../src/core/cost-tracker.js';
@@ -25,15 +26,32 @@ let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
 let agentInstance: AgentImpl | null = null;
 
+// Module-level PermissionManager so its mode can be updated at runtime.
+// Initialized to 'auto-allow' until initializeCore() creates it with the
+// correct EventBus and the settings are loaded.
+let permissionManager: PermissionManager | null = null;
+
+function toPermissionMode(autoRunMode: string): PermissionMode {
+  if (autoRunMode === 'ask') return 'ask';
+  if (autoRunMode === 'never') return 'deny-all';
+  return 'auto-allow'; // 'always' or any unknown value → safe default
+}
+
+export function setPermissionMode(autoRunMode: string): void {
+  if (permissionManager) {
+    permissionManager.setMode(toPermissionMode(autoRunMode));
+  }
+}
+
 // Build system prompt with current working directory
 function buildSystemPrompt(cwd: string): string {
   return `You are omni-code, a powerful AI coding assistant running in the Electron GUI.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
 
 You have access to tools for reading/writing files, searching codebases, running shell commands, and more.
-Use these tools to accomplish tasks effectively.
+Use these tools to accomplish tasks effectively and autonomously — do not stop after writing files and tell the user to run things themselves.
 
-Key guidelines:
+## Core Guidelines
 - Read files before modifying them to understand existing patterns
 - Prefer editing existing files over creating new ones
 - Use Glob and Grep for searching the codebase
@@ -41,6 +59,29 @@ Key guidelines:
 - Be concise in your responses
 - Ask for clarification when requirements are ambiguous
 
+## Web Search
+- Use SearchWeb to find packages, API references, documentation, and examples.
+  Prefer it over guessing when you need: package names, correct API shapes, CLI flags, configuration options, or explanations for errors.
+- Use WebFetch to read a specific documentation URL, README, or changelog.
+- Use HTTPClient to probe API endpoints or health-check a running service.
+- Search before inventing: if you are unsure of a library's API or a tool's flags, search rather than guessing.
+
+## Verifying Projects Work
+After scaffolding a new project or making significant changes, always verify it works end-to-end:
+
+1. Install dependencies — use DependencyManager or Bash (npm install / pip install / cargo build / etc.)
+2. Build — run the build command with Bash (npm run build, tsc, cargo build, etc.) and read any errors carefully.
+   If the build fails, fix the errors and rebuild before moving on.
+3. Start the dev server — use ProcessManager.start with the dev command (e.g. "npm run dev").
+4. Wait for readiness — use ProcessManager.wait_url to poll until the server responds (e.g. "http://localhost:3000").
+5. Visual verification — use Browser.navigate followed by Browser.screenshot to confirm the UI renders correctly.
+   If Puppeteer is not installed, skip this step and note it to the user.
+6. API verification — use HTTPClient to probe key API endpoints and confirm responses are correct.
+7. Run tests — use RunTests if a test script or test framework config is present.
+
+Do NOT hand off to the user after writing files. Run the project, observe the result, fix any issues, and confirm it works before finishing.
+
+## Working Directory
 The user's current working directory is: ${cwd}
 Always use this working directory for file operations and searches unless specifically asked to work elsewhere.
 `;
@@ -135,10 +176,10 @@ export async function initializeCore(): Promise<void> {
       toolRegistry.setEnabled(toolName, false);
     }
 
-    // Always auto-allow in the Electron GUI — the user is actively watching the
-    // AI, can stop it at any time, and rollback is available for every file change.
-    // The 'ask' default is designed for unattended CLI use, not an interactive GUI.
-    const permissionManager = new PermissionManager(
+    // Create the module-level PermissionManager. Its mode defaults to 'auto-allow'
+    // so existing behavior is preserved. The settings UI wires setPermissionMode()
+    // to update it live after startup.
+    permissionManager = new PermissionManager(
       'auto-allow',
       eventBus,
     );
@@ -154,11 +195,6 @@ export async function initializeCore(): Promise<void> {
     }) => {
       if (!request.toolId) {
         request.onDeny();
-        return;
-      }
-
-      if (config.get('permissionMode') === 'auto-allow') {
-        request.onAllowAlways();
         return;
       }
 
@@ -209,8 +245,8 @@ export async function initializeCore(): Promise<void> {
       );
     });
 
-    // Initialize tool runner
-    const toolRunner = new ToolRunner(toolRegistry, permissionManager, eventBus, config.get('autoLintFix'));
+    // Initialize tool runner (permissionManager is guaranteed non-null here)
+    const toolRunner = new ToolRunner(toolRegistry, permissionManager!, eventBus, config.get('autoLintFix'));
 
     // Initialize cost tracker
     const costTracker = new CostTracker();

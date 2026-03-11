@@ -20,7 +20,7 @@ async function getStore(): Promise<typeof StoreType> {
   return Store;
 }
 
-const USAGE_DIR = '.omni-code';
+const USAGE_DIR = '.omnicode';
 const USAGE_FILE = 'usage.json';
 
 interface GlobalUsageStore {

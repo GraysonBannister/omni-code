@@ -325,6 +325,7 @@ export const ChatPanel: React.FC = () => {
     clearConversationMessages,
     switchConversationModel,
     updateConversationContext,
+    setConversationMode,
     // Past chats state
     pastChats,
     pastChatsLoaded,
@@ -682,6 +683,25 @@ export const ChatPanel: React.FC = () => {
           }
           break;
 
+        case 'tool_results_complete':
+          {
+            const toolResultMsg = agentEvent.message as {
+              id: string;
+              role: string;
+              content: string | ContentBlock[];
+              timestamp: number;
+            };
+            if (toolResultMsg) {
+              addMessageToConversation(conversationId, {
+                id: toolResultMsg.id,
+                role: toolResultMsg.role as 'user' | 'assistant' | 'system',
+                content: toolResultMsg.content,
+                timestamp: toolResultMsg.timestamp,
+              });
+            }
+          }
+          break;
+
         case 'tool_call_start':
           if (agentEvent.toolId) {
             addToolCallToConversation(conversationId, {
@@ -739,7 +759,7 @@ export const ChatPanel: React.FC = () => {
             break;
           }
           setPendingUserInput({
-            requestId: agentEvent.requestId,
+            requestId: agentEvent.requestId as string,
             prompt: agentEvent.prompt as string,
             terminalCommand: agentEvent.terminalCommand as string | undefined,
             waitForInput: agentEvent.waitForInput as boolean,
@@ -1026,9 +1046,9 @@ export const ChatPanel: React.FC = () => {
         </span>
         <div className="chat-header-right">
           <ModeSelector
-              conversationId={activeConversation?.id || ''}
-              currentMode={(activeConversation?.mode as AIMode) || 'code'}
-              isProcessing={activeConversation?.isProcessing || false}
+              value={(activeConversation?.mode as AIMode) || 'code'}
+              onChange={(mode) => setConversationMode(activeConversation?.id || '', mode)}
+              disabled={activeConversation?.isProcessing || false}
             />
             {/* Model Selector */}
           {activeConversation && (

@@ -1,0 +1,51 @@
+/* Browser Panel Styles */
+.browser-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--color-bg-primary, #1e1e1e);
+}
+
+/* Address bar */
+.browser-address-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary, #252525);
+  border-bottom: 1px solid var(--sidebar-border, #333);
+}
+
+.browser-url {
+  font-size: 13px;
+  color: var(--color-text-secondary, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Webview */
+.browser-webview {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: white;
+}
+
+/* Error message */
+.browser-error {
+  padding: 20px;
+  background: rgba(232, 17, 35, 0.1);
+  border-bottom: 1px solid rgba(232, 17, 35, 0.3);
+}
+
+.browser-error p {
+  margin: 0 0 10px 0;
+  color: #e81123;
+  font-size: 14px;
+}
+
+.browser-error-hint {
+  color: var(--color-text-secondary, #888) !important;
+  font-size: 12px !important;
+}

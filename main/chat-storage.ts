@@ -4,7 +4,7 @@ import type { Conversation, Message, ToolCall } from '../renderer/stores/appStor
 
 // Storage format version for future migrations
 const STORAGE_VERSION = '1.0.0';
-const CHATS_DIR = '.omni-code/chats';
+const CHATS_DIR = '.omnicode/chats';
 const MAX_CHATS_PER_WORKSPACE = 50;
 
 // Serializable conversation data (without runtime state like isProcessing)
@@ -25,7 +25,7 @@ interface SerializedConversation {
 
 /**
  * ChatStorage handles persisting conversations to disk in the workspace folder.
- * Conversations are stored as JSON files in `.omni-code/chats/{conversationId}.json`
+ * Conversations are stored as JSON files in `.omnicode/chats/{conversationId}.json`
  */
 export class ChatStorage {
   private ensureChatsDir(workspacePath: string): Promise<string> {

@@ -7,6 +7,7 @@ type AgentEvent =
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: unknown }
   | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
+  | { type: 'tool_results_complete'; message: unknown }
   | { type: 'permission_request'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'permission_granted'; toolId: string }
   | { type: 'permission_denied'; toolId: string }
@@ -35,6 +36,7 @@ type AgentAPI = {
   setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => Promise<{ success: boolean }>;
   respondUserInput: (requestId: string, response: string, cancelled: boolean) => Promise<{ success: boolean }>;
+  setPermissionMode: (autoRunMode: string) => Promise<void>;
 };
 
 // File change tracking interface for backup/restore
@@ -122,9 +124,17 @@ type ConfigAPI = {
   getCwd: () => Promise<{ cwd: string }>;
 };
 
+// Window API
+type WindowAPI = {
+  minimize: () => Promise<void>;
+  maximize: () => Promise<void>;
+  close: () => Promise<void>;
+};
+
 // Dialog API
 type DialogAPI = {
   openFolder: () => Promise<{ canceled: boolean; path: string | null }>;
+  createFolder: () => Promise<{ canceled: boolean; path: string | null; error?: string }>;
 };
 
 // App API
@@ -173,6 +183,46 @@ type UsageAPI = {
   export: (workspacePath?: string) => Promise<{ csv?: string; error?: string }>;
 };
 
+// Indexing API
+type IndexingState = {
+  status: 'idle' | 'indexing' | 'complete' | 'error' | 'paused';
+  progress: number;
+  totalFiles: number;
+  processedFiles: number;
+  indexedChunks: number;
+  lastSyncAt: number | null;
+  lastError: string | null;
+  isSemanticSearchReady: boolean;
+};
+
+type IndexChunk = {
+  id: string;
+  content: string;
+  metadata: {
+    file: string;
+    startLine: number;
+    endLine: number;
+    type: string;
+    name?: string;
+    signature?: string;
+    language: string;
+    lastModified: number;
+  };
+  timestamp: string;
+  type: string;
+};
+
+type IndexingAPI = {
+  start: (projectPath: string) => Promise<{ success: boolean; error: string | null }>;
+  reindex: (projectPath: string) => Promise<{ success: boolean; error: string | null }>;
+  stop: (projectPath: string) => Promise<{ success: boolean; error: string | null }>;
+  getState: (projectPath: string) => Promise<{ state: IndexingState | null; error: string | null }>;
+  query: (projectPath: string, query: string, topK?: number) => Promise<{ results: IndexChunk[]; error: string | null }>;
+  clear: (projectPath: string) => Promise<{ success: boolean; error: string | null }>;
+  close: (projectPath: string) => Promise<{ success: boolean; error: string | null }>;
+  closeAll: () => Promise<{ success: boolean; error: string | null }>;
+};
+
 // Main Electron API
 type ElectronAPI = {
   agent: AgentAPI;
@@ -180,10 +230,12 @@ type ElectronAPI = {
   tool: ToolAPI;
   config: ConfigAPI;
   dialog: DialogAPI;
+  window: WindowAPI;
   app: AppAPI;
   settings: SettingsAPI;
   chatStorage: ChatStorageAPI;
   usage: UsageAPI;
+  indexing: IndexingAPI;
 };
 
 // Expose APIs via contextBridge
@@ -203,6 +255,7 @@ const api: ElectronAPI = {
     setMode: (conversationId, mode) => ipcRenderer.invoke('agent:set-mode', conversationId, mode),
     respondPermission: (toolId, decision) => ipcRenderer.invoke('agent:respond-permission', toolId, decision),
     respondUserInput: (requestId, response, cancelled) => ipcRenderer.invoke('agent:respond-user-input', requestId, response, cancelled),
+    setPermissionMode: (autoRunMode) => ipcRenderer.invoke('agent:set-permission-mode', autoRunMode),
     onEvent: (callback: (event: ConversationAgentEvent) => void) => {
       const handler = (_: IpcRendererEvent, event: ConversationAgentEvent) => callback(event);
       ipcRenderer.on('agent:event', handler);
@@ -256,6 +309,7 @@ const api: ElectronAPI = {
 
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:open-folder'),
+    createFolder: () => ipcRenderer.invoke('dialog:create-folder'),
   },
 
   settings: {
@@ -282,6 +336,23 @@ const api: ElectronAPI = {
     getLimits: () => ipcRenderer.invoke('usage:getLimits'),
     cleanup: (monthsToKeep?: number) => ipcRenderer.invoke('usage:cleanup', monthsToKeep),
     export: (workspacePath?: string) => ipcRenderer.invoke('usage:export', workspacePath),
+  },
+
+  indexing: {
+    start: (projectPath: string) => ipcRenderer.invoke('indexing:start', projectPath),
+    reindex: (projectPath: string) => ipcRenderer.invoke('indexing:reindex', projectPath),
+    stop: (projectPath: string) => ipcRenderer.invoke('indexing:stop', projectPath),
+    getState: (projectPath: string) => ipcRenderer.invoke('indexing:getState', projectPath),
+    query: (projectPath: string, query: string, topK?: number) => ipcRenderer.invoke('indexing:query', projectPath, query, topK),
+    clear: (projectPath: string) => ipcRenderer.invoke('indexing:clear', projectPath),
+    close: (projectPath: string) => ipcRenderer.invoke('indexing:close', projectPath),
+    closeAll: () => ipcRenderer.invoke('indexing:closeAll'),
+  },
+
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
   },
 
   app: {
@@ -348,4 +419,8 @@ declare global {
   }
 }
 
-export type { ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI, SettingsAPI, ChatStorageAPI, AgentEvent, ConversationAgentEvent };
+export type {
+  ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, IndexingState, IndexChunk,
+  AgentEvent, ConversationAgentEvent
+};

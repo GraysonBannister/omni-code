@@ -42,6 +42,9 @@ import { NetlifyTool } from './netlify-cli.js';
 import { RailwayTool } from './railway-cli.js';
 import { AskUserTool } from './ask-user.js';
 import { ProcessManagerTool } from './process-manager.js';
+import { CreatePlanTool } from './create-plan.js';
+import { UpdatePlanTool } from './update-plan.js';
+import { ReadPlanTool } from './read-plan.js';
 
 export function registerBuiltinTools(registry: ToolRegistry): void {
   // Core tools
@@ -118,4 +121,9 @@ export function registerBuiltinTools(registry: ToolRegistry): void {
 
   // Process management tool
   registry.register(new ProcessManagerTool());
+
+  // Plan management tools
+  registry.register(new CreatePlanTool());
+  registry.register(new UpdatePlanTool());
+  registry.register(new ReadPlanTool());
 }

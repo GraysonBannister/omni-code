@@ -94,6 +94,12 @@ export class PersistentMemoryStore {
     return Object.fromEntries(rows.map((r: any) => [r.key, r.value]));
   }
 
+  deleteContext(sessionId: string, key: string): boolean {
+    const stmt = this.db.prepare('DELETE FROM context WHERE session_id = ? AND key = ?');
+    const result = stmt.run(sessionId, key);
+    return result.changes > 0;
+  }
+
   clearSession(sessionId: string): void {
     this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
     this.db.prepare('DELETE FROM context WHERE session_id = ?').run(sessionId);

@@ -327,6 +327,9 @@ export class AgentImpl implements Agent {
       };
       this._messages.push(toolResultMsg);
 
+      // Yield event so UI can display tool results in correct order
+      yield { type: 'tool_results_complete', message: toolResultMsg };
+
       // Loop back to let the LLM process tool results
     }
 

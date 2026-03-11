@@ -106,6 +106,17 @@ export interface SettingsSchema {
     followSymlinks: boolean;
   };
 
+  // Indexing / Search
+  indexing: {
+    autoIndex: boolean;
+    autoSync: boolean;
+    syncIntervalMinutes: number;
+    useSemanticChunking: boolean;
+    maxFilesToIndex: number;
+    maxFileSizeMB: number;
+    excludePatterns: string[];
+  };
+
   // Privacy / Security
   privacy: {
     telemetryEnabled: boolean;
@@ -164,7 +175,7 @@ export const defaultSettings: SettingsSchema = {
     defaultModel: 'claude-sonnet-4-5',
     temperature: 0.7,
     maxContextTokens: 128000,
-    autoRunMode: 'ask',
+    autoRunMode: 'always',
     showTokenCosts: true,
     showThinking: true,
     autoAcceptEdits: false,
@@ -211,6 +222,25 @@ export const defaultSettings: SettingsSchema = {
     recentWorkspaces: [],
     maxRecentWorkspaces: 10,
     followSymlinks: false,
+  },
+
+  indexing: {
+    autoIndex: true,
+    autoSync: true,
+    syncIntervalMinutes: 5,
+    useSemanticChunking: true,
+    maxFilesToIndex: 500,
+    maxFileSizeMB: 1,
+    excludePatterns: [
+      'node_modules/**',
+      '.git/**',
+      'dist/**',
+      'build/**',
+      '**/*.min.js',
+      '**/*.bundle.js',
+      '**/package-lock.json',
+      '**/yarn.lock',
+    ],
   },
 
   privacy: {

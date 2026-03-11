@@ -55,6 +55,25 @@
   }
 }
 
+/* Mode Indicator */
+.mode-indicator {
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-bg);
+  border: 1px solid var(--color-accent-border);
+  padding: 2px 8px;
+}
+
+.mode-indicator svg {
+  color: var(--color-accent);
+}
+
+.mode-text {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* Model Selector */
 .model-selector {
   cursor: pointer;

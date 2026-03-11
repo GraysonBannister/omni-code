@@ -1,7 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown } from 'lucide-react';
+import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
+import { IndexingStatus } from './IndexingStatus';
 import './StatusBar.css';
+
+const modeIcons = {
+  code: Code,
+  architect: Building2,
+  review: Eye,
+  security: Shield,
+  debug: Bug,
+};
+
+const modeLabels = {
+  code: 'Code',
+  architect: 'Architect',
+  review: 'Review',
+  security: 'Security',
+  debug: 'Debug',
+};
 
 export const StatusBar: React.FC = () => {
   const {
@@ -14,7 +31,13 @@ export const StatusBar: React.FC = () => {
     inputTokens,
     outputTokens,
     setModel,
+    activeConversationId,
+    conversations,
   } = useAppStore();
+
+  const activeConversation = conversations.find(c => c.id === activeConversationId);
+  const currentMode = activeConversation?.mode || 'code';
+  const ModeIcon = modeIcons[currentMode as keyof typeof modeIcons] || Code;
 
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
@@ -37,14 +60,19 @@ export const StatusBar: React.FC = () => {
 
   return (
     <div className="status-bar">
-      {/* Left - Processing indicator */}
+      {/* Left - Mode indicator, Processing indicator and Indexing Status */}
       <div className="status-bar-section">
+        <div className="status-item mode-indicator" title={`AI Mode: ${modeLabels[currentMode as keyof typeof modeLabels]}`}>
+          <ModeIcon size={14} />
+          <span className="mode-text">{modeLabels[currentMode as keyof typeof modeLabels]}</span>
+        </div>
         {isProcessing && (
           <div className="status-item status-processing">
             <Activity size={14} className="spinning" />
             <span>Processing...</span>
           </div>
         )}
+        <IndexingStatus />
       </div>
 
       {/* Center - Default Model selector */}

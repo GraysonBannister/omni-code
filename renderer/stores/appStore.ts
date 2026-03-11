@@ -1,6 +1,20 @@
 import { create } from 'zustand';
 import type { ContentBlock, MessageMetadata } from '../../src/core/message-types.js';
 
+// Indexing State Types
+export type IndexingStatus = 'idle' | 'indexing' | 'complete' | 'error' | 'paused';
+
+export interface IndexingState {
+  status: IndexingStatus;
+  progress: number; // 0-100
+  totalFiles: number;
+  processedFiles: number;
+  indexedChunks: number;
+  lastSyncAt: number | null;
+  lastError: string | null;
+  isSemanticSearchReady: boolean;
+}
+
 // Types
 export interface FileChange {
   messageId: string;
@@ -40,7 +54,8 @@ export interface OpenFile {
   originalContent: string;
   isDirty: boolean;
   isLoading?: boolean;
-  type?: 'file' | 'settings';
+  type?: 'file' | 'settings' | 'browser';
+  url?: string; // For browser tabs
 }
 
 // Multi-tab conversation support - each conversation is isolated
@@ -98,7 +113,19 @@ interface AppState {
   // File History Popup State
   fileHistoryPopupVisible: boolean;
   fileHistoryPopupPinned: boolean;
-  
+
+  // Indexing State
+  indexingState: IndexingState;
+  indexingPollInterval: number | null;
+
+  // Indexing Actions
+  startIndexing: () => Promise<void>;
+  stopIndexing: () => Promise<void>;
+  reindexProject: () => Promise<void>;
+  clearIndex: () => Promise<void>;
+  refreshIndexingState: () => Promise<void>;
+  setIndexingPollInterval: (interval: number | null) => void;
+
   // UI Actions
   toggleSidebar: () => void;
   toggleChat: () => void;
@@ -160,6 +187,7 @@ interface AppState {
   closeFile: (path: string) => void;
   setActiveFile: (path: string) => void;
   openSettings: () => void;
+  openBrowser: (url: string, title?: string) => void;
   updateFileContent: (path: string, content: string) => void;
   saveFile: (path: string) => Promise<void>;
   setProjectPath: (path: string) => void;
@@ -167,6 +195,7 @@ interface AppState {
   toggleDir: (path: string) => void;
   loadDirectory: (path: string) => Promise<void>;
   openFolder: () => Promise<void>;
+  createFolder: () => Promise<void>;
   openRecentWorkspace: (path: string) => Promise<void>;
 
   // Rollback Actions
@@ -223,7 +252,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Initial File History Popup State
   fileHistoryPopupVisible: false,
   fileHistoryPopupPinned: false,
-  
+
+  // Initial Indexing State
+  indexingState: {
+    status: 'idle',
+    progress: 0,
+    totalFiles: 0,
+    processedFiles: 0,
+    indexedChunks: 0,
+    lastSyncAt: null,
+    lastError: null,
+    isSemanticSearchReady: false,
+  },
+  indexingPollInterval: null,
+
   // UI Actions
   toggleSidebar: () => set(state => ({ sidebarVisible: !state.sidebarVisible })),
   toggleChat: () => set(state => ({ chatVisible: !state.chatVisible })),
@@ -236,7 +278,98 @@ export const useAppStore = create<AppState>((set, get) => ({
   hideFileHistoryPopup: () => set({ fileHistoryPopupVisible: false }),
   toggleFileHistoryPopup: () => set(state => ({ fileHistoryPopupVisible: !state.fileHistoryPopupVisible })),
   pinFileHistoryPopup: (pinned) => set({ fileHistoryPopupPinned: pinned }),
-  
+
+  // Indexing Actions
+  startIndexing: async () => {
+    const state = get();
+    if (!state.projectPath || !window.electronAPI?.indexing) return;
+
+    try {
+      await window.electronAPI.indexing.start(state.projectPath);
+      // Start polling for updates
+      get().setIndexingPollInterval(window.setInterval(() => {
+        get().refreshIndexingState();
+      }, 1000));
+    } catch (error) {
+      console.error('Failed to start indexing:', error);
+    }
+  },
+
+  stopIndexing: async () => {
+    const state = get();
+    if (!state.projectPath || !window.electronAPI?.indexing) return;
+
+    try {
+      await window.electronAPI.indexing.stop(state.projectPath);
+      // Clear poll interval
+      if (state.indexingPollInterval) {
+        clearInterval(state.indexingPollInterval);
+        set({ indexingPollInterval: null });
+      }
+    } catch (error) {
+      console.error('Failed to stop indexing:', error);
+    }
+  },
+
+  reindexProject: async () => {
+    const state = get();
+    if (!state.projectPath || !window.electronAPI?.indexing) return;
+
+    try {
+      await window.electronAPI.indexing.reindex(state.projectPath);
+      // Start polling for updates
+      get().setIndexingPollInterval(window.setInterval(() => {
+        get().refreshIndexingState();
+      }, 1000));
+    } catch (error) {
+      console.error('Failed to reindex project:', error);
+    }
+  },
+
+  clearIndex: async () => {
+    const state = get();
+    if (!state.projectPath || !window.electronAPI?.indexing) return;
+
+    try {
+      await window.electronAPI.indexing.clear(state.projectPath);
+      set(state => ({
+        indexingState: {
+          ...state.indexingState,
+          status: 'idle',
+          progress: 0,
+          isSemanticSearchReady: false,
+        },
+      }));
+    } catch (error) {
+      console.error('Failed to clear index:', error);
+    }
+  },
+
+  refreshIndexingState: async () => {
+    const state = get();
+    if (!state.projectPath || !window.electronAPI?.indexing) return;
+
+    try {
+      const result = await window.electronAPI.indexing.getState(state.projectPath);
+      if (result.state) {
+        const newState = result.state;
+        set({ indexingState: newState });
+
+        // If indexing is complete or errored, stop polling
+        if (newState.status === 'complete' || newState.status === 'error') {
+          if (state.indexingPollInterval) {
+            clearInterval(state.indexingPollInterval);
+            set({ indexingPollInterval: null });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh indexing state:', error);
+    }
+  },
+
+  setIndexingPollInterval: (interval) => set({ indexingPollInterval: interval }),
+
   // Multi-Conversation Actions
   createConversation: (options) => {
     const state = get();
@@ -528,6 +661,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           // Restore model/provider if saved, otherwise use global defaults
           model: saved.model || currentState.currentModel,
           provider: saved.provider || currentState.currentProvider,
+          // Restore mode if saved, otherwise default to 'code'
+          mode: saved.mode || 'code',
           // Restore context tokens if saved, otherwise set from current settings
           contextTokens: saved.contextTokens,
           maxContextTokens: saved.maxContextTokens || currentState.maxContextTokens || 128000,
@@ -539,9 +674,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeConversationId: loadedConversations[0]?.id || null,
         });
 
-        // Create conversations in the main process with their specific models
+        // Create conversations in the main process with their specific models and modes
         for (const conv of loadedConversations) {
           await window.electronAPI.agent.createConversation(conv.id, conv.model, conv.provider).catch(console.error);
+          // Restore the mode for this conversation
+          if (conv.mode && conv.mode !== 'code') {
+            await window.electronAPI.agent.setMode(conv.id, conv.mode).catch(console.error);
+          }
         }
       }
     } catch (error) {
@@ -619,6 +758,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         isDirty: false,
         model: saved.model || state.currentModel,
         provider: saved.provider || state.currentProvider,
+        mode: saved.mode || 'code',
         maxContextTokens: saved.maxContextTokens || state.maxContextTokens || 128000,
       };
 
@@ -628,12 +768,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeConversationId: conversationId,
       });
 
-      // Create in main process
+      // Create in main process and restore mode
       await window.electronAPI.agent.createConversation(
         conversationId,
         loadedConversation.model,
         loadedConversation.provider
       ).catch(console.error);
+
+      // Restore the mode for this conversation
+      if (loadedConversation.mode && loadedConversation.mode !== 'code') {
+        await window.electronAPI.agent.setMode(conversationId, loadedConversation.mode).catch(console.error);
+      }
 
       return true;
     } catch (error) {
@@ -824,7 +969,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       activeFilePath: settingsPath,
     }));
   },
-  
+
+  openBrowser: (url: string, title?: string) => {
+    const state = get();
+
+    // Check if this URL is already open
+    const existingBrowser = state.openFiles.find(f => f.type === 'browser' && f.path === url);
+    if (existingBrowser) {
+      set({ activeFilePath: url });
+      return;
+    }
+
+    // Create browser tab entry
+    const browserFile: OpenFile = {
+      path: url,
+      content: '',
+      originalContent: '',
+      isDirty: false,
+      type: 'browser',
+      url: url,
+    };
+
+    set(state => ({
+      openFiles: [...state.openFiles, browserFile],
+      activeFilePath: url,
+    }));
+  },
+
   updateFileContent: (path, content) => set(state => ({
     openFiles: state.openFiles.map(f => 
       f.path === path 
@@ -874,19 +1045,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadDirectory: async (dirPath) => {
     try {
       const result = await window.electronAPI.file.list(dirPath);
-      
+
       if (result.error) {
         console.error('Failed to load directory:', result.error);
         return;
       }
-      
+
       set(state => ({
         files: [...state.files.filter(f => !f.path.startsWith(dirPath + '/')), ...result.files],
         projectPath: state.projectPath || dirPath,
       }));
-      
+
       // Start watching the directory
       await window.electronAPI.file.watch(dirPath);
+
+      // Start automatic indexing after directory is loaded
+      setTimeout(() => {
+        const state = get();
+        if (state.projectPath === dirPath) {
+          state.startIndexing();
+        }
+      }, 1000); // Small delay to let UI settle
     } catch (error) {
       console.error('Failed to load directory:', error);
     }
@@ -958,6 +1137,78 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (error) {
       console.error('Failed to open folder:', error);
+    }
+  },
+
+  createFolder: async () => {
+    try {
+      const result = await window.electronAPI.dialog.createFolder();
+
+      if (result.canceled || !result.path) {
+        if (result.error) {
+          console.error('Failed to create folder:', result.error);
+        }
+        return;
+      }
+
+      // Update working directory in main process
+      await window.electronAPI.config.setCwd(result.path);
+
+      // Close all existing conversations
+      const { conversations } = get();
+      for (const conv of conversations) {
+        await window.electronAPI.agent.closeConversation(conv.id).catch(console.error);
+      }
+
+      // Clear existing state
+      set({
+        files: [],
+        expandedDirs: new Set(),
+        projectPath: result.path,
+        conversations: [],
+        activeConversationId: null,
+        openFiles: [],
+        activeFilePath: null,
+      });
+
+      // Add to recent workspaces
+      await window.electronAPI.settings.addRecentWorkspace(result.path);
+
+      // Load the new directory
+      await get().loadDirectory(result.path);
+
+      // Load saved conversations for this workspace
+      await get().loadSavedConversations(result.path);
+
+      // If no conversations were loaded, create a new one
+      const state = get();
+      if (state.conversations.length === 0) {
+        const initialId = crypto.randomUUID();
+        const initialConversation: Conversation = {
+          id: initialId,
+          title: 'New Chat',
+          messages: [],
+          isProcessing: false,
+          streamingContent: '',
+          toolCalls: [],
+          orchestrationStatus: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          isDirty: false,
+          model: state.currentModel,
+          provider: state.currentProvider,
+          maxContextTokens: state.maxContextTokens || 128000,
+        };
+
+        set({
+          conversations: [initialConversation],
+          activeConversationId: initialId,
+        });
+
+        await window.electronAPI.agent.createConversation(initialId, initialConversation.model, initialConversation.provider).catch(console.error);
+      }
+    } catch (error) {
+      console.error('Failed to create folder:', error);
     }
   },
 

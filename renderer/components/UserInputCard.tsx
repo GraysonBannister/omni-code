@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { MessageSquare, Terminal, Copy, Check, X } from 'lucide-react';
 import './UserInputCard.css';
 
@@ -15,7 +15,7 @@ interface Props {
   onRespond: (requestId: string, response: string, cancelled: boolean) => void;
 }
 
-export const UserInputCard: React.FC<Props> = ({ request, onRespond }) => {
+export const UserInputCard: React.FC<Props> = memo(({ request, onRespond }) => {
   const { requestId, prompt, terminalCommand, waitForInput, placeholder } = request;
   const [response, setResponse] = useState('');
   const [copied, setCopied] = useState(false);
@@ -36,10 +36,11 @@ export const UserInputCard: React.FC<Props> = ({ request, onRespond }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
+    // Shift+Enter creates a new line (default textarea behavior)
   };
 
   const copyCommand = async () => {
@@ -98,9 +99,11 @@ export const UserInputCard: React.FC<Props> = ({ request, onRespond }) => {
           Cancel
         </button>
         <button className="user-input-card-btn-submit" onClick={handleSubmit}>
-          {waitForInput ? 'Submit (⌘↵)' : 'Done'}
+          {waitForInput ? 'Submit (Enter)' : 'Done'}
         </button>
       </div>
     </div>
   );
-};
+});
+
+UserInputCard.displayName = 'UserInputCard';

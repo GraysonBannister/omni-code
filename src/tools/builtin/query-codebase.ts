@@ -1,10 +1,10 @@
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
-import { SemanticMemory } from '../../memory/semantic-memory.js';
+import { ProjectIndexer } from '../../memory/project-indexer.js';
 
 export class QueryCodebaseTool implements Tool {
   readonly name = 'QueryCodebase';
-  readonly description = `Search the indexed codebase using semantic/vector search. Returns relevant code chunks matching a natural language query. Run IndexCodebase first to build the index.`;
+  readonly description = `Search the indexed codebase using semantic/vector search. Returns relevant code chunks matching a natural language query. Run IndexCodebase first to build the index. Semantic search becomes available at 80% indexing completion.`;
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
   readonly availableInPlanMode = true;
@@ -34,14 +34,27 @@ export class QueryCodebaseTool implements Tool {
     return null;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const query = (input.query as string).trim();
     const topK = (input.topK as number) || 5;
 
     try {
-      const semMem = await SemanticMemory.create();
-      const results = await semMem.search(query, topK);
-      semMem.close();
+      // Use ProjectIndexer for consistent querying
+      const indexer = new ProjectIndexer(context.cwd);
+      await indexer.initialize();
+
+      // Check if indexing is ready
+      const state = indexer.getState();
+      if (!state.isSemanticSearchReady && state.status === 'indexing') {
+        indexer.destroy();
+        return {
+          content: `Indexing still in progress (${state.progress}% complete). Semantic search will be available at 80% completion. Please wait or try again in a moment.`,
+          isError: true,
+        };
+      }
+
+      const results = await indexer.query(query, topK);
+      indexer.destroy();
 
       if (results.length === 0) {
         return {
@@ -52,7 +65,15 @@ export class QueryCodebaseTool implements Tool {
       const formatted = results.map((chunk, i) => {
         const file = chunk.metadata?.file || 'unknown';
         const startLine = chunk.metadata?.startLine || '?';
-        return `### Result ${i + 1}: ${file}:${startLine}\n\`\`\`\n${chunk.content}\n\`\`\``;
+        const endLine = chunk.metadata?.endLine || '?';
+        const type = chunk.metadata?.type || 'code';
+        const name = chunk.metadata?.name;
+
+        let header = `### Result ${i + 1}: ${file}:${startLine}`;
+        if (name) {
+          header += ` (${type}: ${name})`;
+        }
+        return `${header}\n\`\`\`\n${chunk.content}\n\`\`\``;
       }).join('\n\n');
 
       return {

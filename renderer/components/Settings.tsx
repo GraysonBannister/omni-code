@@ -8,7 +8,7 @@ import { SettingInput } from './settings/SettingInput';
 import { UsageDashboard } from './UsageDashboard';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'privacy' | 'usage';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -23,6 +23,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'apiKeys', label: 'API Keys' },
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'files', label: 'Files' },
+  { id: 'indexing', label: 'Indexing' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'usage', label: 'Usage' },
 ];
@@ -290,15 +291,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
               />
 
               <SettingSelect
-                label="Auto-run Mode"
-                description="When to automatically run AI suggestions"
+                label="Tool Permissions"
+                description="Controls whether the agent can install packages, run commands, and edit files automatically"
                 value={currentSettings.ai.autoRunMode}
                 options={[
-                  { value: 'ask', label: 'Always ask' },
-                  { value: 'always', label: 'Always run' },
-                  { value: 'never', label: 'Never auto-run' },
+                  { value: 'always', label: 'Automatic — run tools without asking' },
+                  { value: 'ask', label: 'Ask before running each tool' },
+                  { value: 'never', label: 'Deny all tool execution' },
                 ]}
-                onChange={(value) => setSetting('ai.autoRunMode', value)}
+                onChange={(value) => {
+                  setSetting('ai.autoRunMode', value);
+                  window.electronAPI?.agent?.setPermissionMode(value);
+                }}
               />
 
               <SettingToggle
@@ -600,6 +604,92 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 checked={currentSettings.files.followSymlinks}
                 onChange={(checked) => setSetting('files.followSymlinks', checked)}
               />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'indexing' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Codebase Indexing</h3>
+              <p className="settings-section-description">
+                Semantic indexing enables natural language search of your codebase.
+                The index is stored locally and never sent to external servers.
+              </p>
+
+              <SettingToggle
+                label="Auto-index on project open"
+                description="Automatically start indexing when a project is opened"
+                checked={currentSettings.indexing.autoIndex}
+                onChange={(checked) => setSetting('indexing.autoIndex', checked)}
+              />
+
+              <SettingToggle
+                label="Auto-sync"
+                description="Automatically sync the index when files change"
+                checked={currentSettings.indexing.autoSync}
+                onChange={(checked) => setSetting('indexing.autoSync', checked)}
+              />
+
+              <SettingSelect
+                label="Sync Interval"
+                description="How often to check for file changes and update the index"
+                value={String(currentSettings.indexing.syncIntervalMinutes)}
+                options={[
+                  { value: '1', label: '1 minute' },
+                  { value: '5', label: '5 minutes' },
+                  { value: '10', label: '10 minutes' },
+                  { value: '30', label: '30 minutes' },
+                ]}
+                onChange={(value) => setSetting('indexing.syncIntervalMinutes', parseInt(value))}
+              />
+
+              <SettingToggle
+                label="Semantic Chunking"
+                description="Use language-aware chunking for better search results (functions, classes)"
+                checked={currentSettings.indexing.useSemanticChunking}
+                onChange={(checked) => setSetting('indexing.useSemanticChunking', checked)}
+              />
+
+              <SettingInput
+                label="Max Files to Index"
+                description="Maximum number of files to include in the index"
+                value={String(currentSettings.indexing.maxFilesToIndex)}
+                type="number"
+                min={100}
+                max={5000}
+                onChange={(value) => setSetting('indexing.maxFilesToIndex', parseInt(value) || 500)}
+              />
+
+              <SettingInput
+                label="Max File Size (MB)"
+                description="Skip files larger than this size"
+                value={String(currentSettings.indexing.maxFileSizeMB)}
+                type="number"
+                min={1}
+                max={50}
+                onChange={(value) => setSetting('indexing.maxFileSizeMB', parseInt(value) || 1)}
+              />
+
+              <SettingInput
+                label="Indexing Exclude Patterns"
+                description="Comma-separated glob patterns to exclude from indexing"
+                value={currentSettings.indexing.excludePatterns.join(', ')}
+                onChange={(value) =>
+                  setSetting(
+                    'indexing.excludePatterns',
+                    value.split(',').map((s) => s.trim()).filter(Boolean)
+                  )
+                }
+              />
+
+              <div className="settings-info-box">
+                <strong>Tips for better indexing:</strong>
+                <ul>
+                  <li>Create a <code>.omniignore</code> file in your project root for project-specific exclusions</li>
+                  <li>Exclude large generated files (build outputs, lock files)</li>
+                  <li>Semantic chunking provides better results but uses more storage</li>
+                  <li>Indexing happens in the background and won&apos;t slow down your work</li>
+                </ul>
+              </div>
             </div>
           )}
 

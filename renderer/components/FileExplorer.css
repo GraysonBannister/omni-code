@@ -16,7 +16,16 @@
 .file-explorer-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+}
+
+.file-explorer-actions button {
+  padding: 4px 6px;
+}
+
+.file-explorer-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .file-explorer-title {
@@ -42,6 +51,11 @@
   margin-bottom: var(--spacing-sm);
 }
 
+.file-explorer-selected-indicator {
+  color: var(--color-accent, #3b82f6);
+  font-weight: 500;
+}
+
 .file-explorer-loading,
 .file-explorer-empty {
   padding: var(--spacing-lg);
@@ -60,6 +74,30 @@
 
 .file-explorer-tree {
   user-select: none;
+}
+
+/* New item input styles */
+.file-explorer-new-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  margin: 2px 0;
+}
+
+.file-explorer-new-item-input {
+  flex: 1;
+  background: var(--color-bg-primary, #1e1e1e);
+  border: 1px solid var(--color-accent, #3b82f6);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text, #e0e0e0);
+  outline: none;
+}
+
+.file-explorer-new-item-input:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* File Node Styles */
@@ -86,6 +124,11 @@
 .file-node-row.active {
   background: var(--color-accent-bg);
   color: var(--color-accent);
+}
+
+.file-node-row.selected-folder {
+  background: rgba(59, 130, 246, 0.2);
+  border-left: 2px solid var(--color-accent, #3b82f6);
 }
 
 .file-node-icon {

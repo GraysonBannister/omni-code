@@ -105,7 +105,7 @@ export interface MessageSnapshot {
 
 /**
  * FileHistoryManager tracks file changes per message for rollback support
- * Stores snapshots in memory and on disk in .omni-code/backups/
+ * Stores snapshots in memory and on disk in .omnicode/backups/
  */
 export class FileHistoryManager {
   private snapshots = new Map<string, MessageSnapshot>(); // key: `${conversationId}/${messageId}`
@@ -114,7 +114,7 @@ export class FileHistoryManager {
 
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
-    this.backupDir = join(workspacePath, '.omni-code', 'backups');
+    this.backupDir = join(workspacePath, '.omnicode', 'backups');
   }
 
   private resolveFilePath(filePath: string): string {

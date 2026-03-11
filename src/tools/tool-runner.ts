@@ -67,8 +67,9 @@ export class ToolRunner {
 
     // 4. Execute the tool
     this.eventBus.emit('tool_call_start', { toolName, toolId, input: normalizedInput });
-    const executionContext: ToolContext = {
+    const executionContext: ToolContext & { eventBus: EventBus } = {
       ...context,
+      eventBus: this.eventBus,
       onProgress: (message: string) => {
         context.onProgress?.(message);
         this.eventBus.emit('tool_call_progress', {

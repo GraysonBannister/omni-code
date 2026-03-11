@@ -18,3 +18,58 @@ export const MAX_OUTPUT_DISPLAY_LINES = 2000;
 export const MAX_LINE_LENGTH = 2000;
 export const CONTEXT_COMPRESSION_THRESHOLD = 0.9;
 export const RECENT_MESSAGES_TO_KEEP = 6;
+
+// Indexing Constants
+export const INDEX_DIR_NAME = 'index';
+export const INDEX_STATUS_FILE = 'status.json';
+export const INDEX_VECTORS_FILE = 'vectors.hnsw';
+export const INDEX_METADATA_FILE = 'metadata.db';
+export const INDEX_CONFIG_FILE = 'index-config.json';
+export const OMNIIIGNORE_FILE = '.omniignore';
+
+export const DEFAULT_AUTO_INDEX = true;
+export const DEFAULT_AUTO_SYNC = true;
+export const DEFAULT_SYNC_INTERVAL_MINUTES = 5;
+export const SEMANTIC_SEARCH_THRESHOLD_PERCENT = 80;
+export const DEFAULT_CHUNK_SIZE = 20;
+export const DEFAULT_MAX_CHUNK_SIZE = 2000;
+export const DEFAULT_MAX_FILES_TO_INDEX = 500;
+export const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1MB
+export const DEFAULT_EMBEDDING_BATCH_SIZE = 10;
+export const DEFAULT_INDEX_CONCURRENCY = 4;
+
+export const DEFAULT_INDEXING_EXCLUDE_PATTERNS = [
+  'node_modules/**',
+  '.git/**',
+  'dist/**',
+  'build/**',
+  '.next/**',
+  '.nuxt/**',
+  '.cache/**',
+  '**/*.log',
+  '**/Thumbs.db',
+  '**/.DS_Store',
+  '.omnicode/**',
+  '**/*.min.js',
+  '**/*.bundle.js',
+  '**/package-lock.json',
+  '**/yarn.lock',
+  '**/pnpm-lock.yaml',
+  '**/*.lock',
+];
+
+export const INDEXING_SUPPORTED_EXTENSIONS = [
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.pyi', '.pyw',
+  '.java', '.kt',
+  '.go', '.rs',
+  '.rb', '.php',
+  '.swift',
+  '.c', '.cpp', '.h', '.hpp',
+  '.cs', '.fs',
+];
+
+// Plan/Architecture Constants
+export const PLAN_FILE_NAME = 'PLAN.md';
+export const PLAN_FILE_ENCODING = 'utf-8';
+export const ARCHITECTURE_FILE_NAME = 'ARCHITECTURE.md';

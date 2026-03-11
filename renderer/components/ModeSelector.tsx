@@ -59,8 +59,11 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
 
   return (
     <div className="mode-selector">
-      <label className="mode-selector-label">AI Mode</label>
-      
+      <label className="mode-selector-label">
+        {currentMode.icon}
+        AI Mode: <strong>{currentMode.label}</strong>
+      </label>
+
       <div className="mode-buttons">
         {modes.map((mode) => (
           <button
@@ -69,6 +72,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
             disabled={disabled}
             className={`mode-button ${value === mode.value ? 'active' : ''}`}
             title={mode.description}
+            data-mode={mode.value}
           >
             {mode.icon}
             <span className="mode-label">{mode.label}</span>

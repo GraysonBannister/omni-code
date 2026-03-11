@@ -10,6 +10,7 @@ type AgentEvent =
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: { content: string; isError?: boolean } }
   | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
+  | { type: 'tool_results_complete'; message: unknown }
   | { type: 'permission_request'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'permission_granted'; toolId: string }
   | { type: 'permission_denied'; toolId: string }
@@ -612,6 +613,70 @@ export class AgentBridge {
     } catch (error) {
       console.error(`Failed to switch model for conversation ${conversationId}:`, error);
       return false;
+    }
+  }
+
+  async setMode(conversationId: string, mode: string): Promise<{ success: boolean; mode: string }> {
+    const state = this.conversations.get(conversationId);
+    if (!state) {
+      console.error(`Conversation ${conversationId} not found`);
+      return { success: false, mode };
+    }
+
+    try {
+      // Import mode configuration
+      const { BUILTIN_MODES } = await import('../src/config/modes.js');
+      const modeConfig = BUILTIN_MODES[mode];
+
+      if (!modeConfig) {
+        console.warn(`[AgentBridge] Unknown mode: ${mode}`);
+        return { success: false, mode };
+      }
+
+      // Build config updates from mode
+      const updates: Partial<AgentConfig> = {};
+
+      if (modeConfig.temperature !== undefined) {
+        updates.temperature = modeConfig.temperature;
+      }
+
+      if (modeConfig.planMode !== undefined) {
+        updates.planMode = modeConfig.planMode;
+      }
+
+      // Update system prompt with mode-specific guidance
+      const currentSystemPrompt = state.agent.config.systemPrompt || '';
+      // Remove any previous mode append (simple approach: look for mode markers)
+      const basePrompt = currentSystemPrompt.replace(/\n\nYou are in (architect|code|review|security|debug) mode\.?.*/s, '');
+      updates.systemPrompt = basePrompt + '\n\n' + modeConfig.systemPromptAppend;
+
+      // Apply config updates
+      state.agent.updateConfig(updates);
+
+      // Handle tool filtering if needed
+      if (modeConfig.disabledTools || modeConfig.allowedTools) {
+        // Tools are filtered via availableInPlanMode or by modifying the tools array
+        const updatedTools = state.agent.config.tools.map(tool => {
+          const shouldDisable = modeConfig.disabledTools?.includes(tool.name);
+          const shouldEnable = modeConfig.allowedTools?.includes(tool.name);
+
+          if (shouldDisable) {
+            return { ...tool, enabled: false };
+          }
+          if (modeConfig.allowedTools && !shouldEnable) {
+            return { ...tool, enabled: false };
+          }
+          return { ...tool, enabled: true };
+        });
+
+        state.agent.updateConfig({ tools: updatedTools });
+      }
+
+      console.log(`[AgentBridge] Set mode to ${mode} for conversation ${conversationId}`);
+      return { success: true, mode };
+    } catch (error) {
+      console.error(`[AgentBridge] Failed to set mode for conversation ${conversationId}:`, error);
+      return { success: false, mode };
     }
   }
 

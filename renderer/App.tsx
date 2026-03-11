@@ -5,7 +5,7 @@ import { CodeEditor } from './components/Editor';
 import { ChatPanel } from './components/ChatPanel';
 import { StatusBar } from './components/StatusBar';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { SearchBar } from './components/SearchBar';
+import { HeaderBar } from './components/HeaderBar';
 import { useAppStore } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
@@ -16,6 +16,7 @@ export const App: React.FC = () => {
     chatVisible,
     projectPath,
     openFolder,
+    createFolder,
     openRecentWorkspace,
   } = useAppStore();
   const [isElectron, setIsElectron] = React.useState(true);
@@ -316,6 +317,7 @@ export const App: React.FC = () => {
     return (
       <WelcomeScreen
         onOpenFolder={openFolder}
+        onCreateFolder={createFolder}
         onOpenRecent={openRecentWorkspace}
         recentWorkspaces={recentWorkspaces}
       />
@@ -324,12 +326,8 @@ export const App: React.FC = () => {
 
   return (
     <div className="app">
-      {/* Top Search Bar Header */}
-      {projectPath && (
-        <div className="app-header">
-          <SearchBar />
-        </div>
-      )}
+      {/* Top Header Bar */}
+      <HeaderBar />
 
       <div className="app-body">
         <PanelGroup direction="horizontal">
