@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug } from 'lucide-react';
+import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug, TerminalSquare } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { IndexingStatus } from './IndexingStatus';
 import './StatusBar.css';
@@ -33,6 +33,8 @@ export const StatusBar: React.FC = () => {
     setModel,
     activeConversationId,
     conversations,
+    terminalVisible,
+    toggleTerminal,
   } = useAppStore();
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
@@ -118,7 +120,7 @@ export const StatusBar: React.FC = () => {
         )}
       </div>
 
-      {/* Right - Stats */}
+      {/* Right - Stats + Terminal toggle */}
       <div className="status-bar-section right">
         {totalCost > 0 && (
           <div className="status-item" title="Total cost">
@@ -134,6 +136,13 @@ export const StatusBar: React.FC = () => {
         <div className="status-item">
           <span>{currentProvider}</span>
         </div>
+        <button
+          className={`status-item status-terminal-toggle ${terminalVisible ? 'active' : ''}`}
+          onClick={toggleTerminal}
+          title={`${terminalVisible ? 'Hide' : 'Show'} Terminal (⌘\`)`}
+        >
+          <TerminalSquare size={14} />
+        </button>
       </div>
     </div>
   );

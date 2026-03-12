@@ -54,6 +54,7 @@
 
 .editor-panel {
   background: var(--editor-bg);
+  position: relative;
 }
 
 .chat-panel {

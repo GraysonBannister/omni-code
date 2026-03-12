@@ -79,13 +79,26 @@ export interface Conversation {
   maxContextTokens?: number; // Maximum allowed context tokens
 }
 
+// Terminal Session for multi-terminal support
+export interface TerminalSession {
+  id: string;
+  title: string;
+  cwd: string;
+  createdAt: number;
+}
+
 interface AppState {
   // UI State
   sidebarVisible: boolean;
   chatVisible: boolean;
+  terminalVisible: boolean;
   activePanel: 'chat' | 'terminal' | 'settings';
   theme: 'dark' | 'light';
   isAppInitialized: boolean; // Track if app has finished initial setup (settings loaded, etc.)
+  
+  // Multi-Terminal State
+  terminals: TerminalSession[];
+  activeTerminalId: string | null;
   
   // Multi-Conversation State (replaces single conversation state)
   conversations: Conversation[];
@@ -131,9 +144,16 @@ interface AppState {
   // UI Actions
   toggleSidebar: () => void;
   toggleChat: () => void;
+  toggleTerminal: () => void;
   setActivePanel: (panel: 'chat' | 'terminal' | 'settings') => void;
   setTheme: (theme: 'dark' | 'light') => void;
   setAppInitialized: (initialized: boolean) => void;
+  
+  // Terminal Actions (multi-tab support)
+  createTerminal: (cwd?: string) => string;
+  closeTerminal: (id: string) => void;
+  setActiveTerminal: (id: string) => void;
+  updateTerminalTitle: (id: string, title: string) => void;
   
   // File History Popup Actions
   showFileHistoryPopup: () => void;
@@ -190,6 +210,8 @@ interface AppState {
   setActiveFile: (path: string) => void;
   openSettings: () => void;
   openBrowser: (url: string, title?: string) => void;
+  updateBrowserUrl: (path: string, newUrl: string) => void;
+  closeBrowserTab: (url: string) => void;
   updateFileContent: (path: string, content: string) => void;
   saveFile: (path: string) => Promise<void>;
   setProjectPath: (path: string) => void;
@@ -222,6 +244,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Initial UI State
   sidebarVisible: true,
   chatVisible: true,
+  terminalVisible: false,
   activePanel: 'chat',
   theme: 'dark',
   isAppInitialized: false,
@@ -229,6 +252,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Initial Multi-Conversation State
   conversations: [],
   activeConversationId: null,
+  
+  // Initial Multi-Terminal State
+  terminals: [],
+  activeTerminalId: null,
   
   // Initial Past Chats State
   pastChats: [],
@@ -271,9 +298,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   // UI Actions
   toggleSidebar: () => set(state => ({ sidebarVisible: !state.sidebarVisible })),
   toggleChat: () => set(state => ({ chatVisible: !state.chatVisible })),
+  toggleTerminal: () => set(state => ({ terminalVisible: !state.terminalVisible })),
   setActivePanel: (panel) => set({ activePanel: panel }),
   setTheme: (theme) => set({ theme }),
   setAppInitialized: (initialized) => set({ isAppInitialized: initialized }),
+  
+  // Terminal Actions (multi-tab support)
+  createTerminal: (cwd) => {
+    const id = crypto.randomUUID();
+    const state = get();
+    const title = cwd ? cwd.split('/').pop() || 'Terminal' : 'Terminal';
+    const session: TerminalSession = { id, title, cwd: cwd || state.projectPath || '/', createdAt: Date.now() };
+    set(state => ({ 
+      terminals: [...state.terminals, session],
+      activeTerminalId: id 
+    }));
+    return id;
+  },
+  closeTerminal: (id) => set(state => {
+    const newTerminals = state.terminals.filter(t => t.id !== id);
+    // Also destroy the PTY session
+    if (window.electronAPI?.terminal) {
+      window.electronAPI.terminal.destroy(id);
+    }
+    return {
+      terminals: newTerminals,
+      activeTerminalId: state.activeTerminalId === id 
+        ? newTerminals[newTerminals.length - 1]?.id || null 
+        : state.activeTerminalId
+    };
+  }),
+  setActiveTerminal: (id) => set({ activeTerminalId: id }),
+  updateTerminalTitle: (id, title) => set(state => ({
+    terminals: state.terminals.map(t => t.id === id ? { ...t, title } : t)
+  })),
   
   // File History Popup Actions
   showFileHistoryPopup: () => set({ fileHistoryPopupVisible: true }),
@@ -998,6 +1056,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  updateBrowserUrl: (path, newUrl) => set(state => {
+    // Update the URL of an existing browser tab
+    const updatedFiles = state.openFiles.map(f => {
+      if (f.path === path && f.type === 'browser') {
+        return { ...f, path: newUrl, url: newUrl };
+      }
+      return f;
+    });
+    
+    // If the active file was the one being updated, update activeFilePath too
+    const newActivePath = state.activeFilePath === path ? newUrl : state.activeFilePath;
+    
+    return { openFiles: updatedFiles, activeFilePath: newActivePath };
+  }),
+
+  closeBrowserTab: (url) => set(state => ({
+    openFiles: state.openFiles.filter(f => !(f.type === 'browser' && f.path === url)),
+    activeFilePath: state.activeFilePath === url ? null : state.activeFilePath,
+  })),
+
   updateFileContent: (path, content) => set(state => ({
     openFiles: state.openFiles.map(f => 
       f.path === path 
@@ -1317,3 +1395,45 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 }));
+
+// Subscribe to browser IPC events from the main process
+// This should be called once when the app initializes
+export function subscribeToBrowserEvents(): () => void {
+  const { openBrowser, updateBrowserUrl, closeBrowserTab, closeFile } = useAppStore.getState();
+  
+  // Listen for browser open events from AI
+  const unsubscribeOpen = window.electronAPI.browser.onOpen((event) => {
+    console.log('[Browser] AI requested to open:', event.url);
+    openBrowser(event.url, event.title);
+  });
+  
+  // Listen for browser navigate events from AI
+  const unsubscribeNavigate = window.electronAPI.browser.onNavigate((event) => {
+    console.log('[Browser] AI requested navigate:', event.tabId, '->', event.url);
+    // Close the old tab and open a new one (or update URL if we want to preserve state)
+    // For now, we'll update the URL
+    const state = useAppStore.getState();
+    const existingTab = state.openFiles.find(f => f.type === 'browser' && f.path === event.tabId);
+    if (existingTab) {
+      // Close old tab and open new one with new URL
+      closeBrowserTab(event.tabId);
+      openBrowser(event.url);
+    } else {
+      // Just open the new URL
+      openBrowser(event.url);
+    }
+  });
+  
+  // Listen for browser close events from AI
+  const unsubscribeClose = window.electronAPI.browser.onClose((event) => {
+    console.log('[Browser] AI requested close:', event.tabId);
+    closeBrowserTab(event.tabId);
+  });
+  
+  // Return cleanup function
+  return () => {
+    unsubscribeOpen();
+    unsubscribeNavigate();
+    unsubscribeClose();
+  };
+}

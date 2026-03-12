@@ -224,6 +224,53 @@ type IndexingAPI = {
   closeAll: () => Promise<{ success: boolean; error: string | null }>;
 };
 
+// Notifications API
+type NotificationsAPI = {
+  requestSound: (type: 'user_input' | 'response_complete') => Promise<void>;
+};
+
+// Terminal API
+type TerminalAPI = {
+  create: (id: string, cwd: string, cols: number, rows: number) => Promise<{ success: boolean; error?: string }>;
+  write: (id: string, data: string) => Promise<void>;
+  resize: (id: string, cols: number, rows: number) => Promise<void>;
+  destroy: (id: string) => Promise<void>;
+  onData: (callback: (event: { id: string; data: string }) => void) => () => void;
+  onExit: (callback: (event: { id: string }) => void) => () => void;
+};
+
+// Browser API for AI-controlled browser tabs
+type BrowserAPI = {
+  open: (url: string, title?: string) => Promise<{ success: boolean; url: string; error?: string }>;
+  navigate: (tabId: string, url: string) => Promise<{ success: boolean; tabId: string; url: string; error?: string }>;
+  close: (tabId: string) => Promise<{ success: boolean; tabId: string; error?: string }>;
+  onOpen: (callback: (event: { url: string; title?: string }) => void) => () => void;
+  onNavigate: (callback: (event: { tabId: string; url: string }) => void) => () => void;
+  onClose: (callback: (event: { tabId: string }) => void) => () => void;
+  onScreenshotRequest: (callback: (event: { tabId: string }) => void) => () => void;
+  sendScreenshotResponse: (tabId: string, dataUrl?: string, error?: string) => Promise<void>;
+};
+
+// Remote Access API
+type RemoteServerStatus = {
+  running: boolean;
+  url: string | null;
+  apiKey: string | null;
+  port: number;
+  connections: {
+    totalConversations: number;
+    totalConnections: number;
+    conversations: string[];
+  };
+};
+
+type RemoteAPI = {
+  start: () => Promise<{ success: boolean; url?: string; apiKey?: string; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<RemoteServerStatus>;
+  regenerateApiKey: () => Promise<{ success: boolean; apiKey?: string; error?: string }>;
+};
+
 // Main Electron API
 type ElectronAPI = {
   agent: AgentAPI;
@@ -237,6 +284,10 @@ type ElectronAPI = {
   chatStorage: ChatStorageAPI;
   usage: UsageAPI;
   indexing: IndexingAPI;
+  notifications: NotificationsAPI;
+  terminal: TerminalAPI;
+  browser: BrowserAPI;
+  remote: RemoteAPI;
 };
 
 // Expose APIs via contextBridge
@@ -391,6 +442,70 @@ const api: ElectronAPI = {
       return () => ipcRenderer.off('menu:open-recent', handler);
     },
   },
+
+  notifications: {
+    requestSound: (type: 'user_input' | 'response_complete') =>
+      ipcRenderer.invoke('notification:request-sound', type),
+  },
+
+  terminal: {
+    create: (id: string, cwd: string, cols: number, rows: number) =>
+      ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
+    write: (id: string, data: string) =>
+      ipcRenderer.invoke('terminal:write', id, data),
+    resize: (id: string, cols: number, rows: number) =>
+      ipcRenderer.invoke('terminal:resize', id, cols, rows),
+    destroy: (id: string) =>
+      ipcRenderer.invoke('terminal:destroy', id),
+    onData: (callback: (event: { id: string; data: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { id: string; data: string }) => callback(event);
+      ipcRenderer.on('terminal:data', handler);
+      return () => ipcRenderer.off('terminal:data', handler);
+    },
+    onExit: (callback: (event: { id: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { id: string }) => callback(event);
+      ipcRenderer.on('terminal:exit', handler);
+      return () => ipcRenderer.off('terminal:exit', handler);
+    },
+  },
+
+  browser: {
+    open: (url: string, title?: string) =>
+      ipcRenderer.invoke('browser:open', url, title),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke('browser:navigate', tabId, url),
+    close: (tabId: string) =>
+      ipcRenderer.invoke('browser:close', tabId),
+    onOpen: (callback: (event: { url: string; title?: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { url: string; title?: string }) => callback(event);
+      ipcRenderer.on('browser:open', handler);
+      return () => ipcRenderer.off('browser:open', handler);
+    },
+    onNavigate: (callback: (event: { tabId: string; url: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { tabId: string; url: string }) => callback(event);
+      ipcRenderer.on('browser:navigate', handler);
+      return () => ipcRenderer.off('browser:navigate', handler);
+    },
+    onClose: (callback: (event: { tabId: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { tabId: string }) => callback(event);
+      ipcRenderer.on('browser:close', handler);
+      return () => ipcRenderer.off('browser:close', handler);
+    },
+    onScreenshotRequest: (callback: (event: { tabId: string }) => void) => {
+      const handler = (_: IpcRendererEvent, event: { tabId: string }) => callback(event);
+      ipcRenderer.on('browser:request-screenshot', handler);
+      return () => ipcRenderer.off('browser:request-screenshot', handler);
+    },
+    sendScreenshotResponse: (tabId: string, dataUrl?: string, error?: string) =>
+      ipcRenderer.invoke('browser:screenshot-response', { tabId, dataUrl, error }),
+  },
+
+  remote: {
+    start: () => ipcRenderer.invoke('remote:start'),
+    stop: () => ipcRenderer.invoke('remote:stop'),
+    status: () => ipcRenderer.invoke('remote:status'),
+    regenerateApiKey: () => ipcRenderer.invoke('remote:regenerate-api-key'),
+  },
 };
 
 // Expose to window.electronAPI
@@ -423,6 +538,6 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, IndexingState, IndexChunk,
-  AgentEvent, ConversationAgentEvent
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI,
+  IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus
 };

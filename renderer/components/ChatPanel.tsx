@@ -770,6 +770,8 @@ export const ChatPanel: React.FC = () => {
             // Immediately persist the completed response so it survives a quit
             // before the 3-second auto-save debounce fires.
             useAppStore.getState().saveConversation(conversationId).catch(console.error);
+            // Request notification sound for completed response
+            window.electronAPI!.notifications.requestSound('response_complete').catch(console.error);
           }
           break;
 
@@ -873,6 +875,8 @@ export const ChatPanel: React.FC = () => {
               waitForInput: agentEvent.waitForInput as boolean,
               placeholder: agentEvent.placeholder as string | undefined,
             });
+            // Request notification sound since user attention is needed
+            window.electronAPI!.notifications.requestSound('user_input').catch(console.error);
           }
           break;
         }

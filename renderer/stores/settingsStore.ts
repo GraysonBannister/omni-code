@@ -102,6 +102,16 @@ export interface SettingsSchema {
     dataRetentionMonths: number;
     showInStatusBar: boolean;
   };
+
+  remoteAccess: {
+    enabled: boolean;
+    ngrokAuthToken: string;
+    apiKey: string | null;
+    port: number;
+    allowedOrigins: string[];
+    rateLimitRequests: number;
+    rateLimitWindowMs: number;
+  };
 }
 
 // Settings State
@@ -239,6 +249,16 @@ export const defaultSettings: SettingsSchema = {
     alertThresholds: [0.8, 0.95, 1.0],
     dataRetentionMonths: 12,
     showInStatusBar: true,
+  },
+
+  remoteAccess: {
+    enabled: false,
+    ngrokAuthToken: '',
+    apiKey: null,
+    port: 3000,
+    allowedOrigins: [],
+    rateLimitRequests: 100,
+    rateLimitWindowMs: 15 * 60 * 1000,
   },
 };
 

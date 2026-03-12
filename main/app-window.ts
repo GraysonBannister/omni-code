@@ -1,6 +1,8 @@
 import { BrowserWindow, Menu, MenuItemConstructorOptions, shell, ipcMain, nativeImage } from 'electron';
 import * as path from 'node:path';
 import { settingsManager } from './settings.js';
+import { initializeWindowFocusTracking } from './notifications.js';
+import { setMainWindowForBrowser } from './ipc-handlers.js';
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
@@ -190,6 +192,9 @@ export async function createWindow(): Promise<BrowserWindow> {
     show: false,
   });
 
+  // Set main window reference for browser events
+  setMainWindowForBrowser(mainWindow);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     mainWindow?.focus();
@@ -207,6 +212,9 @@ export async function createWindow(): Promise<BrowserWindow> {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Initialize focus tracking for notification sounds
+  initializeWindowFocusTracking(mainWindow);
 
   // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

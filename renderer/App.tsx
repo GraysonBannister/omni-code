@@ -6,7 +6,8 @@ import { ChatPanel } from './components/ChatPanel';
 import { StatusBar } from './components/StatusBar';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { HeaderBar } from './components/HeaderBar';
-import { useAppStore } from './stores/appStore';
+import { TerminalPanel } from './components/TerminalPanel';
+import { useAppStore, subscribeToBrowserEvents } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
 
@@ -14,6 +15,7 @@ export const App: React.FC = () => {
   const {
     sidebarVisible,
     chatVisible,
+    terminalVisible,
     projectPath,
     openFolder,
     createFolder,
@@ -46,6 +48,19 @@ export const App: React.FC = () => {
       if (isMetaOrCtrl && e.key === ',') {
         e.preventDefault();
         openSettings();
+      }
+
+      // Cmd/Ctrl + ` for terminal
+      if (isMetaOrCtrl && e.key === '`') {
+        e.preventDefault();
+        useAppStore.getState().toggleTerminal();
+      }
+
+      // Cmd/Ctrl + Shift + T for new terminal
+      if (isMetaOrCtrl && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        e.preventDefault();
+        const { createTerminal, projectPath } = useAppStore.getState();
+        createTerminal(projectPath);
       }
       
       // Cmd/Ctrl + T for new conversation
@@ -184,10 +199,14 @@ export const App: React.FC = () => {
       }
     });
 
+    // Subscribe to browser events from AI
+    const unsubscribeBrowser = subscribeToBrowserEvents();
+
     return () => {
       unsubscribeMenu();
       unsubscribeOpenRecent();
       unsubscribeQuit();
+      unsubscribeBrowser();
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
@@ -356,6 +375,7 @@ export const App: React.FC = () => {
             className="editor-panel"
           >
             <CodeEditor />
+            {terminalVisible && <TerminalPanel />}
           </Panel>
 
           {/* Chat Panel */}

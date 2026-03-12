@@ -5,6 +5,17 @@ import { setWorkingDirectory, getWorkingDirectory, setPermissionMode } from './c
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
 import { getFileHistoryManager } from './file-history.js';
+import { requestNotificationSound } from './notifications.js';
+import {
+  createTerminal,
+  writeToTerminal,
+  resizeTerminal,
+  destroyTerminal,
+  destroyAllTerminals,
+} from './terminal-manager.js';
+
+// Reference to main window for sending browser events to renderer
+let mainWindowRef: BrowserWindow | null = null;
 import {
   DEFAULT_CHUNK_THRESHOLD_BYTES,
   writeLargeFile,
@@ -802,9 +813,116 @@ export function setupIpcHandlers(): void {
     const window = BrowserWindow.getFocusedWindow();
     window?.close();
   });
+
+  // Notification sound handler
+  ipcMain.handle('notification:request-sound', async (event: IpcMainInvokeEvent, type: 'user_input' | 'response_complete') => {
+    // Get the window that sent the request
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) {
+      requestNotificationSound(window, type);
+    }
+  });
+
+  // Terminal handlers
+  ipcMain.handle('terminal:create', (event: IpcMainInvokeEvent, id: string, cwd: string, cols: number, rows: number) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return { success: false, error: 'No window found' };
+    try {
+      createTerminal(id, cwd, cols, rows, window);
+      return { success: true };
+    } catch (error) {
+      console.error('[Terminal] Failed to create terminal:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('terminal:write', (_: IpcMainInvokeEvent, id: string, data: string) => {
+    writeToTerminal(id, data);
+  });
+
+  ipcMain.handle('terminal:resize', (_: IpcMainInvokeEvent, id: string, cols: number, rows: number) => {
+    resizeTerminal(id, cols, rows);
+  });
+
+  ipcMain.handle('terminal:destroy', (_: IpcMainInvokeEvent, id: string) => {
+    destroyTerminal(id);
+  });
+
+  // Browser IPC handlers for AI-controlled browser tabs
+  ipcMain.handle('browser:open', async (_: IpcMainInvokeEvent, url: string, title?: string) => {
+    if (!mainWindowRef) {
+      return { success: false, error: 'Main window not available' };
+    }
+    // Send event to renderer to open browser tab
+    mainWindowRef.webContents.send('browser:open', { url, title });
+    return { success: true, url };
+  });
+
+  ipcMain.handle('browser:navigate', async (_: IpcMainInvokeEvent, tabId: string, url: string) => {
+    if (!mainWindowRef) {
+      return { success: false, error: 'Main window not available' };
+    }
+    mainWindowRef.webContents.send('browser:navigate', { tabId, url });
+    return { success: true, tabId, url };
+  });
+
+  ipcMain.handle('browser:close', async (_: IpcMainInvokeEvent, tabId: string) => {
+    if (!mainWindowRef) {
+      return { success: false, error: 'Main window not available' };
+    }
+    mainWindowRef.webContents.send('browser:close', { tabId });
+    return { success: true, tabId };
+  });
+
+  // Remote access handlers
+  ipcMain.handle('remote:start', async () => {
+    try {
+      const { initializeRemoteServer } = await import('./remote-server.js');
+      const result = await initializeRemoteServer();
+      return result;
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('remote:stop', async () => {
+    try {
+      const { stopRemoteServer } = await import('./remote-server.js');
+      return await stopRemoteServer();
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('remote:status', async () => {
+    try {
+      const { getRemoteServerStatus } = await import('./remote-server.js');
+      return getRemoteServerStatus();
+    } catch (error) {
+      return { running: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('remote:regenerate-api-key', async () => {
+    try {
+      const { regenerateApiKey } = await import('./remote-auth.js');
+      const newKey = regenerateApiKey();
+      return { success: true, apiKey: newKey };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+}
+
+// Set main window reference for browser events
+export function setMainWindowForBrowser(window: BrowserWindow): void {
+  mainWindowRef = window;
 }
 
 export function cleanupIpcHandlers(): void {
+  // Clean up all terminal sessions
+  destroyAllTerminals();
+
   // Clean up all file watchers
   fileWatchers.forEach(controller => controller.abort());
   fileWatchers.clear();
@@ -867,4 +985,19 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('window:minimize');
   ipcMain.removeHandler('window:maximize');
   ipcMain.removeHandler('window:close');
+  ipcMain.removeHandler('notification:request-sound');
+  ipcMain.removeHandler('terminal:create');
+  ipcMain.removeHandler('terminal:write');
+  ipcMain.removeHandler('terminal:resize');
+  ipcMain.removeHandler('terminal:destroy');
+  ipcMain.removeHandler('browser:open');
+  ipcMain.removeHandler('browser:navigate');
+  ipcMain.removeHandler('browser:close');
+  ipcMain.removeHandler('browser:request-screenshot');
+
+  // Remote access cleanup
+  ipcMain.removeHandler('remote:start');
+  ipcMain.removeHandler('remote:stop');
+  ipcMain.removeHandler('remote:status');
+  ipcMain.removeHandler('remote:regenerate-api-key');
 }

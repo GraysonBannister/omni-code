@@ -21,6 +21,7 @@ import { agentBridge } from './agent-bridge.js';
 import { setToolsRef, setConfigRef, setAgentRef } from './ipc-handlers.js';
 import { getUsageStorage } from './usage-storage.js';
 import type { UsageRecord } from '../src/core/usage-types.js';
+import { settingsManager } from './settings.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
@@ -442,6 +443,27 @@ export async function initializeCore(): Promise<void> {
 
     coreInitialized = true;
     console.log('Core initialization complete');
+
+    // Initialize remote access server if enabled
+    try {
+      const remoteEnabled = settingsManager.get('remoteAccess.enabled') as boolean;
+      const ngrokAuthToken = settingsManager.get('remoteAccess.ngrokAuthToken') as string;
+
+      if (remoteEnabled && ngrokAuthToken) {
+        console.log('[CoreIntegration] Remote access enabled, starting server...');
+        const { initializeRemoteServer } = await import('./remote-server.js');
+        const result = await initializeRemoteServer();
+
+        if (result.success) {
+          console.log('[CoreIntegration] Remote server started:', result.url);
+        } else {
+          console.error('[CoreIntegration] Failed to start remote server:', result.error);
+        }
+      }
+    } catch (error) {
+      console.error('[CoreIntegration] Error starting remote server:', error);
+      // Don't fail core initialization if remote server fails
+    }
 
   } catch (error) {
     console.error('Failed to initialize core:', error);

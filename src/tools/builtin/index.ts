@@ -34,6 +34,8 @@ import { UnifiedDiffEditTool } from './unified-diff-edit.js';
 import { BackgroundAgentTool } from './background-agent.js';
 import { CodeReviewTool } from './code-review.js';
 import { BrowserAutomationTool } from './browser-automation.js';
+import { OpenBrowserTool } from './open-browser.js';
+import { BrowserControlTool } from './browser-control.js';
 import { DebuggerTool } from './debugger.js';
 import { DocGenTool } from './doc-gen.js';
 import { NotebookTool } from './notebook.js';
@@ -105,6 +107,8 @@ export function registerBuiltinTools(registry: ToolRegistry): void {
 
   // Browser & debugging tools
   registry.register(new BrowserAutomationTool());
+  registry.register(new OpenBrowserTool());
+  registry.register(new BrowserControlTool());
   registry.register(new DebuggerTool());
 
   // Documentation & notebook tools

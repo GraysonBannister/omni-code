@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2 } from 'lucide-react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy } from 'lucide-react';
 import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
 import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
@@ -8,7 +8,7 @@ import { SettingInput } from './settings/SettingInput';
 import { UsageDashboard } from './UsageDashboard';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -26,6 +26,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'indexing', label: 'Indexing' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'usage', label: 'Usage' },
+  { id: 'remote', label: 'Remote' },
 ];
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onClose, embedded = false }) => {
@@ -33,6 +34,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   const [isLoading, setIsLoading] = useState(false);
   const { settings, loadSettings, setSetting, resetSetting } = useSettingsStore();
   const { availableModels, availableProviders, setModel } = useAppStore();
+
+  // Remote server state
+  const [remoteStatus, setRemoteStatus] = useState<{
+    running: boolean;
+    url: string | null;
+    apiKey: string | null;
+    port: number;
+    connections: {
+      totalConversations: number;
+      totalConnections: number;
+      conversations: string[];
+    };
+  } | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
 
   // Load settings when panel opens or when embedded
   useEffect(() => {
@@ -53,6 +68,82 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, embedded]);
+
+  // Load remote server status when remote tab is active
+  useEffect(() => {
+    if (activeTab === 'remote') {
+      loadRemoteStatus();
+    }
+  }, [activeTab]);
+
+  const loadRemoteStatus = async () => {
+    try {
+      const status = await window.electronAPI?.remote?.status();
+      if (status) {
+        setRemoteStatus(status);
+      }
+    } catch (error) {
+      console.error('Failed to load remote status:', error);
+    }
+  };
+
+  const handleRemoteStart = async () => {
+    setRemoteLoading(true);
+    try {
+      const result = await window.electronAPI?.remote?.start();
+      if (result?.success) {
+        setRemoteStatus({
+          running: true,
+          url: result.url || null,
+          apiKey: result.apiKey || null,
+          port: settings?.remoteAccess?.port || 3000,
+          connections: { totalConversations: 0, totalConnections: 0, conversations: [] },
+        });
+      } else {
+        console.error('Server start failed:', result?.error || 'Unknown error');
+        alert(`Failed to start server: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to start remote server:', error);
+      alert(`Failed to start server: ${(error as Error).message}`);
+    }
+    setRemoteLoading(false);
+  };
+
+  const handleRemoteStop = async () => {
+    setRemoteLoading(true);
+    try {
+      const result = await window.electronAPI?.remote?.stop();
+      if (result?.success) {
+        setRemoteStatus({
+          running: false,
+          url: null,
+          apiKey: remoteStatus?.apiKey || null,
+          port: settings?.remoteAccess?.port || 3000,
+          connections: { totalConversations: 0, totalConnections: 0, conversations: [] },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to stop remote server:', error);
+    }
+    setRemoteLoading(false);
+  };
+
+  const handleRegenerateApiKey = async () => {
+    try {
+      const result = await window.electronAPI?.remote?.regenerateApiKey();
+      if (result?.success && result.apiKey) {
+        setSetting('remoteAccess.apiKey', result.apiKey);
+        setRemoteStatus(prev => prev ? { ...prev, apiKey: result.apiKey } : null);
+      }
+    } catch (error) {
+      console.error('Failed to regenerate API key:', error);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
 
   if (!embedded && !isOpen) return null;
 
@@ -725,6 +816,156 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
           {!isLoading && activeTab === 'usage' && (
             <div className="settings-section">
               <UsageDashboard />
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'remote' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">
+                <Globe size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                Remote Access
+              </h3>
+              <p className="settings-section-description">
+                Enable remote access to control omni-code from your mobile device anywhere.
+                Requires an ngrok account (free tier works).
+              </p>
+
+              <SettingToggle
+                label="Enable Remote Access"
+                description="Start remote server automatically when omni-code launches"
+                checked={currentSettings.remoteAccess?.enabled || false}
+                onChange={(checked) => setSetting('remoteAccess.enabled', checked)}
+              />
+
+              <div className="api-key-row">
+                <SettingInput
+                  label="ngrok Auth Token"
+                  description="Your ngrok authentication token (get one at ngrok.com)"
+                  value={currentSettings.remoteAccess?.ngrokAuthToken || ''}
+                  type="password"
+                  onChange={(value) => setSetting('remoteAccess.ngrokAuthToken', value)}
+                />
+              </div>
+
+              <SettingInput
+                label="Server Port"
+                description="Local port for the HTTP server (default: 3000)"
+                value={currentSettings.remoteAccess?.port || 3000}
+                type="number"
+                min={1000}
+                max={65535}
+                onChange={(value) => setSetting('remoteAccess.port', parseInt(value))}
+              />
+
+              <h3 className="settings-section-title" style={{ marginTop: '24px' }}>Server Status</h3>
+
+              <div className="remote-status-box">
+                <div className="remote-status-item">
+                  <span className="remote-status-label">Status:</span>
+                  <span className={`remote-status-value ${remoteStatus?.running ? 'running' : 'stopped'}`}>
+                    {remoteStatus?.running ? 'Running' : 'Stopped'}
+                  </span>
+                </div>
+
+                {remoteStatus?.running && remoteStatus?.url && (
+                  <div className="remote-status-item">
+                    <span className="remote-status-label">Public URL:</span>
+                    <div className="remote-url-box">
+                      <code>{remoteStatus.url}</code>
+                      <button
+                        className="remote-copy-btn"
+                        onClick={() => copyToClipboard(remoteStatus.url!)}
+                        title="Copy URL"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {remoteStatus?.apiKey && (
+                  <div className="remote-status-item">
+                    <span className="remote-status-label">API Key:</span>
+                    <div className="remote-apikey-box">
+                      <code>{remoteStatus.apiKey.slice(0, 8)}...{remoteStatus.apiKey.slice(-8)}</code>
+                      <button
+                        className="remote-copy-btn"
+                        onClick={() => copyToClipboard(remoteStatus.apiKey!)}
+                        title="Copy API Key"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {remoteStatus?.running && (
+                  <div className="remote-status-item">
+                    <span className="remote-status-label">Active Connections:</span>
+                    <span className="remote-status-value">
+                      {remoteStatus?.connections?.totalConnections || 0} connections
+                      {' '}
+                      ({remoteStatus?.connections?.totalConversations || 0} conversations)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {!currentSettings.remoteAccess?.ngrokAuthToken && !remoteStatus?.running && (
+                <div className="settings-info-box" style={{ marginBottom: '16px', background: 'var(--warning-bg, #fff3cd)', borderColor: 'var(--warning-border, #ffc107)' }}>
+                  <strong>Local Mode Only:</strong> No ngrok token configured. Server will only be accessible on your local network (same WiFi).
+                </div>
+              )}
+
+              <div className="remote-actions">
+                {!remoteStatus?.running ? (
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleRemoteStart}
+                    disabled={remoteLoading}
+                  >
+                    <Play size={16} style={{ marginRight: '8px' }} />
+                    {remoteLoading ? 'Starting...' : 'Start Server'}
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleRemoteStop}
+                    disabled={remoteLoading}
+                  >
+                    <Square size={16} style={{ marginRight: '8px' }} />
+                    {remoteLoading ? 'Stopping...' : 'Stop Server'}
+                  </button>
+                )}
+
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleRegenerateApiKey}
+                  disabled={remoteLoading}
+                >
+                  <RefreshCw size={16} style={{ marginRight: '8px' }} />
+                  Regenerate API Key
+                </button>
+              </div>
+
+              <div className="settings-info-box" style={{ marginTop: '24px' }}>
+                <strong>Mobile App Setup:</strong>
+                <ol>
+                  <li>Copy the Public URL and API Key above</li>
+                  <li>In your mobile app, create a connection using these credentials</li>
+                  <li>All communication is encrypted via ngrok's HTTPS tunnel</li>
+                  <li>Rate limiting is active (100 requests per 15 minutes by default)</li>
+                </ol>
+              </div>
+
+              <div className="settings-actions" style={{ marginTop: '24px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleReset('remoteAccess')}
+                >
+                  Reset Remote Settings
+                </button>
+              </div>
             </div>
           )}
         </div>
