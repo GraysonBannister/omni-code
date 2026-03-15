@@ -1,11 +1,14 @@
 import React from 'react';
-import { FolderOpen, FolderPlus, Folder, Clock, Zap } from 'lucide-react';
+import { FolderOpen, FolderPlus, Folder, Clock, Zap, Briefcase, Layers } from 'lucide-react';
 import './WelcomeScreen.css';
 
 interface WelcomeScreenProps {
   onOpenFolder: () => void;
   onCreateFolder: () => void;
   onOpenRecent: (path: string) => void;
+  onOpenWorkspace?: () => void;
+  onCreateWorkspace?: () => void;
+  recentFolders: string[];
   recentWorkspaces: string[];
 }
 
@@ -13,6 +16,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenFolder,
   onCreateFolder,
   onOpenRecent,
+  onOpenWorkspace,
+  onCreateWorkspace,
+  recentFolders,
   recentWorkspaces,
 }) => {
   // Format path for display - show parent directory for context
@@ -36,36 +42,96 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
 
         <div className="welcome-actions">
-          <button onClick={onOpenFolder} className="welcome-btn primary">
-            <FolderOpen size={20} />
-            <span>Open Folder</span>
-          </button>
-          <button onClick={onCreateFolder} className="welcome-btn secondary">
-            <FolderPlus size={20} />
-            <span>Create Folder</span>
-          </button>
+          <div className="welcome-action-group">
+            <span className="welcome-action-label">Project</span>
+            <div className="welcome-action-buttons">
+              <button onClick={onOpenFolder} className="welcome-btn primary">
+                <FolderOpen size={20} />
+                <span>Open Folder</span>
+              </button>
+              <button onClick={onCreateFolder} className="welcome-btn secondary">
+                <FolderPlus size={20} />
+                <span>Create Folder</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="welcome-action-divider" />
+
+          <div className="welcome-action-group">
+            <span className="welcome-action-label">Workspace</span>
+            <div className="welcome-action-buttons">
+              <button
+                onClick={onOpenWorkspace}
+                className="welcome-btn primary workspace"
+                disabled={!onOpenWorkspace}
+              >
+                <Briefcase size={20} />
+                <span>Open Workspace</span>
+              </button>
+              <button
+                onClick={onCreateWorkspace}
+                className="welcome-btn secondary workspace"
+                disabled={!onCreateWorkspace}
+              >
+                <Layers size={20} />
+                <span>Create Workspace</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        {recentWorkspaces.length > 0 && (
+        {recentFolders.length > 0 && (
           <div className="recent-section">
             <div className="recent-header">
               <Clock size={16} />
-              <h2>Recent Projects</h2>
+              <h2>Recent Folders</h2>
             </div>
             <div className="recent-list">
-              {recentWorkspaces.map((workspacePath) => (
+              {recentFolders.map((folderPath) => (
                 <div
-                  key={workspacePath}
+                  key={folderPath}
                   className="recent-item"
-                  onClick={() => onOpenRecent(workspacePath)}
-                  title={workspacePath}
+                  onClick={() => onOpenRecent(folderPath)}
+                  title={folderPath}
                 >
                   <div className="recent-icon">
                     <Folder size={20} />
                   </div>
                   <div className="recent-info">
                     <span className="recent-name">
-                      {workspacePath.split('/').pop()}
+                      {folderPath.split('/').pop()}
+                    </span>
+                    <span className="recent-path">
+                      {formatPath(folderPath)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {recentWorkspaces.length > 0 && (
+          <div className="recent-section">
+            <div className="recent-header">
+              <Briefcase size={16} />
+              <h2>Recent Workspaces</h2>
+            </div>
+            <div className="recent-list">
+              {recentWorkspaces.map((workspacePath) => (
+                <div
+                  key={workspacePath}
+                  className="recent-item workspace-item"
+                  onClick={() => onOpenRecent(workspacePath)}
+                  title={workspacePath}
+                >
+                  <div className="recent-icon workspace-icon">
+                    <Briefcase size={20} />
+                  </div>
+                  <div className="recent-info">
+                    <span className="recent-name">
+                      {workspacePath.split('/').pop()?.replace('.omnicode-workspace', '')}
                     </span>
                     <span className="recent-path">
                       {formatPath(workspacePath)}

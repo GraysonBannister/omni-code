@@ -53,21 +53,59 @@
 /* Actions Section */
 .welcome-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
   margin-bottom: 48px;
+  width: 100%;
+}
+
+.welcome-action-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.welcome-action-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-text-secondary, #888);
+}
+
+.welcome-action-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome-action-divider {
+  width: 100%;
+  max-width: 200px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-border, #333), transparent);
 }
 
 .welcome-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 32px;
-  font-size: 1rem;
+  gap: 10px;
+  padding: 12px 24px;
+  font-size: 0.95rem;
   font-weight: 500;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.welcome-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .welcome-btn.primary {
@@ -77,15 +115,27 @@
   box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
 }
 
-.welcome-btn.primary:hover {
+.welcome-btn.primary:hover:not(:disabled) {
   background: var(--color-accent-hover, #2563eb);
   border-color: var(--color-accent-hover, #2563eb);
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
 
-.welcome-btn.primary:active {
+.welcome-btn.primary:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.welcome-btn.primary.workspace {
+  background: var(--color-accent-secondary, #10b981);
+  border-color: var(--color-accent-secondary, #10b981);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+}
+
+.welcome-btn.primary.workspace:hover:not(:disabled) {
+  background: var(--color-accent-secondary-hover, #059669);
+  border-color: var(--color-accent-secondary-hover, #059669);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
 }
 
 .welcome-btn.secondary {
@@ -94,14 +144,18 @@
   border-color: var(--color-border, #333);
 }
 
-.welcome-btn.secondary:hover {
+.welcome-btn.secondary:hover:not(:disabled) {
   background: var(--color-bg-secondary, #2a2a2a);
   border-color: var(--color-accent, #3b82f6);
   transform: translateY(-1px);
 }
 
-.welcome-btn.secondary:active {
+.welcome-btn.secondary:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.welcome-btn.secondary.workspace:hover:not(:disabled) {
+  border-color: var(--color-accent-secondary, #10b981);
 }
 
 /* Recent Projects Section */
@@ -160,6 +214,20 @@
   border-radius: 8px;
   background: var(--color-bg-tertiary, #333);
   color: var(--color-accent, #3b82f6);
+  flex-shrink: 0;
+}
+
+.recent-icon.workspace-icon {
+  color: var(--color-accent-secondary, #10b981);
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.recent-item.workspace-item {
+  border-left: 3px solid var(--color-accent-secondary, #10b981);
+}
+
+.recent-item.workspace-item:hover {
+  border-color: var(--color-accent-secondary, #10b981);
 }
 
 .recent-info {

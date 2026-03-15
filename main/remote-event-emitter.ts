@@ -7,6 +7,20 @@ import { agentBridge, type ConversationAgentEvent } from './agent-bridge.js';
 // Active SSE connections by conversation ID
 const connections = new Map<string, Set<Response>>();
 
+// Global sync connections (receive conversation lifecycle events)
+const syncConnections = new Set<Response>();
+
+// Sync event types for conversation lifecycle
+export type SyncEventType = 'conversation_created' | 'conversation_updated' | 'conversation_deleted';
+
+export interface ConversationSyncEvent {
+  type: SyncEventType;
+  conversationId: string;
+  title?: string;
+  messageCount?: number;
+  updatedAt?: number;
+}
+
 // Unsubscribe function from AgentBridge
 let unsubscribe: (() => void) | null = null;
 
@@ -48,7 +62,46 @@ export function cleanupEventEmitter(): void {
   });
   connections.clear();
 
+  // Close all sync connections
+  Array.from(syncConnections).forEach((res) => {
+    try { res.end(); } catch { /* ignore */ }
+  });
+  syncConnections.clear();
+
   console.log('[RemoteEventEmitter] Cleaned up all connections');
+}
+
+/**
+ * Register a global sync SSE connection (receives conversation lifecycle events)
+ */
+export function registerSyncConnection(res: Response): void {
+  syncConnections.add(res);
+  console.log(`[RemoteEventEmitter] Registered sync connection (total: ${syncConnections.size})`);
+
+  res.on('close', () => {
+    syncConnections.delete(res);
+    console.log(`[RemoteEventEmitter] Sync connection closed (remaining: ${syncConnections.size})`);
+  });
+  res.on('error', () => {
+    syncConnections.delete(res);
+  });
+}
+
+/**
+ * Broadcast a conversation lifecycle sync event to all sync connections
+ */
+export function broadcastSyncEvent(event: ConversationSyncEvent): void {
+  if (syncConnections.size === 0) return;
+
+  const sseData = `data: ${JSON.stringify(event)}\n\n`;
+  Array.from(syncConnections).forEach((res) => {
+    try {
+      res.write(sseData);
+    } catch {
+      syncConnections.delete(res);
+    }
+  });
+  console.log(`[RemoteEventEmitter] Broadcast sync event: ${event.type} for ${event.conversationId}`);
 }
 
 /**

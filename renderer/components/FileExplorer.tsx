@@ -126,17 +126,40 @@ const FileNode: React.FC<FileNodeProps> = ({
 };
 
 export const FileExplorer: React.FC = () => {
-  const { projectPath, files, setProjectPath, setFiles, openFolder, isAppInitialized } = useAppStore();
+  const {
+    projectPath,
+    files,
+    setProjectPath,
+    setFiles,
+    openFolder,
+    isAppInitialized,
+    isWorkspaceMode,
+    currentWorkspace,
+    activeFolderId,
+    setActiveFolder,
+    loadDirectory,
+  } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   // Clear selected folder when project path changes
   useEffect(() => {
     setSelectedFolderPath(null);
   }, [projectPath]);
+
+  // Auto-expand all projects when entering workspace mode
+  useEffect(() => {
+    if (isWorkspaceMode && currentWorkspace) {
+      const allProjectIds = currentWorkspace.folders.map(f => f.id);
+      setExpandedProjects(new Set(allProjectIds));
+    } else {
+      setExpandedProjects(new Set());
+    }
+  }, [isWorkspaceMode, currentWorkspace]);
 
   // Check if electronAPI is available
   if (!window.electronAPI) {
@@ -280,11 +303,39 @@ export const FileExplorer: React.FC = () => {
     }
   }, [handleCreateItem, handleCancelCreate]);
 
+  // Toggle project expansion in workspace mode
+  const toggleProject = useCallback((projectId: string) => {
+    setExpandedProjects(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(projectId)) {
+        newSet.delete(projectId);
+      } else {
+        newSet.add(projectId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Handle project selection in workspace mode
+  const handleProjectClick = useCallback((folder: { id: string; path: string; name?: string }) => {
+    setActiveFolder(folder.id);
+    // Load the directory
+    loadDirectory(folder.path);
+  }, [setActiveFolder, loadDirectory]);
+
   // Group files by parent directory
   const rootFiles = files.filter(f => {
     const parent = f.path.substring(0, f.path.lastIndexOf('/')) || '';
     return parent === projectPath || parent === '';
   });
+
+  // Get files for a specific project folder
+  const getProjectFiles = useCallback((folderPath: string) => {
+    return files.filter(f => {
+      const parent = f.path.substring(0, f.path.lastIndexOf('/')) || '';
+      return parent === folderPath || f.path === folderPath;
+    });
+  }, [files]);
 
   return (
     <div className="file-explorer">
@@ -326,67 +377,139 @@ export const FileExplorer: React.FC = () => {
       </div>
       
       <div className="file-explorer-content">
-        {projectPath && (
-          <div className="file-explorer-project">
-            {projectPath.split('/').pop() || projectPath}
-            {selectedFolderPath && selectedFolderPath !== projectPath && (
-              <span className="file-explorer-selected-indicator">
-                {' '}/ {selectedFolderPath.replace(projectPath + '/', '').split('/').pop()}
+        {/* Workspace Mode: Show project headers for each folder */}
+        {isWorkspaceMode && currentWorkspace ? (
+          <div className="file-explorer-workspace">
+            <div className="file-explorer-workspace-header">
+              <span className="file-explorer-workspace-name">{currentWorkspace.name}</span>
+              <span className="file-explorer-workspace-badge">
+                {currentWorkspace.folders.length} projects
               </span>
-            )}
-          </div>
-        )}
-        
-        {isLoading && rootFiles.length === 0 ? (
-          <div className="file-explorer-loading">Loading...</div>
-        ) : rootFiles.length === 0 ? (
-          <div className="file-explorer-empty">
-            <p>No files in workspace</p>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={openFolder}
-              style={{ marginTop: '12px' }}
-            >
-              <FolderOpenIcon size={14} />
-              Open Folder
-            </button>
+            </div>
+
+            {currentWorkspace.folders.map((folder) => {
+              const isExpanded = expandedProjects.has(folder.id);
+              const isActive = activeFolderId === folder.id;
+              const projectFiles = getProjectFiles(folder.path);
+
+              return (
+                <div
+                  key={folder.id}
+                  className={`file-explorer-project-section ${isActive ? 'active' : ''}`}
+                >
+                  <div
+                    className="file-explorer-project-header"
+                    onClick={() => {
+                      toggleProject(folder.id);
+                      handleProjectClick(folder);
+                    }}
+                  >
+                    <span className="file-explorer-project-toggle">
+                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </span>
+                    <span className="file-explorer-project-icon">
+                      <Folder size={16} />
+                    </span>
+                    <span className="file-explorer-project-name">
+                      {folder.name || folder.path.split('/').pop()}
+                    </span>
+                    {isActive && <span className="file-explorer-project-active-indicator">●</span>}
+                  </div>
+
+                  {isExpanded && (
+                    <div className="file-explorer-project-content">
+                      {projectFiles.length === 0 ? (
+                        <div className="file-explorer-project-empty">Empty project</div>
+                      ) : (
+                        projectFiles.map((file) => (
+                          <FileNode
+                            key={file.path}
+                            name={file.name}
+                            path={file.path}
+                            isDirectory={file.isDirectory}
+                            depth={0}
+                            selectedFolderPath={selectedFolderPath}
+                            onSelectFolder={setSelectedFolderPath}
+                            isCreatingFile={isCreatingFile}
+                            isCreatingFolder={isCreatingFolder}
+                            newItemName={newItemName}
+                            setNewItemName={setNewItemName}
+                            handleKeyDown={handleKeyDown}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="file-explorer-tree">
-            {/* Show input at root only if no folder is selected */}
-            {(isCreatingFile || isCreatingFolder) && !selectedFolderPath && (
-              <div className="file-explorer-new-item" style={{ paddingLeft: '8px' }}>
-                <span className="file-node-icon">
-                  {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
-                </span>
-                <input
-                  type="text"
-                  className="file-explorer-new-item-input"
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={isCreatingFile ? 'filename.ext' : 'foldername'}
-                  autoFocus
-                />
+          /* Single Folder Mode */
+          <>
+            {projectPath && (
+              <div className="file-explorer-project">
+                {projectPath.split('/').pop() || projectPath}
+                {selectedFolderPath && selectedFolderPath !== projectPath && (
+                  <span className="file-explorer-selected-indicator">
+                    {' '}/ {selectedFolderPath.replace(projectPath + '/', '').split('/').pop()}
+                  </span>
+                )}
               </div>
             )}
-            {rootFiles.map((file) => (
-              <FileNode
-                key={file.path}
-                name={file.name}
-                path={file.path}
-                isDirectory={file.isDirectory}
-                depth={0}
-                selectedFolderPath={selectedFolderPath}
-                onSelectFolder={setSelectedFolderPath}
-                isCreatingFile={isCreatingFile}
-                isCreatingFolder={isCreatingFolder}
-                newItemName={newItemName}
-                setNewItemName={setNewItemName}
-                handleKeyDown={handleKeyDown}
-              />
-            ))}
-          </div>
+
+            {isLoading && rootFiles.length === 0 ? (
+              <div className="file-explorer-loading">Loading...</div>
+            ) : rootFiles.length === 0 ? (
+              <div className="file-explorer-empty">
+                <p>No files in workspace</p>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={openFolder}
+                  style={{ marginTop: '12px' }}
+                >
+                  <FolderOpenIcon size={14} />
+                  Open Folder
+                </button>
+              </div>
+            ) : (
+              <div className="file-explorer-tree">
+                {/* Show input at root only if no folder is selected */}
+                {(isCreatingFile || isCreatingFolder) && !selectedFolderPath && (
+                  <div className="file-explorer-new-item" style={{ paddingLeft: '8px' }}>
+                    <span className="file-node-icon">
+                      {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
+                    </span>
+                    <input
+                      type="text"
+                      className="file-explorer-new-item-input"
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={isCreatingFile ? 'filename.ext' : 'foldername'}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                {rootFiles.map((file) => (
+                  <FileNode
+                    key={file.path}
+                    name={file.name}
+                    path={file.path}
+                    isDirectory={file.isDirectory}
+                    depth={0}
+                    selectedFolderPath={selectedFolderPath}
+                    onSelectFolder={setSelectedFolderPath}
+                    isCreatingFile={isCreatingFile}
+                    isCreatingFolder={isCreatingFolder}
+                    newItemName={newItemName}
+                    setNewItemName={setNewItemName}
+                    handleKeyDown={handleKeyDown}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ContentBlock, MessageMetadata } from '../../src/core/message-types.js';
+import type { Workspace, WorkspaceSummary, CreateWorkspaceOptions } from '../../src/types/workspace.js';
 
 // Indexing State Types
 export type IndexingStatus = 'idle' | 'indexing' | 'complete' | 'error' | 'paused';
@@ -95,19 +96,27 @@ interface AppState {
   activePanel: 'chat' | 'terminal' | 'settings';
   theme: 'dark' | 'light';
   isAppInitialized: boolean; // Track if app has finished initial setup (settings loaded, etc.)
-  
+
   // Multi-Terminal State
   terminals: TerminalSession[];
   activeTerminalId: string | null;
-  
+
   // Multi-Conversation State (replaces single conversation state)
   conversations: Conversation[];
   activeConversationId: string | null;
-  
+
   // Past Chats State (for on-demand loading)
   pastChats: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>;
   pastChatsLoaded: boolean;
-  
+
+  // Workspace State (NEW - multi-project support)
+  currentWorkspace: Workspace | null; // Current multi-project workspace
+  activeFolderId: string | null; // Currently active folder within workspace
+  recentFolders: string[]; // Recent single folders (backward compat)
+  recentWorkspaces: string[]; // Recent workspace files
+  workspaceList: WorkspaceSummary[]; // All saved workspaces
+  isWorkspaceMode: boolean; // Whether we're in workspace mode vs single folder mode
+
   // Global Agent State (shared across conversations)
   currentModel: string;
   currentProvider: string;
@@ -117,14 +126,14 @@ interface AppState {
   inputTokens: number;
   outputTokens: number;
   maxContextTokens: number; // Global default for max context tokens
-  
+
   // File State
   openFiles: OpenFile[];
   activeFilePath: string | null;
-  projectPath: string;
+  projectPath: string; // Kept for backward compatibility - will be derived from workspace
   files: Array<{ name: string; isDirectory: boolean; path: string }>;
   expandedDirs: Set<string>;
-  
+
   // File History Popup State
   fileHistoryPopupVisible: boolean;
   fileHistoryPopupPinned: boolean;
@@ -222,6 +231,23 @@ interface AppState {
   createFolder: () => Promise<void>;
   openRecentWorkspace: (path: string) => Promise<void>;
 
+  // Workspace Actions (NEW - multi-project support)
+  setCurrentWorkspace: (workspace: Workspace | null) => void;
+  setActiveFolder: (folderId: string | null) => void;
+  createWorkspace: (options: CreateWorkspaceOptions) => Promise<Workspace | null>;
+  openWorkspace: (filePath: string) => Promise<boolean>;
+  saveWorkspace: () => Promise<boolean>;
+  closeWorkspace: () => Promise<void>;
+  addFolderToWorkspace: (folderPath: string, folderName?: string) => Promise<boolean>;
+  removeFolderFromWorkspace: (folderId: string) => Promise<boolean>;
+  renameWorkspace: (newName: string) => Promise<boolean>;
+  exportWorkspace: (targetDir: string) => Promise<boolean>;
+  importWorkspace: (sourceDir: string) => Promise<Workspace | null>;
+  loadSavedWorkspaces: () => Promise<void>;
+  setWorkspaceMode: (isWorkspaceMode: boolean) => void;
+  loadWorkspaceConversations: (workspace: Workspace) => Promise<void>;
+  saveWorkspaceConversation: (conversationId: string) => Promise<boolean>;
+
   // Rollback Actions
   rollbackToMessage: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; failedFiles: string[] }>;
   getMessageFileChanges: (conversationId: string, messageId: string) => Promise<FileChange[]>;
@@ -295,6 +321,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   indexingPollInterval: null,
 
+  // Initial Workspace State (NEW)
+  currentWorkspace: null,
+  activeFolderId: null,
+  recentFolders: [],
+  recentWorkspaces: [],
+  workspaceList: [],
+  isWorkspaceMode: false,
+
   // UI Actions
   toggleSidebar: () => set(state => ({ sidebarVisible: !state.sidebarVisible })),
   toggleChat: () => set(state => ({ chatVisible: !state.chatVisible })),
@@ -302,7 +336,293 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActivePanel: (panel) => set({ activePanel: panel }),
   setTheme: (theme) => set({ theme }),
   setAppInitialized: (initialized) => set({ isAppInitialized: initialized }),
-  
+
+  // Workspace Actions (NEW - multi-project support)
+  setCurrentWorkspace: (workspace) => set({ currentWorkspace: workspace, isWorkspaceMode: !!workspace }),
+  setActiveFolder: (folderId) => set({ activeFolderId: folderId }),
+  setWorkspaceMode: (isWorkspaceMode) => set({ isWorkspaceMode }),
+
+  createWorkspace: async (options) => {
+    try {
+      const result = await window.electronAPI?.workspace?.create(options);
+      if (result?.success && result.workspace) {
+        set({
+          currentWorkspace: result.workspace,
+          isWorkspaceMode: true,
+          activeFolderId: result.workspace.folders[0]?.id || null,
+          projectPath: result.workspace.folders[0]?.path || '',
+        });
+
+        // Create initial conversation for workspace
+        const convId = get().createConversation();
+        set({ activeConversationId: convId });
+
+        return result.workspace;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to create workspace:', error);
+      return null;
+    }
+  },
+
+  openWorkspace: async (filePath) => {
+    try {
+      const result = await window.electronAPI?.workspace?.loadFromFile(filePath);
+      if (result?.success && result.workspace) {
+        // Close current conversations
+        get().conversations.forEach(c => {
+          if (window.electronAPI?.agent) {
+            window.electronAPI.agent.closeConversation(c.id);
+          }
+        });
+
+        set({
+          currentWorkspace: result.workspace,
+          isWorkspaceMode: true,
+          activeFolderId: result.workspace.folders[0]?.id || null,
+          projectPath: result.workspace.folders[0]?.path || '',
+          conversations: [],
+          pastChats: [],
+        });
+
+        // Load workspace conversations
+        await get().loadWorkspaceConversations(result.workspace);
+
+        // Add to recent workspaces
+        await window.electronAPI?.settings?.addRecentWorkspace(filePath);
+
+        // If no conversations were loaded, create a new one
+        const state = get();
+        if (state.conversations.length === 0) {
+          const convId = get().createConversation();
+          set({ activeConversationId: convId });
+        }
+
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to open workspace:', error);
+      return false;
+    }
+  },
+
+  saveWorkspace: async () => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    try {
+      const result = await window.electronAPI?.workspace?.update(state.currentWorkspace);
+      return result?.success || false;
+    } catch (error) {
+      console.error('Failed to save workspace:', error);
+      return false;
+    }
+  },
+
+  closeWorkspace: async () => {
+    const state = get();
+    if (!state.currentWorkspace) return;
+
+    try {
+      // Save all conversations before closing
+      await get().saveAllConversations();
+
+      // Close workspace indexer
+      await window.electronAPI?.workspace?.indexing?.close(state.currentWorkspace.id);
+
+      // Clear workspace state
+      set({
+        currentWorkspace: null,
+        isWorkspaceMode: false,
+        activeFolderId: null,
+        conversations: [],
+        activeConversationId: null,
+        projectPath: '',
+        files: [],
+      });
+    } catch (error) {
+      console.error('Failed to close workspace:', error);
+    }
+  },
+
+  addFolderToWorkspace: async (folderPath, folderName) => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    try {
+      const result = await window.electronAPI?.workspace?.addFolder(
+        state.currentWorkspace.id,
+        folderPath,
+        folderName
+      );
+      if (result?.success && result.workspace) {
+        set({ currentWorkspace: result.workspace });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to add folder to workspace:', error);
+      return false;
+    }
+  },
+
+  removeFolderFromWorkspace: async (folderId) => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    try {
+      const result = await window.electronAPI?.workspace?.removeFolder(
+        state.currentWorkspace.id,
+        folderId
+      );
+      if (result?.success && result.workspace) {
+        set({ currentWorkspace: result.workspace });
+        // If we removed the active folder, switch to another one
+        if (state.activeFolderId === folderId) {
+          const newActiveFolder = result.workspace.folders[0]?.id || null;
+          set({
+            activeFolderId: newActiveFolder,
+            projectPath: result.workspace.folders[0]?.path || '',
+          });
+        }
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to remove folder from workspace:', error);
+      return false;
+    }
+  },
+
+  renameWorkspace: async (newName) => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    try {
+      const result = await window.electronAPI?.workspace?.rename(
+        state.currentWorkspace.id,
+        newName
+      );
+      if (result?.success && result.workspace) {
+        set({ currentWorkspace: result.workspace });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to rename workspace:', error);
+      return false;
+    }
+  },
+
+  exportWorkspace: async (targetDir) => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    try {
+      const result = await window.electronAPI?.workspace?.export(
+        state.currentWorkspace.id,
+        targetDir
+      );
+      return result?.success || false;
+    } catch (error) {
+      console.error('Failed to export workspace:', error);
+      return false;
+    }
+  },
+
+  importWorkspace: async (sourceDir) => {
+    try {
+      const result = await window.electronAPI?.workspace?.import(sourceDir);
+      if (result?.success && result.workspace) {
+        await get().openWorkspace(result.workspace.filePath || '');
+        return result.workspace;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to import workspace:', error);
+      return null;
+    }
+  },
+
+  loadSavedWorkspaces: async () => {
+    try {
+      const result = await window.electronAPI?.workspace?.list();
+      if (result?.workspaces) {
+        set({ workspaceList: result.workspaces });
+      }
+    } catch (error) {
+      console.error('Failed to load saved workspaces:', error);
+    }
+  },
+
+  loadWorkspaceConversations: async (workspace) => {
+    try {
+      const result = await window.electronAPI?.workspace?.chat?.load(workspace);
+      if (result?.conversations) {
+        const loadedConversations: Conversation[] = result.conversations.map((saved: any) => ({
+          id: saved.id,
+          title: saved.title || 'New Chat',
+          messages: saved.messages || [],
+          toolCalls: saved.toolCalls || [],
+          createdAt: saved.createdAt || Date.now(),
+          updatedAt: saved.updatedAt || Date.now(),
+          model: saved.model,
+          provider: saved.provider,
+          contextTokens: saved.contextTokens,
+          maxContextTokens: saved.maxContextTokens,
+          mode: saved.mode,
+          // Reset runtime state
+          isProcessing: false,
+          streamingContent: '',
+          orchestrationStatus: null,
+        }));
+
+        set({ conversations: loadedConversations });
+
+        // Activate the most recent conversation
+        if (loadedConversations.length > 0) {
+          const mostRecent = loadedConversations.reduce((a, b) =>
+            (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a
+          );
+          set({ activeConversationId: mostRecent.id });
+
+          // Initialize agent for active conversation
+          if (window.electronAPI?.agent) {
+            await window.electronAPI.agent.createConversation(
+              mostRecent.id,
+              mostRecent.model,
+              mostRecent.provider
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load workspace conversations:', error);
+    }
+  },
+
+  saveWorkspaceConversation: async (conversationId) => {
+    const state = get();
+    if (!state.currentWorkspace) return false;
+
+    const conversation = state.conversations.find(c => c.id === conversationId);
+    if (!conversation) return false;
+
+    try {
+      // Save via workspace chat API
+      const result = await window.electronAPI?.workspace?.chat?.save(
+        state.currentWorkspace,
+        conversation
+      );
+      return result?.success || false;
+    } catch (error) {
+      console.error('Failed to save workspace conversation:', error);
+      return false;
+    }
+  },
+
   // Terminal Actions (multi-tab support)
   createTerminal: (cwd) => {
     const id = crypto.randomUUID();
@@ -645,14 +965,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveConversation: async (conversationId: string) => {
     const state = get();
     const conversation = state.conversations.find(c => c.id === conversationId);
-    const workspacePath = state.projectPath;
 
-    if (!conversation || !workspacePath || !window.electronAPI?.chatStorage) {
+    // Handle workspace mode
+    if (state.isWorkspaceMode && state.currentWorkspace) {
+      return state.saveWorkspaceConversation(conversationId);
+    }
+
+    // Handle project mode (backward compatibility)
+    const projectPath = state.projectPath;
+    if (!conversation || !projectPath || !window.electronAPI?.chatStorage) {
       return false;
     }
 
     try {
-      const result = await window.electronAPI.chatStorage.saveConversation(workspacePath, conversation);
+      const result = await window.electronAPI.chatStorage.saveConversation(projectPath, conversation);
       if (result.success) {
         // Mark as saved (not dirty)
         set(state => ({
@@ -670,9 +996,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveAllConversations: async () => {
     const state = get();
-    const workspacePath = state.projectPath;
 
-    if (!workspacePath || !window.electronAPI?.chatStorage) {
+    // Handle workspace mode
+    if (state.isWorkspaceMode && state.currentWorkspace) {
+      const dirtyConversations = state.conversations.filter(c => c.isDirty);
+      for (const conv of dirtyConversations) {
+        await state.saveWorkspaceConversation(conv.id);
+      }
+      // Mark all as saved
+      set(state => ({
+        conversations: state.conversations.map(c => ({ ...c, isDirty: false })),
+      }));
+      return;
+    }
+
+    // Handle project mode (backward compatibility)
+    const projectPath = state.projectPath;
+    if (!projectPath || !window.electronAPI?.chatStorage) {
       return;
     }
 
@@ -680,7 +1020,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const dirtyConversations = state.conversations.filter(c => c.isDirty);
     for (const conv of dirtyConversations) {
       try {
-        await window.electronAPI.chatStorage.saveConversation(workspacePath, conv);
+        await window.electronAPI.chatStorage.saveConversation(projectPath, conv);
       } catch (error) {
         console.error(`Failed to save conversation ${conv.id}:`, error);
       }

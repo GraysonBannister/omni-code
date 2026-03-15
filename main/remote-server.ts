@@ -13,6 +13,8 @@ import {
   initializeEventEmitter,
   cleanupEventEmitter,
   registerConnection,
+  registerSyncConnection,
+  broadcastSyncEvent,
   getConnectionStats,
 } from './remote-event-emitter.js';
 import {
@@ -24,8 +26,11 @@ import {
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getWorkingDirectory } from './core-integration.js';
-import { getChatStorage } from './chat-storage.js';
+import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
+import type { SharedWorkspace, SharedFolder } from './shared-workspace-manager.js';
+import { getChatStorage, setSyncNotifier } from './chat-storage.js';
 import { BrowserWindow } from 'electron';
+import QRCode from 'qrcode';
 
 // Server state
 let app: express.Express | null = null;
@@ -106,6 +111,9 @@ export async function initializeRemoteServer(): Promise<{
 
     // Initialize event emitter for SSE
     initializeEventEmitter();
+
+    // Wire chat-storage changes to SSE sync broadcasts
+    setSyncNotifier((event) => broadcastSyncEvent(event));
 
     isRunning = true;
 
@@ -255,6 +263,9 @@ function setupRoutes(app: express.Express): void {
   // Config routes
   setupConfigRoutes(app);
 
+  // Workspace routes
+  setupWorkspaceRoutes(app);
+
   // Agent routes
   setupAgentRoutes(app);
 
@@ -283,7 +294,7 @@ function setupRoutes(app: express.Express): void {
  * Config routes
  */
 function setupConfigRoutes(app: express.Express): void {
-  // Get available models and providers
+  // Get server config
   app.get('/api/config', async (_req, res) => {
     try {
       // Get from agent bridge refs via IPC handler pattern
@@ -295,6 +306,175 @@ function setupConfigRoutes(app: express.Express): void {
         version: process.env.npm_package_version || 'unknown',
       });
     } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get available AI models
+  app.get('/api/models', async (_req, res) => {
+    try {
+      const models = agentBridge.getAvailableModels();
+
+      res.json({
+        models,
+        count: models.length,
+      });
+    } catch (error) {
+      console.error('[RemoteServer] Error fetching models:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+}
+
+/**
+ * Workspace routes
+ */
+function setupWorkspaceRoutes(app: express.Express): void {
+  const workspaceManager = getSharedWorkspaceManager();
+
+  // List all shared workspaces
+  app.get('/api/workspaces', async (_req, res) => {
+    try {
+      const workspaces = workspaceManager.getSharedWorkspaces();
+      const activeWorkspace = workspaceManager.getActiveWorkspace();
+
+      res.json({
+        workspaces: workspaces.map(ws => ({
+          sharedId: ws.sharedId,
+          workspaceId: ws.workspaceId,
+          name: ws.name,
+          folderCount: ws.folderCount,
+          isActive: ws.isActive,
+          isSingleFolder: ws.isSingleFolder,
+          addedAt: ws.addedAt,
+        })),
+        activeWorkspaceId: activeWorkspace?.sharedId || null,
+        count: workspaces.length,
+      });
+    } catch (error) {
+      console.error('[RemoteServer] Error fetching workspaces:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get specific workspace details
+  app.get('/api/workspaces/:sharedId', async (req, res) => {
+    try {
+      const { sharedId } = req.params;
+      const workspace = workspaceManager.getWorkspaceById(sharedId);
+
+      if (!workspace) {
+        res.status(404).json({ error: 'Workspace not found' });
+        return;
+      }
+
+      res.json({
+        sharedId: workspace.sharedId,
+        workspaceId: workspace.workspaceId,
+        name: workspace.name,
+        folderCount: workspace.folderCount,
+        folders: workspace.folders.map(f => ({
+          id: f.id,
+          path: f.path,
+          name: f.name,
+        })),
+        isActive: workspace.isActive,
+        isSingleFolder: workspace.isSingleFolder,
+        addedAt: workspace.addedAt,
+      });
+    } catch (error) {
+      console.error('[RemoteServer] Error fetching workspace:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get folders for a specific workspace
+  app.get('/api/workspaces/:sharedId/folders', async (req, res) => {
+    try {
+      const { sharedId } = req.params;
+      const folders = workspaceManager.getWorkspaceFolders(sharedId);
+
+      if (folders.length === 0) {
+        res.status(404).json({ error: 'Workspace not found or has no folders' });
+        return;
+      }
+
+      res.json({
+        sharedId,
+        folders: folders.map(f => ({
+          id: f.id,
+          path: f.path,
+          name: f.name,
+        })),
+        count: folders.length,
+      });
+    } catch (error) {
+      console.error('[RemoteServer] Error fetching workspace folders:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Switch active workspace
+  app.post('/api/workspaces/switch', async (req, res) => {
+    try {
+      const { sharedId } = req.body;
+
+      if (!sharedId) {
+        res.status(400).json({ error: 'Missing sharedId' });
+        return;
+      }
+
+      const success = workspaceManager.setActiveWorkspace(sharedId);
+
+      if (success) {
+        const workspace = workspaceManager.getActiveWorkspace();
+        res.json({
+          success: true,
+          activeWorkspace: workspace ? {
+            sharedId: workspace.sharedId,
+            name: workspace.name,
+            workingDirectory: workspace.folders[0]?.path || null,
+          } : null,
+        });
+      } else {
+        res.status(400).json({ error: 'Failed to switch workspace - workspace not found' });
+      }
+    } catch (error) {
+      console.error('[RemoteServer] Error switching workspace:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get current active workspace
+  app.get('/api/workspaces/active', async (_req, res) => {
+    try {
+      const workspace = workspaceManager.getActiveWorkspace();
+
+      if (!workspace) {
+        res.json({
+          activeWorkspace: null,
+          workingDirectory: null,
+        });
+        return;
+      }
+
+      res.json({
+        activeWorkspace: {
+          sharedId: workspace.sharedId,
+          workspaceId: workspace.workspaceId,
+          name: workspace.name,
+          folderCount: workspace.folderCount,
+          folders: workspace.folders.map(f => ({
+            id: f.id,
+            path: f.path,
+            name: f.name,
+          })),
+          isSingleFolder: workspace.isSingleFolder,
+        },
+        workingDirectory: workspace.folders[0]?.path || null,
+      });
+    } catch (error) {
+      console.error('[RemoteServer] Error fetching active workspace:', error);
       res.status(500).json({ error: (error as Error).message });
     }
   });
@@ -381,44 +561,97 @@ function setupAgentRoutes(app: express.Express): void {
     }
   });
 
-  // Get conversation summaries (from storage + active)
+  // Get conversation summaries (from all shared workspaces)
   app.get('/api/agent/conversations', async (_req, res) => {
     try {
-      const workspacePath = getWorkingDirectory();
       const chatStorage = getChatStorage();
       
-      // Get saved conversations from storage
-      const { conversations: savedConversations, error: storageError } = 
-        await chatStorage.listConversations(workspacePath);
+      // Get all shared workspaces
+      const workspaceManager = getSharedWorkspaceManager();
+      const activeWorkspace = workspaceManager.getActiveWorkspace();
+      const allWorkspaces = workspaceManager.getSharedWorkspaces();
+      const activeWorkspaceId = activeWorkspace?.sharedId || null;
       
-      if (storageError) {
-        console.error('[RemoteServer] Error loading conversations from storage:', storageError);
+      console.log('[DEBUG Server] Loading conversations from all', allWorkspaces.length, 'shared workspaces');
+      
+      // Load conversations from ALL shared workspaces
+      const allConversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number; workspaceId: string | null }> = [];
+      
+      for (const workspace of allWorkspaces) {
+        let workspaceConversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }> = [];
+        
+        console.log('[DEBUG Server] Processing workspace:', workspace.name, 'sharedId:', workspace.sharedId, 'folders:', workspace.folders.length);
+        
+        if (workspace.folders.length === 0) {
+          console.log('[DEBUG Server] Workspace', workspace.name, 'has no folders, skipping');
+          continue;
+        }
+        
+        // First, try to load from workspace-specific storage
+        const workspaceContext = {
+          type: 'workspace' as const,
+          workspace: {
+            id: workspace.sharedId,
+            name: workspace.name,
+            folders: workspace.folders.map(f => ({ id: f.id, path: f.path })),
+          },
+        };
+        const storageResult = await chatStorage.listConversations(workspaceContext);
+        
+        if (storageResult.conversations.length > 0) {
+          workspaceConversations = storageResult.conversations;
+          console.log('[DEBUG Server] Loaded', workspaceConversations.length, 'conversations from workspace storage for', workspace.name);
+        } else {
+          // Fall back to project storage
+          const projectPath = workspace.folders[0].path;
+          console.log('[DEBUG Server] Trying project storage for', workspace.name, 'at', projectPath);
+          const projectResult = await chatStorage.listConversationsForProject(projectPath);
+          if (projectResult.conversations.length > 0) {
+            workspaceConversations = projectResult.conversations;
+            console.log('[DEBUG Server] Loaded', workspaceConversations.length, 'conversations from project storage for', workspace.name);
+          } else {
+            console.log('[DEBUG Server] No conversations found for', workspace.name, 'in workspace or project storage');
+          }
+        }
+        
+        // Add workspaceId to each conversation and add to combined list
+        for (const conv of workspaceConversations) {
+          allConversations.push({
+            ...conv,
+            workspaceId: workspace.sharedId,
+          });
+        }
       }
       
-      // Get active conversations from agent bridge
+      console.log('[DEBUG Server] Total conversations from all workspaces:', allConversations.length);
+      
+      // Get active conversations from agent bridge (for current workspace only)
       const activeConversationIds = agentBridge.getActiveConversations();
       
-      // Create a map of saved conversations for quick lookup
-      const savedMap = new Map(savedConversations.map(c => [c.id, c]));
+      // Create a map for quick lookup
+      const savedMap = new Map(allConversations.map(c => [c.id, c]));
       
-      // Add any active conversations not in saved list (in-memory only)
+      // Add any active conversations not in saved list (in-memory only, for active workspace)
       for (const activeId of activeConversationIds) {
         if (!savedMap.has(activeId)) {
-          savedConversations.push({
+          allConversations.push({
             id: activeId,
             title: 'Active Conversation',
             updatedAt: Date.now(),
             messageCount: 0,
+            workspaceId: activeWorkspaceId,
           });
         }
       }
       
       // Sort by updatedAt descending
-      savedConversations.sort((a, b) => b.updatedAt - a.updatedAt);
+      allConversations.sort((a, b) => b.updatedAt - a.updatedAt);
+      
+      console.log('[DEBUG Server] Returning', allConversations.length, 'total conversations from all workspaces');
       
       res.json({ 
-        conversations: savedConversations,
-        total: savedConversations.length 
+        conversations: allConversations,
+        total: allConversations.length 
       });
     } catch (error) {
       console.error('[RemoteServer] Error in /api/agent/conversations:', error);
@@ -434,7 +667,7 @@ function setupAgentRoutes(app: express.Express): void {
       const chatStorage = getChatStorage();
       
       // Load all conversations and find the one we need
-      const { conversations, error } = await chatStorage.loadConversations(workspacePath);
+      const { conversations, error } = await chatStorage.loadConversationsForProject(workspacePath);
       
       if (error) {
         return res.status(500).json({ error });
@@ -461,6 +694,26 @@ function setupAgentRoutes(app: express.Express): void {
       console.error('[RemoteServer] Error in /api/agent/conversation/:id:', error);
       res.status(500).json({ error: (error as Error).message });
     }
+  });
+
+  // SSE endpoint for conversation sync — receives lifecycle events (created/updated/deleted)
+  app.get('/api/sync/events', (validateApiKey as RequestHandler), (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    registerSyncConnection(res);
+
+    // Send initial connection confirmation
+    res.write(`data: ${JSON.stringify({ type: 'sync_connected', timestamp: Date.now() })}\n\n`);
+
+    const keepAlive = setInterval(() => {
+      res.write(':keepalive\n\n');
+    }, 30000);
+
+    res.on('close', () => {
+      clearInterval(keepAlive);
+    });
   });
 
   // SSE endpoint for agent events
@@ -792,4 +1045,64 @@ function setupToolRoutes(app: express.Express): void {
       res.status(500).json({ error: (error as Error).message });
     }
   });
+}
+
+/**
+ * Generate QR code for mobile connection
+ * Returns a data URL containing the QR code image
+ */
+export async function generateConnectionQR(): Promise<{
+  success: boolean;
+  dataUrl?: string;
+  error?: string;
+}> {
+  try {
+    if (!isRunning || !publicUrl) {
+      return {
+        success: false,
+        error: 'Server is not running. Start the remote server first.',
+      };
+    }
+
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      return {
+        success: false,
+        error: 'No API key configured.',
+      };
+    }
+
+    const serverName = (settingsManager.get('remoteAccess.serverName') as string) ||
+      require('os').hostname() ||
+      'Omni Code Server';
+
+    const connectionData = {
+      v: 1, // Version for future compatibility
+      url: publicUrl,
+      key: apiKey,
+      name: serverName,
+    };
+
+    const jsonData = JSON.stringify(connectionData);
+
+    const dataUrl = await QRCode.toDataURL(jsonData, {
+      width: 256,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    });
+
+    return {
+      success: true,
+      dataUrl,
+    };
+  } catch (error) {
+    console.error('[RemoteServer] Failed to generate QR code:', error);
+    return {
+      success: false,
+      error: (error as Error).message,
+    };
+  }
 }

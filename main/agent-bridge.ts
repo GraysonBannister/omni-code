@@ -266,6 +266,70 @@ export class AgentBridge {
     return Array.from(this.conversations.keys());
   }
 
+  // Get available models from the provider registry
+  getAvailableModels(): Array<{
+    id: string;
+    name: string;
+    provider: string;
+    description?: string;
+    isAvailable: boolean;
+    aliases?: string[];
+  }> {
+    if (!this.providerRegistry) {
+      console.warn('[AgentBridge] No provider registry set, returning empty model list');
+      return [];
+    }
+
+    try {
+      // Get all available models from the provider registry
+      const models: Array<{
+        id: string;
+        name: string;
+        provider: string;
+        description?: string;
+        isAvailable: boolean;
+        aliases?: string[];
+      }> = [];
+
+      // Access provider registry methods
+      const registry = this.providerRegistry as unknown as {
+        getAvailable?: () => Array<{ name: string; displayName: string; isAvailable: () => boolean; listModels: () => Array<{ id: string; name: string; description?: string; aliases?: string[] }> }>;
+        providers?: Map<string, { name: string; displayName: string; isAvailable: () => boolean; listModels: () => Array<{ id: string; name: string; description?: string; aliases?: string[] }> }>;
+      };
+
+      // Try to get available providers
+      let providers: Array<{ name: string; displayName: string; isAvailable: () => boolean; listModels: () => Array<{ id: string; name: string; description?: string; aliases?: string[] }> }> = [];
+
+      if (typeof registry.getAvailable === 'function') {
+        providers = registry.getAvailable();
+      } else if (registry.providers) {
+        providers = Array.from(registry.providers.values());
+      }
+
+      for (const provider of providers) {
+        if (!provider.isAvailable()) continue;
+
+        const providerModels = provider.listModels();
+        for (const model of providerModels) {
+          models.push({
+            id: model.id,
+            name: model.name || model.id,
+            provider: provider.name,
+            description: model.description,
+            isAvailable: true,
+            aliases: model.aliases,
+          });
+        }
+      }
+
+      console.log(`[AgentBridge] Returning ${models.length} available models`);
+      return models;
+    } catch (error) {
+      console.error('[AgentBridge] Error getting available models:', error);
+      return [];
+    }
+  }
+
   private getConversationIdForSession(sessionId: string): string | undefined {
     for (const [conversationId, state] of this.conversations.entries()) {
       if (state.agent.id === sessionId) {

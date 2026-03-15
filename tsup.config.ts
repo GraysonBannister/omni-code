@@ -23,6 +23,7 @@ export default defineConfig([
       'main/core-integration.ts',
       'main/agent-bridge.ts',
       'main/settings.ts',
+      'main/shared-workspace-manager.ts',
     ],
     format: ['cjs'],
     dts: false,
@@ -31,7 +32,7 @@ export default defineConfig([
     clean: false,
     target: 'node20',
     external: ['electron', 'better-sqlite3', 'electron-store'],
-    outDir: 'dist-electron/main',
+    outDir: 'dist-electron',
     platform: 'node',
     // Define __dirname for CJS output
     define: {

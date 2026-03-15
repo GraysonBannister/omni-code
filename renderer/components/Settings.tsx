@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy } from 'lucide-react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Folder, Briefcase, Plus, Trash2, CheckCircle } from 'lucide-react';
 import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
 import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
@@ -48,6 +48,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
     };
   } | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+
+  // Shared workspaces state
+  const [sharedWorkspaces, setSharedWorkspaces] = useState<Array<{
+    sharedId: string;
+    workspaceId: string;
+    filePath: string;
+    name: string;
+    folderCount: number;
+    isActive: boolean;
+    addedAt: number;
+    isSingleFolder: boolean;
+  }>>([]);
+  const [sharedWorkspacesLoading, setSharedWorkspacesLoading] = useState(false);
 
   // Load settings when panel opens or when embedded
   useEffect(() => {
@@ -73,6 +87,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   useEffect(() => {
     if (activeTab === 'remote') {
       loadRemoteStatus();
+      loadQRCode();
+      loadSharedWorkspaces();
     }
   }, [activeTab]);
 
@@ -84,6 +100,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
       }
     } catch (error) {
       console.error('Failed to load remote status:', error);
+    }
+  };
+
+  const loadQRCode = async () => {
+    try {
+      const result = await window.electronAPI.remote.getQRCode();
+      if (result.success && result.dataUrl) {
+        setQrCodeData(result.dataUrl);
+      } else {
+        setQrCodeData(null);
+      }
+    } catch (error) {
+      setQrCodeData(null);
     }
   };
 
@@ -107,6 +136,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
       console.error('Failed to start remote server:', error);
       alert(`Failed to start server: ${(error as Error).message}`);
     }
+    await loadRemoteStatus();
+    await loadQRCode();
     setRemoteLoading(false);
   };
 
@@ -122,6 +153,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
           port: settings?.remoteAccess?.port || 3000,
           connections: { totalConversations: 0, totalConnections: 0, conversations: [] },
         });
+        setQrCodeData(null);
       }
     } catch (error) {
       console.error('Failed to stop remote server:', error);
@@ -143,6 +175,100 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  // Shared workspaces handlers
+  const loadSharedWorkspaces = async () => {
+    try {
+      setSharedWorkspacesLoading(true);
+      const result = await window.electronAPI?.sharedWorkspaces?.list();
+      if (result?.success && result.workspaces) {
+        setSharedWorkspaces(result.workspaces);
+      }
+    } catch (error) {
+      console.error('Failed to load shared workspaces:', error);
+    } finally {
+      setSharedWorkspacesLoading(false);
+    }
+  };
+
+  const handleAddWorkspace = async () => {
+    try {
+      // Open file dialog to select workspace file
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.omnicode-workspace';
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          setSharedWorkspacesLoading(true);
+          const result = await window.electronAPI?.sharedWorkspaces?.addWorkspace(file.path);
+          if (result?.success) {
+            await loadSharedWorkspaces();
+          } else {
+            alert(`Failed to add workspace: ${result?.error || 'Unknown error'}`);
+          }
+          setSharedWorkspacesLoading(false);
+        }
+      };
+      input.click();
+    } catch (error) {
+      console.error('Failed to add workspace:', error);
+    }
+  };
+
+  const handleAddFolder = async () => {
+    try {
+      // Use electron dialog to select folder
+      const result = await window.electronAPI?.dialog?.openFolder();
+
+      if (result?.path) {
+        setSharedWorkspacesLoading(true);
+
+        const addResult = await window.electronAPI?.sharedWorkspaces?.addFolder(result.path);
+
+        if (addResult?.success) {
+          await loadSharedWorkspaces();
+        } else {
+          alert(`Failed to add folder: ${addResult?.error || 'Unknown error'}`);
+        }
+        setSharedWorkspacesLoading(false);
+      }
+    } catch (error) {
+      console.error('Failed to add folder:', error);
+    }
+  };
+
+  const handleRemoveWorkspace = async (sharedId: string) => {
+    try {
+      setSharedWorkspacesLoading(true);
+      const result = await window.electronAPI?.sharedWorkspaces?.remove(sharedId);
+      if (result?.success) {
+        await loadSharedWorkspaces();
+      } else {
+        alert(`Failed to remove workspace: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to remove workspace:', error);
+    } finally {
+      setSharedWorkspacesLoading(false);
+    }
+  };
+
+  const handleSetActiveWorkspace = async (sharedId: string) => {
+    try {
+      setSharedWorkspacesLoading(true);
+      const result = await window.electronAPI?.sharedWorkspaces?.setActive(sharedId);
+      if (result?.success) {
+        await loadSharedWorkspaces();
+      } else {
+        alert(`Failed to set active workspace: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to set active workspace:', error);
+    } finally {
+      setSharedWorkspacesLoading(false);
+    }
   };
 
   if (!embedded && !isOpen) return null;
@@ -899,6 +1025,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   </div>
                 )}
 
+                {qrCodeData && (
+                  <div className="remote-status-item">
+                    <span className="remote-status-label">Scan to Connect:</span>
+                    <div className="remote-qr-container">
+                      <img
+                        src={qrCodeData}
+                        alt="QR Code for mobile connection"
+                        className="remote-qr-code"
+                      />
+                      <p className="remote-qr-instructions">
+                        Scan this QR code with your mobile app to connect
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {remoteStatus?.running && (
                   <div className="remote-status-item">
                     <span className="remote-status-label">Active Connections:</span>
@@ -956,6 +1098,119 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   <li>All communication is encrypted via ngrok's HTTPS tunnel</li>
                   <li>Rate limiting is active (100 requests per 15 minutes by default)</li>
                 </ol>
+              </div>
+
+              {/* Shared Workspaces Section */}
+              <div style={{ marginTop: '32px', borderTop: '1px solid var(--border-color, #e0e0e0)', paddingTop: '24px' }}>
+                <h3 className="settings-section-title">
+                  <Briefcase size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                  Shared Workspaces
+                </h3>
+                <p className="settings-section-description">
+                  Choose which workspaces and folders to share with the mobile app.
+                  Only shared workspaces are accessible remotely.
+                </p>
+
+                {sharedWorkspacesLoading ? (
+                  <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <RefreshCw size={24} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+                    <p>Loading workspaces...</p>
+                  </div>
+                ) : (
+                  <>
+                    {sharedWorkspaces.length === 0 ? (
+                      <div className="settings-info-box" style={{ background: 'var(--info-bg, #e3f2fd)', borderColor: 'var(--info-border, #2196f3)' }}>
+                        No workspaces shared yet. Add a workspace or folder below to make it accessible from the mobile app.
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: '16px' }}>
+                        {sharedWorkspaces.map((workspace) => (
+                          <div
+                            key={workspace.sharedId}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '12px',
+                              marginBottom: '8px',
+                              background: workspace.isActive ? 'var(--active-bg, #e8f5e9)' : 'var(--surface-color, #f5f5f5)',
+                              border: `1px solid ${workspace.isActive ? 'var(--success-color, #4caf50)' : 'var(--border-color, #e0e0e0)'}`,
+                              borderRadius: '8px',
+                            }}
+                          >
+                            <div style={{ marginRight: '12px' }}>
+                              {workspace.isSingleFolder ? (
+                                <Folder size={20} style={{ color: 'var(--folder-color, #ffc107)' }} />
+                              ) : (
+                                <Briefcase size={20} style={{ color: 'var(--workspace-color, #2196f3)' }} />
+                              )}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 500 }}>{workspace.name}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>
+                                {workspace.isSingleFolder
+                                  ? 'Single Folder'
+                                  : `${workspace.folderCount} folder${workspace.folderCount !== 1 ? 's' : ''}`}
+                                {workspace.isActive && (
+                                  <span style={{ color: 'var(--success-color, #4caf50)', marginLeft: '8px' }}>
+                                    <CheckCircle size={12} style={{ verticalAlign: 'middle', marginRight: '2px' }} />
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              {!workspace.isActive && (
+                                <button
+                                  className="btn btn-sm btn-secondary"
+                                  onClick={() => handleSetActiveWorkspace(workspace.sharedId)}
+                                  disabled={sharedWorkspacesLoading}
+                                  title="Set as active workspace"
+                                >
+                                  <CheckCircle size={14} />
+                                </button>
+                              )}
+                              <button
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleRemoveWorkspace(workspace.sharedId)}
+                                disabled={sharedWorkspacesLoading}
+                                title="Remove from shared list"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={handleAddWorkspace}
+                        disabled={sharedWorkspacesLoading}
+                      >
+                        <Plus size={16} style={{ marginRight: '8px' }} />
+                        Add Workspace
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={handleAddFolder}
+                        disabled={sharedWorkspacesLoading}
+                      >
+                        <Folder size={16} style={{ marginRight: '8px' }} />
+                        Add Folder
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={loadSharedWorkspaces}
+                        disabled={sharedWorkspacesLoading}
+                      >
+                        <RefreshCw size={16} style={{ marginRight: '8px' }} />
+                        Refresh
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="settings-actions" style={{ marginTop: '24px' }}>

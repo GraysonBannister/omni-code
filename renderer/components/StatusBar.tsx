@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug, TerminalSquare } from 'lucide-react';
+import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug, TerminalSquare, Briefcase, Folder } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { IndexingStatus } from './IndexingStatus';
 import './StatusBar.css';
@@ -35,6 +35,10 @@ export const StatusBar: React.FC = () => {
     conversations,
     terminalVisible,
     toggleTerminal,
+    isWorkspaceMode,
+    currentWorkspace,
+    activeFolderId,
+    projectPath,
   } = useAppStore();
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
@@ -62,12 +66,38 @@ export const StatusBar: React.FC = () => {
 
   return (
     <div className="status-bar">
-      {/* Left - Mode indicator, Processing indicator and Indexing Status */}
+      {/* Left - Mode indicator, Workspace indicator, Processing indicator and Indexing Status */}
       <div className="status-bar-section">
         <div className="status-item mode-indicator" title={`AI Mode: ${modeLabels[currentMode as keyof typeof modeLabels]}`}>
           <ModeIcon size={14} />
           <span className="mode-text">{modeLabels[currentMode as keyof typeof modeLabels]}</span>
         </div>
+
+        {/* Workspace Indicator */}
+        {isWorkspaceMode && currentWorkspace && (
+          <div className="status-item workspace-indicator" title={`Workspace: ${currentWorkspace.name}`}>
+            <Briefcase size={14} className="workspace-icon" />
+            <span className="workspace-name">{currentWorkspace.name}</span>
+            {activeFolderId && (
+              <>
+                <span className="workspace-separator">/</span>
+                <span className="workspace-project">
+                  <Folder size={12} />
+                  {currentWorkspace.folders.find(f => f.id === activeFolderId)?.name || 'Project'}
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Single folder indicator */}
+        {!isWorkspaceMode && projectPath && (
+          <div className="status-item folder-indicator" title={`Project: ${projectPath}`}>
+            <Folder size={14} />
+            <span className="folder-name">{projectPath.split('/').pop() || projectPath}</span>
+          </div>
+        )}
+
         {isProcessing && (
           <div className="status-item status-processing">
             <Activity size={14} className="spinning" />

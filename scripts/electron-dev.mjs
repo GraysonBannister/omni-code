@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
-const electronEntry = path.join(projectRoot, 'dist-electron', 'main', 'electron.cjs');
+const electronEntry = path.join(projectRoot, 'dist-electron', 'electron.cjs');
 const electronBinary = path.join(
   projectRoot,
   'node_modules',

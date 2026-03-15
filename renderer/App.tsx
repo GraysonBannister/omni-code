@@ -7,6 +7,7 @@ import { StatusBar } from './components/StatusBar';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { HeaderBar } from './components/HeaderBar';
 import { TerminalPanel } from './components/TerminalPanel';
+import { WorkspaceManager } from './components/WorkspaceManager';
 import { useAppStore, subscribeToBrowserEvents } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
@@ -17,15 +18,35 @@ export const App: React.FC = () => {
     chatVisible,
     terminalVisible,
     projectPath,
+    currentWorkspace,
+    isWorkspaceMode,
+    recentFolders,
+    recentWorkspaces: recentWorkspaceFiles,
     openFolder,
     createFolder,
     openRecentWorkspace,
+    openWorkspace,
+    loadSavedWorkspaces,
   } = useAppStore();
   const [isElectron, setIsElectron] = React.useState(true);
-  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
+  const [recentFoldersState, setRecentFoldersState] = useState<string[]>([]);
+  const [recentWorkspacesState, setRecentWorkspacesState] = useState<string[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false);
   const openSettings = useAppStore(state => state.openSettings);
+
+  // Handler for opening workspace file dialog
+  const openWorkspaceDialog = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.dialog?.openWorkspace();
+      if (result && !result.canceled && result.path) {
+        await openWorkspace(result.path);
+      }
+    } catch (error) {
+      console.error('Failed to open workspace dialog:', error);
+    }
+  }, [openWorkspace]);
 
 
   // Check if we're running in Electron
@@ -115,7 +136,7 @@ export const App: React.FC = () => {
       
       try {
         // Get store functions via getState() to avoid dependency issues
-        const { setAvailableModels, setAvailableProviders, setModel, setAppInitialized } = useAppStore.getState();
+        const { setAvailableModels, setAvailableProviders, setModel, setAppInitialized: storeSetAppInitialized } = useAppStore.getState();
         const { loadSettings, getRecentWorkspaces } = useSettingsStore.getState();
 
         // Load settings first
@@ -151,18 +172,26 @@ export const App: React.FC = () => {
           }
         }
 
-        // Load recent workspaces for welcome screen
-        console.log('[App] Loading recent workspaces...');
-        const recent = await getRecentWorkspaces();
-        console.log('[App] Loaded recent workspaces:', recent);
-        setRecentWorkspaces(recent);
+        // Load recent folders and workspaces for welcome screen
+        console.log('[App] Loading recent folders and workspaces...');
+        const [folders, workspaces] = await Promise.all([
+          window.electronAPI!.settings.getRecentFolders(),
+          window.electronAPI!.settings.getRecentWorkspaces(),
+        ]);
+        console.log('[App] Loaded recent folders:', folders.value?.length || 0);
+        console.log('[App] Loaded recent workspaces:', workspaces.value?.length || 0);
+        setRecentFoldersState(folders.value || []);
+        setRecentWorkspacesState(workspaces.value || []);
+
+        // Load saved workspace list
+        await loadSavedWorkspaces();
         
         console.log('[App] Initialization complete');
-        setAppInitialized(true);
+        storeSetAppInitialized(true);
       } catch (error) {
         console.error('[App] Failed to initialize:', error);
         setInitError((error as Error).message);
-        setAppInitialized(true); // Still mark as initialized to allow usage
+        storeSetAppInitialized(true); // Still mark as initialized to allow usage
       } finally {
         setIsInitializing(false);
       }
@@ -177,8 +206,13 @@ export const App: React.FC = () => {
 
     // Setup open-recent handler from menu
     const unsubscribeOpenRecent = window.electronAPI!.app.onOpenRecent((path: string) => {
-      const { openRecentWorkspace } = useAppStore.getState();
-      openRecentWorkspace(path);
+      const { openRecentWorkspace, openWorkspace } = useAppStore.getState();
+      // Check if it's a workspace file
+      if (path.endsWith('.omnicode-workspace')) {
+        openWorkspace(path);
+      } else {
+        openRecentWorkspace(path);
+      }
     });
 
     // Setup before quit handler
@@ -214,6 +248,8 @@ export const App: React.FC = () => {
   const handleMenuAction = useCallback((action: string, ...args: any[]) => {
     if (!window.electronAPI) return;
 
+    const state = useAppStore.getState();
+
     switch (action) {
       case 'new-file':
         // Trigger new file creation
@@ -221,35 +257,50 @@ export const App: React.FC = () => {
       case 'open-folder':
         openFolder();
         break;
+      case 'open-workspace':
+        // Open workspace file dialog would go here
+        break;
       case 'open-recent':
-        // Open recent workspace from menu
+        // Open recent from menu - could be folder or workspace
         if (args.length > 0 && typeof args[0] === 'string') {
-          openRecentWorkspace(args[0]);
+          const path = args[0];
+          if (path.endsWith('.omnicode-workspace')) {
+            openWorkspace(path);
+          } else {
+            openRecentWorkspace(path);
+          }
         }
         break;
       case 'save':
         // Save current file
         break;
       case 'toggle-sidebar':
-        useAppStore.getState().toggleSidebar();
+        state.toggleSidebar();
         break;
       case 'toggle-chat':
-        useAppStore.getState().toggleChat();
+        state.toggleChat();
         break;
       case 'send-message':
         // Focus chat input and trigger send
         break;
       case 'abort':
-        window.electronAPI.agent.abort();
+        if (state.activeConversationId) {
+          window.electronAPI.agent.abort(state.activeConversationId);
+        }
         break;
       case 'clear-chat':
-        useAppStore.getState().clearMessages();
+        state.clearMessages();
         break;
       case 'open-settings':
         openSettings();
         break;
+      case 'close-workspace':
+        if (state.isWorkspaceMode) {
+          state.closeWorkspace();
+        }
+        break;
     }
-  }, [openFolder, openRecentWorkspace]);
+  }, [openFolder, openRecentWorkspace, openWorkspace]);
 
   // Show error if not running in Electron
   if (!isElectron) {
@@ -331,15 +382,24 @@ export const App: React.FC = () => {
     );
   }
 
-  // Show welcome screen when no project is open
-  if (!projectPath) {
+  // Show welcome screen when no project or workspace is open
+  if (!projectPath && !currentWorkspace) {
     return (
-      <WelcomeScreen
-        onOpenFolder={openFolder}
-        onCreateFolder={createFolder}
-        onOpenRecent={openRecentWorkspace}
-        recentWorkspaces={recentWorkspaces}
-      />
+      <>
+        <WelcomeScreen
+          onOpenFolder={openFolder}
+          onCreateFolder={createFolder}
+          onOpenRecent={openRecentWorkspace}
+          onOpenWorkspace={openWorkspaceDialog}
+          onCreateWorkspace={() => setWorkspaceManagerOpen(true)}
+          recentFolders={recentFoldersState}
+          recentWorkspaces={recentWorkspacesState}
+        />
+        <WorkspaceManager
+          isOpen={workspaceManagerOpen}
+          onClose={() => setWorkspaceManagerOpen(false)}
+        />
+      </>
     );
   }
 
@@ -398,6 +458,12 @@ export const App: React.FC = () => {
 
       {/* Status Bar */}
       <StatusBar />
+
+      {/* Workspace Manager Dialog */}
+      <WorkspaceManager
+        isOpen={workspaceManagerOpen}
+        onClose={() => setWorkspaceManagerOpen(false)}
+      />
     </div>
   );
 };

@@ -103,6 +103,23 @@ declare global {
         cleanup: (monthsToKeep?: number) => Promise<{ success: boolean; error?: string }>;
         export: (workspacePath?: string) => Promise<{ success: boolean; csvContent?: string; error?: string }>;
       };
+      sharedWorkspaces: {
+        list: () => Promise<{ success: boolean; workspaces: Array<{
+          sharedId: string;
+          workspaceId: string;
+          filePath: string;
+          name: string;
+          folderCount: number;
+          isActive: boolean;
+          addedAt: number;
+          isSingleFolder: boolean;
+        }>; error?: string }>;
+        addWorkspace: (filePath: string) => Promise<{ success: boolean; workspace?: any; error?: string }>;
+        addFolder: (folderPath: string) => Promise<{ success: boolean; workspace?: any; error?: string }>;
+        remove: (sharedId: string) => Promise<{ success: boolean; error?: string }>;
+        setActive: (sharedId: string) => Promise<{ success: boolean; error?: string }>;
+        getActive: () => Promise<{ success: boolean; workspace?: any; error?: string }>;
+      };
     };
     electron?: {
       platform: NodeJS.Platform;

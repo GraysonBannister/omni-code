@@ -3,6 +3,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { setWorkingDirectory, getWorkingDirectory, setPermissionMode } from './core-integration.js';
 import { getChatStorage } from './chat-storage.js';
+import { getWorkspaceStorage } from './workspace-storage.js';
+import type { Workspace, CreateWorkspaceOptions } from '../src/types/workspace.js';
+import {
+  getWorkspaceIndexer,
+  closeWorkspaceIndexer,
+  closeAllWorkspaceIndexers,
+} from '../src/memory/workspace-indexer.js';
 import { getUsageStorage } from './usage-storage.js';
 import { getFileHistoryManager } from './file-history.js';
 import { requestNotificationSound } from './notifications.js';
@@ -13,6 +20,7 @@ import {
   destroyTerminal,
   destroyAllTerminals,
 } from './terminal-manager.js';
+import { setupSettingsIpcHandlers, cleanupSettingsIpcHandlers } from './settings.js';
 
 // Reference to main window for sending browser events to renderer
 let mainWindowRef: BrowserWindow | null = null;
@@ -81,6 +89,9 @@ export function setConfigRef(config: typeof configRef): void {
 }
 
 export function setupIpcHandlers(): void {
+  // Note: setupSettingsIpcHandlers() is called in electron.ts, not here
+  // to avoid duplicate handler registration
+
   // Agent handlers - now conversation-scoped for multi-tab support
   ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
@@ -148,20 +159,20 @@ export function setupIpcHandlers(): void {
     return tools.find(t => t.name === toolName) || null;
   });
 
-  // Chat storage handlers
-  ipcMain.handle('chat:save', async (_: IpcMainInvokeEvent, workspacePath: string, conversation: Conversation) => {
-    return chatStorageRef.saveConversation(workspacePath, conversation);
+  // Chat storage handlers (project-level chats)
+  ipcMain.handle('chat:save', async (_: IpcMainInvokeEvent, projectPath: string, conversation: Conversation) => {
+    return chatStorageRef.saveConversationForProject(projectPath, conversation);
   });
 
-  ipcMain.handle('chat:load', async (_: IpcMainInvokeEvent, workspacePath: string) => {
-    return chatStorageRef.loadConversations(workspacePath);
+  ipcMain.handle('chat:load', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    return chatStorageRef.loadConversationsForProject(projectPath);
   });
 
-  ipcMain.handle('chat:delete', async (_: IpcMainInvokeEvent, workspacePath: string, conversationId: string) => {
-    const result = await chatStorageRef.deleteConversation(workspacePath, conversationId);
+  ipcMain.handle('chat:delete', async (_: IpcMainInvokeEvent, projectPath: string, conversationId: string) => {
+    const result = await chatStorageRef.deleteConversationForProject(projectPath, conversationId);
     // Also clear file history for this conversation
     try {
-      const fileHistoryManager = getFileHistoryManager(workspacePath);
+      const fileHistoryManager = getFileHistoryManager(projectPath);
       await fileHistoryManager.clearConversation(conversationId);
     } catch (error) {
       console.error('[IPC] Failed to clear file history for conversation:', error);
@@ -169,8 +180,8 @@ export function setupIpcHandlers(): void {
     return result;
   });
 
-  ipcMain.handle('chat:list', async (_: IpcMainInvokeEvent, workspacePath: string) => {
-    return chatStorageRef.listConversations(workspacePath);
+  ipcMain.handle('chat:list', async (_: IpcMainInvokeEvent, projectPath: string) => {
+    return chatStorageRef.listConversationsForProject(projectPath);
   });
 
   // File handlers
@@ -569,6 +580,26 @@ export function setupIpcHandlers(): void {
     };
   });
 
+  ipcMain.handle('dialog:open-workspace', async () => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (!window) return { canceled: true, path: null };
+
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openFile'],
+      title: 'Open Workspace',
+      buttonLabel: 'Open Workspace',
+      filters: [
+        { name: 'Omni Code Workspace', extensions: ['omnicode-workspace'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    return {
+      canceled: result.canceled,
+      path: result.filePaths[0] || null,
+    };
+  });
+
   ipcMain.handle('dialog:create-folder', async () => {
     const window = BrowserWindow.getFocusedWindow();
     if (!window) return { canceled: true, path: null, error: 'No window available' };
@@ -912,6 +943,364 @@ export function setupIpcHandlers(): void {
       return { success: false, error: (error as Error).message };
     }
   });
+
+  // Get QR code for mobile connection
+  ipcMain.handle('remote:get-qr-code', async () => {
+    try {
+      const { generateConnectionQR } = await import('./remote-server.js');
+      return await generateConnectionQR();
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Shared workspace handlers for remote access
+  ipcMain.handle('shared-workspaces:list', async () => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      return { success: true, workspaces: manager.getSharedWorkspaces() };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('shared-workspaces:add-workspace', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      const workspace = await manager.addWorkspaceFile(filePath);
+      return { success: true, workspace };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('shared-workspaces:add-folder', async (_: IpcMainInvokeEvent, folderPath: string) => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      const workspace = await manager.addFolder(folderPath);
+      return { success: true, workspace };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('shared-workspaces:remove', async (_: IpcMainInvokeEvent, sharedId: string) => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      const success = await manager.removeWorkspace(sharedId);
+      return { success };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('shared-workspaces:set-active', async (_: IpcMainInvokeEvent, sharedId: string) => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      const success = manager.setActiveWorkspace(sharedId);
+      return { success };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('shared-workspaces:active', async () => {
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const manager = getSharedWorkspaceManager();
+      await manager.initialize();
+      const workspace = manager.getActiveWorkspace();
+      return { success: true, workspace };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Workspace handlers
+  ipcMain.handle('workspace:create', async (_: IpcMainInvokeEvent, options: CreateWorkspaceOptions) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.createWorkspace(options);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to create workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:saveToFile', async (_: IpcMainInvokeEvent, workspace: Workspace, filePath: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.saveWorkspaceToFile(workspace, filePath);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to save workspace to file:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:loadFromFile', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.loadWorkspaceFromFile(filePath);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to load workspace from file:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:loadById', async (_: IpcMainInvokeEvent, workspaceId: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.loadWorkspaceById(workspaceId);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to load workspace by ID:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:update', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.updateWorkspace(workspace);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to update workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:list', async () => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.listWorkspaces();
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to list workspaces:', error);
+      return { workspaces: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:delete', async (_: IpcMainInvokeEvent, workspaceId: string, deleteData?: boolean) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.deleteWorkspace(workspaceId, deleteData);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to delete workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:addFolder', async (_: IpcMainInvokeEvent, workspaceId: string, folderPath: string, folderName?: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.addFolderToWorkspace(workspaceId, folderPath, folderName);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to add folder to workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:removeFolder', async (_: IpcMainInvokeEvent, workspaceId: string, folderId: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.removeFolderFromWorkspace(workspaceId, folderId);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to remove folder from workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:rename', async (_: IpcMainInvokeEvent, workspaceId: string, newName: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.renameWorkspace(workspaceId, newName);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to rename workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:export', async (_: IpcMainInvokeEvent, workspaceId: string, targetDir: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.exportWorkspace(workspaceId, targetDir);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to export workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:import', async (_: IpcMainInvokeEvent, sourceDir: string) => {
+    try {
+      const storage = getWorkspaceStorage();
+      const result = await storage.importWorkspace(sourceDir);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to import workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Workspace chat storage handlers (isolated from project chats)
+  ipcMain.handle('workspace:chat:save', async (_: IpcMainInvokeEvent, workspace: Workspace, conversation: Conversation) => {
+    try {
+      const storage = getChatStorage();
+      const result = await storage.saveConversationForWorkspace(workspace, conversation);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to save workspace conversation:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:chat:load', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const storage = getChatStorage();
+      const result = await storage.loadConversationsForWorkspace(workspace);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to load workspace conversations:', error);
+      return { conversations: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:chat:delete', async (_: IpcMainInvokeEvent, workspace: Workspace, conversationId: string) => {
+    try {
+      const storage = getChatStorage();
+      const result = await storage.deleteConversationForWorkspace(workspace, conversationId);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to delete workspace conversation:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:chat:list', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const storage = getChatStorage();
+      const result = await storage.listConversationsForWorkspace(workspace);
+      return result;
+    } catch (error) {
+      console.error('[IPC] Failed to list workspace conversations:', error);
+      return { conversations: [], error: (error as Error).message };
+    }
+  });
+
+  // Workspace indexing handlers (cross-project semantic search)
+  ipcMain.handle('workspace:indexing:start', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const indexer = await getWorkspaceIndexer(workspace);
+      await indexer.startIndexing();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to start workspace indexing:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:reindex', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const indexer = await getWorkspaceIndexer(workspace);
+      await indexer.reindex();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to reindex workspace:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:reindexProject', async (_: IpcMainInvokeEvent, workspace: Workspace, projectId: string) => {
+    try {
+      const indexer = await getWorkspaceIndexer(workspace);
+      await indexer.reindexProject(projectId);
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to reindex workspace project:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:stop', async (_: IpcMainInvokeEvent, workspaceId: string) => {
+    try {
+      const indexer = await getWorkspaceIndexer({ id: workspaceId, name: '', folders: [], version: '1.0.0', createdAt: 0, updatedAt: 0 });
+      indexer.abort();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to stop workspace indexing:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:getState', async (_: IpcMainInvokeEvent, workspaceId: string) => {
+    try {
+      const indexer = await getWorkspaceIndexer({ id: workspaceId, name: '', folders: [], version: '1.0.0', createdAt: 0, updatedAt: 0 });
+      const state = indexer.getState();
+      return { state, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to get workspace indexing state:', error);
+      return { state: null, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:query', async (_: IpcMainInvokeEvent, workspaceId: string, query: string, options?: { topK?: number; projectId?: string }) => {
+    try {
+      const indexer = await getWorkspaceIndexer({ id: workspaceId, name: '', folders: [], version: '1.0.0', createdAt: 0, updatedAt: 0 });
+      const results = await indexer.query(query, options);
+      return { results, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to query workspace index:', error);
+      return { results: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:clear', async (_: IpcMainInvokeEvent, workspaceId: string) => {
+    try {
+      const indexer = await getWorkspaceIndexer({ id: workspaceId, name: '', folders: [], version: '1.0.0', createdAt: 0, updatedAt: 0 });
+      await indexer.clearIndex();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to clear workspace index:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:close', async (_: IpcMainInvokeEvent, workspaceId: string) => {
+    try {
+      await closeWorkspaceIndexer(workspaceId);
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to close workspace indexer:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:indexing:closeAll', async () => {
+    try {
+      await closeAllWorkspaceIndexers();
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[IPC] Failed to close all workspace indexers:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
 }
 
 // Set main window reference for browser events
@@ -965,6 +1354,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('config:get-providers');
   ipcMain.removeHandler('dialog:open-folder');
   ipcMain.removeHandler('dialog:create-folder');
+  ipcMain.removeHandler('dialog:open-workspace');
   ipcMain.removeHandler('app:get-version');
   ipcMain.removeHandler('app:get-platform');
   ipcMain.removeHandler('usage:get');
@@ -1000,4 +1390,47 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('remote:stop');
   ipcMain.removeHandler('remote:status');
   ipcMain.removeHandler('remote:regenerate-api-key');
+
+  // Shared workspace cleanup
+  ipcMain.removeHandler('shared-workspaces:list');
+  ipcMain.removeHandler('shared-workspaces:add-workspace');
+  ipcMain.removeHandler('shared-workspaces:add-folder');
+  ipcMain.removeHandler('shared-workspaces:remove');
+  ipcMain.removeHandler('shared-workspaces:set-active');
+  ipcMain.removeHandler('shared-workspaces:active');
+
+  // Workspace handlers cleanup
+  ipcMain.removeHandler('workspace:create');
+  ipcMain.removeHandler('workspace:saveToFile');
+  ipcMain.removeHandler('workspace:loadFromFile');
+  ipcMain.removeHandler('workspace:loadById');
+  ipcMain.removeHandler('workspace:update');
+  ipcMain.removeHandler('workspace:list');
+  ipcMain.removeHandler('workspace:delete');
+  ipcMain.removeHandler('workspace:addFolder');
+  ipcMain.removeHandler('workspace:removeFolder');
+  ipcMain.removeHandler('workspace:rename');
+  ipcMain.removeHandler('workspace:export');
+  ipcMain.removeHandler('workspace:import');
+  ipcMain.removeHandler('workspace:chat:save');
+  ipcMain.removeHandler('workspace:chat:load');
+  ipcMain.removeHandler('workspace:chat:delete');
+  ipcMain.removeHandler('workspace:chat:list');
+  ipcMain.removeHandler('workspace:indexing:start');
+  ipcMain.removeHandler('workspace:indexing:reindex');
+  ipcMain.removeHandler('workspace:indexing:reindexProject');
+  ipcMain.removeHandler('workspace:indexing:stop');
+  ipcMain.removeHandler('workspace:indexing:getState');
+  ipcMain.removeHandler('workspace:indexing:query');
+  ipcMain.removeHandler('workspace:indexing:clear');
+  ipcMain.removeHandler('workspace:indexing:close');
+  ipcMain.removeHandler('workspace:indexing:closeAll');
+
+  // Cleanup workspace indexers
+  closeAllWorkspaceIndexers().catch(error => {
+    console.error('[IPC] Error closing workspace indexers during cleanup:', error);
+  });
+
+  // Settings cleanup (must be last as it was set up first)
+  cleanupSettingsIpcHandlers();
 }
