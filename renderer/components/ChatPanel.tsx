@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files, Layers, Check } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { ModeSelector, AIMode } from './ModeSelector';
 import { UserInputCard, type UserInputRequest } from './UserInputCard';
@@ -418,12 +418,17 @@ export const ChatPanel: React.FC = () => {
     availableProviders,
     currentModel,
     projectPath,
+    openFolder,
+    openRecentWorkspace,
   } = useAppStore();
 
   const [inputValue, setInputValue] = useState('');
   const [now, setNow] = useState(Date.now());
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [pastChatsPanelOpen, setPastChatsPanelOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [discoveredProjects, setDiscoveredProjects] = useState<string[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [messageFileChanges, setMessageFileChanges] = useState<Map<string, FileChange[]>>(new Map());
   const [conversationFileChanges, setConversationFileChanges] = useState<FileChange[]>([]);
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null);
@@ -432,6 +437,7 @@ export const ChatPanel: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const pastChatsPanelRef = useRef<HTMLDivElement>(null);
+  const projectPickerRef = useRef<HTMLDivElement>(null);
   const userInputCardRef = useRef<HTMLDivElement>(null);
 
   // Scroll to UserInputCard when it appears
@@ -582,6 +588,65 @@ export const ChatPanel: React.FC = () => {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [pastChatsPanelOpen]);
+
+  // Scan for projects when project picker opens
+  useEffect(() => {
+    if (!projectPickerOpen || !window.electronAPI) return;
+    setProjectsLoading(true);
+    (async () => {
+      try {
+        const { value: recentWorkspaces } = await window.electronAPI!.settings.getRecentWorkspaces();
+        const workspaces: string[] = recentWorkspaces || [];
+
+        // Collect unique parent directories to scan for sibling projects
+        const parentDirs = new Set<string>();
+        for (const ws of workspaces) {
+          const parent = ws.split('/').slice(0, -1).join('/');
+          if (parent) parentDirs.add(parent);
+        }
+        // Also add the home directory derived from known workspace paths (e.g. /Users/username)
+        const homeParts = workspaces[0]?.split('/') || [];
+        if (homeParts.length >= 3) {
+          parentDirs.add(`/${homeParts[1]}/${homeParts[2]}`);
+        }
+
+        const { projects: scanned } = await window.electronAPI!.project.scan([...parentDirs]);
+
+        // Also directly check each recent workspace for .omnicode (covers non-standard locations)
+        const directChecks: string[] = [];
+        for (const ws of workspaces) {
+          if (!ws.endsWith('.omnicode-workspace')) {
+            const { projects: direct } = await window.electronAPI!.project.scan(
+              [ws.split('/').slice(0, -1).join('/')]
+            );
+            directChecks.push(...direct);
+          }
+        }
+
+        const allProjects = [...new Set([...scanned, ...directChecks])].sort((a, b) =>
+          a.split('/').pop()!.localeCompare(b.split('/').pop()!)
+        );
+        setDiscoveredProjects(allProjects);
+      } catch (err) {
+        console.error('[ChatPanel] Failed to scan projects:', err);
+      } finally {
+        setProjectsLoading(false);
+      }
+    })();
+  }, [projectPickerOpen]);
+
+  // Close project picker panel when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectPickerRef.current && !projectPickerRef.current.contains(event.target as Node)) {
+        setProjectPickerOpen(false);
+      }
+    };
+    if (projectPickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [projectPickerOpen]);
 
   // Handle model switch for the active conversation
   const handleModelSwitch = useCallback(async (modelId: string, providerName: string) => {
@@ -1056,6 +1121,15 @@ export const ChatPanel: React.FC = () => {
     setPastChatsPanelOpen(prev => !prev);
   }, []);
 
+  const handleToggleProjectPicker = useCallback(() => {
+    setProjectPickerOpen(prev => !prev);
+  }, []);
+
+  const handleSelectProject = useCallback(async (path: string) => {
+    await openRecentWorkspace(path);
+    setProjectPickerOpen(false);
+  }, [openRecentWorkspace]);
+
   const handleOpenPastChat = useCallback(async (conversationId: string) => {
     const success = await openPastChat(conversationId);
     if (success) {
@@ -1106,7 +1180,72 @@ export const ChatPanel: React.FC = () => {
             <History size={14} />
           </button>
         )}
+        <button
+          className={`chat-tab-past-chats ${projectPickerOpen ? 'active' : ''}`}
+          onClick={handleToggleProjectPicker}
+          title="Switch Project"
+        >
+          <Layers size={14} />
+        </button>
       </div>
+
+      {/* Project Picker Panel */}
+      {projectPickerOpen && (
+        <div className="project-picker-panel" ref={projectPickerRef}>
+          <div className="past-chats-header">
+            <h3>Switch Project</h3>
+            <button
+              className="past-chats-close"
+              onClick={() => setProjectPickerOpen(false)}
+              title="Close"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="past-chats-list">
+            {projectsLoading ? (
+              <div className="past-chats-loading">Scanning for projects...</div>
+            ) : discoveredProjects.length === 0 ? (
+              <div className="past-chats-empty">
+                <FolderOpen size={24} />
+                <p>No projects with .omnicode found</p>
+              </div>
+            ) : (
+              discoveredProjects.map((p) => {
+                const name = p.split('/').pop() || p;
+                const parent = p.split('/').slice(0, -1).join('/');
+                const isActive = p === projectPath;
+                return (
+                  <div
+                    key={p}
+                    className={`past-chat-item project-picker-item ${isActive ? 'active-project' : ''}`}
+                    onClick={() => handleSelectProject(p)}
+                    title={p}
+                  >
+                    <div className="past-chat-info">
+                      <span className="past-chat-title">{name}</span>
+                      <span className="past-chat-meta">{parent}</span>
+                    </div>
+                    {isActive && <Check size={14} className="project-picker-check" />}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <div className="project-picker-footer">
+            <button
+              className="project-picker-open-btn"
+              onClick={async () => {
+                setProjectPickerOpen(false);
+                await openFolder();
+              }}
+            >
+              <FolderOpen size={14} />
+              Open Folder
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Past Chats Panel */}
       {pastChatsPanelOpen && (

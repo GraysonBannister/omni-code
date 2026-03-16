@@ -1,33 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { app } from 'electron';
 import type { Conversation, Message, ToolCall } from '../renderer/stores/appStore.js';
-import type { Workspace } from '../src/types/workspace.js';
-
-// Optional sync callback — set by remote-server after initialization to avoid circular imports
-let syncNotifier: ((event: { type: 'conversation_created' | 'conversation_updated' | 'conversation_deleted'; conversationId: string; title?: string; messageCount?: number; updatedAt?: number }) => void) | null = null;
-
-export function setSyncNotifier(fn: typeof syncNotifier): void {
-  syncNotifier = fn;
-}
 
 // Storage format version for future migrations
 const STORAGE_VERSION = '1.0.0';
 const CHATS_DIR = '.omnicode/chats';
-const WORKSPACE_CHATS_DIR = 'chats';
 const MAX_CHATS_PER_WORKSPACE = 50;
-
-/**
- * Storage context for routing to correct location
- */
-export interface StorageContext {
-  /** Type of storage context */
-  type: 'project' | 'workspace';
-  /** Project path (for project context) */
-  projectPath?: string;
-  /** Workspace (for workspace context) */
-  workspace?: Workspace;
-}
 
 // Serializable conversation data (without runtime state like isProcessing)
 interface SerializedConversation {
@@ -46,47 +24,25 @@ interface SerializedConversation {
 }
 
 /**
- * ChatStorage handles persisting conversations to disk.
- * Conversations are stored:
- * - For projects: in `.omnicode/chats/{conversationId}.json`
- * - For workspaces: in app data `workspaces/{workspaceId}/chats/{conversationId}.json`
+ * ChatStorage handles persisting conversations to disk in the workspace folder.
+ * Conversations are stored as JSON files in `.omnicode/chats/{conversationId}.json`
  */
 export class ChatStorage {
-  private workspacesBaseDir: string | null = null;
-
-  /**
-   * Get the base directory for workspace storage in app data
-   */
-  private async getWorkspacesBaseDir(): Promise<string> {
-    if (this.workspacesBaseDir) return this.workspacesBaseDir;
-    this.workspacesBaseDir = path.join(app.getPath('userData'), 'workspaces');
-    return this.workspacesBaseDir;
-  }
-
-  /**
-   * Get the chats directory path based on storage context
-   */
-  private async getChatsDir(context: StorageContext): Promise<string> {
-    if (context.type === 'workspace' && context.workspace) {
-      const workspacesDir = await this.getWorkspacesBaseDir();
-      const workspaceDir = path.join(workspacesDir, context.workspace.id);
-      return path.join(workspaceDir, WORKSPACE_CHATS_DIR);
-    } else if (context.type === 'project' && context.projectPath) {
-      return path.join(context.projectPath, CHATS_DIR);
-    }
-    throw new Error('Invalid storage context');
+  private ensureChatsDir(workspacePath: string): Promise<string> {
+    const chatsDir = path.join(workspacePath, CHATS_DIR);
+    return chatsDir;
   }
 
   /**
    * Save a conversation to disk
    */
-  async saveConversation(context: StorageContext, conversation: Conversation): Promise<{ success: boolean; error?: string }> {
+  async saveConversation(workspacePath: string, conversation: Conversation): Promise<{ success: boolean; error?: string }> {
     try {
-      if (!context || (context.type === 'project' && !context.projectPath) || (context.type === 'workspace' && !context.workspace)) {
-        return { success: false, error: 'Invalid storage context provided' };
+      if (!workspacePath) {
+        return { success: false, error: 'No workspace path provided' };
       }
 
-      const chatsDir = await this.getChatsDir(context);
+      const chatsDir = await this.ensureChatsDir(workspacePath);
 
       // Ensure directory exists
       await fs.mkdir(chatsDir, { recursive: true });
@@ -112,21 +68,7 @@ export class ChatStorage {
       const tempPath = `${filePath}.tmp`;
 
       await fs.writeFile(tempPath, JSON.stringify(serialized, null, 2), 'utf-8');
-
-      // Check if this is a new conversation (file didn't exist before)
-      let isNew = false;
-      try { await fs.access(filePath); } catch { isNew = true; }
-
       await fs.rename(tempPath, filePath);
-
-      // Notify sync listeners
-      syncNotifier?.({
-        type: isNew ? 'conversation_created' : 'conversation_updated',
-        conversationId: conversation.id,
-        title: conversation.title,
-        messageCount: conversation.messages.length,
-        updatedAt: conversation.updatedAt,
-      });
 
       return { success: true };
     } catch (error) {
@@ -136,15 +78,15 @@ export class ChatStorage {
   }
 
   /**
-   * Load all conversations from storage
+   * Load all conversations from a workspace
    */
-  async loadConversations(context: StorageContext): Promise<{ conversations: Partial<Conversation>[]; error?: string }> {
+  async loadConversations(workspacePath: string): Promise<{ conversations: Partial<Conversation>[]; error?: string }> {
     try {
-      if (!context || (context.type === 'project' && !context.projectPath) || (context.type === 'workspace' && !context.workspace)) {
+      if (!workspacePath) {
         return { conversations: [] };
       }
 
-      const chatsDir = await this.getChatsDir(context);
+      const chatsDir = path.join(workspacePath, CHATS_DIR);
 
       // Check if directory exists
       try {
@@ -204,17 +146,16 @@ export class ChatStorage {
   /**
    * Delete a conversation from disk
    */
-  async deleteConversation(context: StorageContext, conversationId: string): Promise<{ success: boolean; error?: string }> {
+  async deleteConversation(workspacePath: string, conversationId: string): Promise<{ success: boolean; error?: string }> {
     try {
-      if (!context || (context.type === 'project' && !context.projectPath) || (context.type === 'workspace' && !context.workspace)) {
-        return { success: false, error: 'Invalid storage context provided' };
+      if (!workspacePath) {
+        return { success: false, error: 'No workspace path provided' };
       }
 
-      const chatsDir = await this.getChatsDir(context);
+      const chatsDir = path.join(workspacePath, CHATS_DIR);
       const filePath = path.join(chatsDir, `${conversationId}.json`);
 
       await fs.unlink(filePath);
-      syncNotifier?.({ type: 'conversation_deleted', conversationId });
       return { success: true };
     } catch (error) {
       // File might not exist, that's okay
@@ -229,13 +170,13 @@ export class ChatStorage {
   /**
    * List all saved conversation IDs and metadata
    */
-  async listConversations(context: StorageContext): Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }> {
+  async listConversations(workspacePath: string): Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }> {
     try {
-      if (!context || (context.type === 'project' && !context.projectPath) || (context.type === 'workspace' && !context.workspace)) {
+      if (!workspacePath) {
         return { conversations: [] };
       }
 
-      const chatsDir = await this.getChatsDir(context);
+      const chatsDir = path.join(workspacePath, CHATS_DIR);
 
       try {
         await fs.access(chatsDir);
@@ -278,9 +219,9 @@ export class ChatStorage {
   /**
    * Clean up old conversations if exceeding the limit
    */
-  async cleanupOldConversations(context: StorageContext, maxChats: number = MAX_CHATS_PER_WORKSPACE): Promise<{ deleted: number; error?: string }> {
+  async cleanupOldConversations(workspacePath: string, maxChats: number = MAX_CHATS_PER_WORKSPACE): Promise<{ deleted: number; error?: string }> {
     try {
-      const { conversations } = await this.listConversations(context);
+      const { conversations } = await this.listConversations(workspacePath);
 
       if (conversations.length <= maxChats) {
         return { deleted: 0 };
@@ -291,7 +232,7 @@ export class ChatStorage {
       let deleted = 0;
 
       for (const conv of toDelete) {
-        const result = await this.deleteConversation(context, conv.id);
+        const result = await this.deleteConversation(workspacePath, conv.id);
         if (result.success) {
           deleted++;
         }
@@ -314,62 +255,6 @@ export class ChatStorage {
     // if (semver.lt(currentVersion, '1.1.0')) { ... }
 
     return serialized;
-  }
-
-  /**
-   * Backward compatibility: Save conversation using project path directly
-   */
-  async saveConversationForProject(projectPath: string, conversation: Conversation): Promise<{ success: boolean; error?: string }> {
-    return this.saveConversation({ type: 'project', projectPath }, conversation);
-  }
-
-  /**
-   * Backward compatibility: Load conversations using project path directly
-   */
-  async loadConversationsForProject(projectPath: string): Promise<{ conversations: Partial<Conversation>[]; error?: string }> {
-    return this.loadConversations({ type: 'project', projectPath });
-  }
-
-  /**
-   * Backward compatibility: Delete conversation using project path directly
-   */
-  async deleteConversationForProject(projectPath: string, conversationId: string): Promise<{ success: boolean; error?: string }> {
-    return this.deleteConversation({ type: 'project', projectPath }, conversationId);
-  }
-
-  /**
-   * Backward compatibility: List conversations using project path directly
-   */
-  async listConversationsForProject(projectPath: string): Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }> {
-    return this.listConversations({ type: 'project', projectPath });
-  }
-
-  /**
-   * Save conversation for a workspace
-   */
-  async saveConversationForWorkspace(workspace: Workspace, conversation: Conversation): Promise<{ success: boolean; error?: string }> {
-    return this.saveConversation({ type: 'workspace', workspace }, conversation);
-  }
-
-  /**
-   * Load conversations for a workspace
-   */
-  async loadConversationsForWorkspace(workspace: Workspace): Promise<{ conversations: Partial<Conversation>[]; error?: string }> {
-    return this.loadConversations({ type: 'workspace', workspace });
-  }
-
-  /**
-   * Delete conversation for a workspace
-   */
-  async deleteConversationForWorkspace(workspace: Workspace, conversationId: string): Promise<{ success: boolean; error?: string }> {
-    return this.deleteConversation({ type: 'workspace', workspace }, conversationId);
-  }
-
-  /**
-   * List conversations for a workspace
-   */
-  async listConversationsForWorkspace(workspace: Workspace): Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }> {
-    return this.listConversations({ type: 'workspace', workspace });
   }
 }
 

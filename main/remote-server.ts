@@ -8,13 +8,12 @@ import rateLimit from 'express-rate-limit';
 import * as ngrok from '@ngrok/ngrok';
 import { settingsManager } from './settings.js';
 import { agentBridge } from './agent-bridge.js';
+import type { UnifiedMessage } from './agent-bridge.js';
 import { validateApiKey, getCorsOptions, ensureApiKey, getApiKey } from './remote-auth.js';
 import {
   initializeEventEmitter,
   cleanupEventEmitter,
   registerConnection,
-  registerSyncConnection,
-  broadcastSyncEvent,
   getConnectionStats,
 } from './remote-event-emitter.js';
 import {
@@ -27,10 +26,26 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getWorkingDirectory } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
-import type { SharedWorkspace, SharedFolder } from './shared-workspace-manager.js';
-import { getChatStorage, setSyncNotifier } from './chat-storage.js';
+import { getChatStorage } from './chat-storage.js';
 import { BrowserWindow } from 'electron';
-import QRCode from 'qrcode';
+
+/**
+ * Resolve the working directory for a request.
+ * Checks (in order): ?workspaceId query param, body.workspaceId, then the
+ * active shared workspace, and finally falls back to the global cwd.
+ */
+function resolveWorkingDirectory(req: Request): string {
+  const workspaceId =
+    (req.query.workspaceId as string | undefined) ||
+    (req.body?.workspaceId as string | undefined);
+
+  if (workspaceId) {
+    const cwd = getSharedWorkspaceManager().getWorkingDirectory(workspaceId);
+    if (cwd) return cwd;
+  }
+
+  return getSharedWorkspaceManager().getActiveWorkingDirectory() ?? getWorkingDirectory();
+}
 
 // Server state
 let app: express.Express | null = null;
@@ -42,6 +57,30 @@ let port: number = 3000;
 
 // Terminal output tracking for SSE
 const terminalOutputs = new Map<string, { callbacks: Set<(data: string) => void>; buffer: string[] }>();
+
+// Track metadata for remote-initiated conversations so they can be auto-saved
+interface RemoteConversationMeta {
+  workspacePath: string;
+  model?: string;
+  provider?: string;
+  createdAt: number;
+}
+const remoteConversationMeta = new Map<string, RemoteConversationMeta>();
+
+// Unsubscribe function for the agentBridge auto-save listener
+let autoSaveUnsubscribe: (() => void) | null = null;
+
+/**
+ * Derive a conversation title from messages (first user message, truncated).
+ */
+function deriveConversationTitle(messages: UnifiedMessage[]): string {
+  const firstUser = messages.find((m) => m.role === 'user');
+  if (!firstUser) return 'Remote Conversation';
+  const text = typeof firstUser.content === 'string'
+    ? firstUser.content
+    : String(firstUser.content);
+  return text.length > 60 ? text.slice(0, 60).trim() + '…' : text.trim();
+}
 
 /**
  * Initialize the remote server (Express + ngrok)
@@ -77,6 +116,39 @@ export async function initializeRemoteServer(): Promise<{
     // Setup routes
     setupRoutes(app);
 
+    // Register auto-save listener for remote-initiated conversations
+    autoSaveUnsubscribe = agentBridge.onEvent(async (event) => {
+      if (event.type !== 'turn_complete') return;
+
+      const stopReason = (event.message as UnifiedMessage)?.metadata?.stopReason;
+      if (stopReason === 'tool_use') return;
+
+      const meta = remoteConversationMeta.get(event.conversationId);
+      if (!meta) return; // not a remote conversation — skip, renderer handles it
+
+      const snapshot = agentBridge.getConversationSnapshot(event.conversationId);
+      if (!snapshot || snapshot.messages.length === 0) return;
+
+      try {
+        await getChatStorage().saveConversation(meta.workspacePath, {
+          id: event.conversationId,
+          title: deriveConversationTitle(snapshot.messages),
+          messages: snapshot.messages as unknown as import('../renderer/stores/appStore.js').Message[],
+          toolCalls: [],
+          createdAt: meta.createdAt,
+          updatedAt: Date.now(),
+          isProcessing: false,
+          streamingContent: '',
+          orchestrationStatus: null,
+          model: snapshot.model,
+          provider: snapshot.provider,
+        });
+        console.log(`[RemoteServer] Auto-saved conversation ${event.conversationId} to ${meta.workspacePath}`);
+      } catch (err) {
+        console.error(`[RemoteServer] Failed to auto-save conversation ${event.conversationId}:`, err);
+      }
+    });
+
     // Start Express server
     await new Promise<void>((resolve, reject) => {
       server = app!.listen(port, () => {
@@ -111,9 +183,6 @@ export async function initializeRemoteServer(): Promise<{
 
     // Initialize event emitter for SSE
     initializeEventEmitter();
-
-    // Wire chat-storage changes to SSE sync broadcasts
-    setSyncNotifier((event) => broadcastSyncEvent(event));
 
     isRunning = true;
 
@@ -182,6 +251,15 @@ export function getRemoteServerStatus(): {
  * Cleanup all server resources
  */
 async function cleanup(): Promise<void> {
+  // Remove auto-save listener
+  if (autoSaveUnsubscribe) {
+    autoSaveUnsubscribe();
+    autoSaveUnsubscribe = null;
+  }
+
+  // Clear remote conversation tracking
+  remoteConversationMeta.clear();
+
   // Cleanup event emitter
   cleanupEventEmitter();
 
@@ -266,6 +344,9 @@ function setupRoutes(app: express.Express): void {
   // Workspace routes
   setupWorkspaceRoutes(app);
 
+  // Chat history routes
+  setupChatRoutes(app);
+
   // Agent routes
   setupAgentRoutes(app);
 
@@ -294,187 +375,122 @@ function setupRoutes(app: express.Express): void {
  * Config routes
  */
 function setupConfigRoutes(app: express.Express): void {
-  // Get server config
+  // Get available models and providers
   app.get('/api/config', async (_req, res) => {
     try {
-      // Get from agent bridge refs via IPC handler pattern
       const models = agentBridge.getActiveConversations();
+      const sharedWM = getSharedWorkspaceManager();
 
       res.json({
         models,
-        workingDirectory: getWorkingDirectory(),
+        workingDirectory: sharedWM.getActiveWorkingDirectory() ?? getWorkingDirectory(),
+        activeWorkspaceId: sharedWM.getActiveWorkspace()?.sharedId ?? null,
         version: process.env.npm_package_version || 'unknown',
       });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
+}
 
-  // Get available AI models
-  app.get('/api/models', async (_req, res) => {
+/**
+ * Workspace routes — list all shared workspaces and manage the active one
+ */
+function setupWorkspaceRoutes(app: express.Express): void {
+  // List all shared workspaces
+  app.get('/api/workspaces', (_req, res) => {
     try {
-      const models = agentBridge.getAvailableModels();
-
-      res.json({
-        models,
-        count: models.length,
-      });
+      const workspaces = getSharedWorkspaceManager().getSharedWorkspaces();
+      const activeId = getSharedWorkspaceManager().getActiveWorkspace()?.sharedId ?? null;
+      res.json({ workspaces, activeWorkspaceId: activeId });
     } catch (error) {
-      console.error('[RemoteServer] Error fetching models:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get a single workspace by sharedId
+  app.get('/api/workspaces/:workspaceId', (req, res) => {
+    try {
+      const workspace = getSharedWorkspaceManager().getWorkspaceById(req.params.workspaceId);
+      if (!workspace) {
+        res.status(404).json({ error: 'Workspace not found' });
+        return;
+      }
+      res.json({ workspace });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Set the active workspace
+  app.post('/api/workspaces/active', (req, res) => {
+    try {
+      const { workspaceId } = req.body;
+      if (!workspaceId) {
+        res.status(400).json({ error: 'Missing workspaceId' });
+        return;
+      }
+      const success = getSharedWorkspaceManager().setActiveWorkspace(workspaceId);
+      if (!success) {
+        res.status(404).json({ error: 'Workspace not found' });
+        return;
+      }
+      res.json({ success: true, workspaceId });
+    } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
 }
 
 /**
- * Workspace routes
+ * Chat history routes — list and load persisted conversations per workspace
  */
-function setupWorkspaceRoutes(app: express.Express): void {
-  const workspaceManager = getSharedWorkspaceManager();
-
-  // List all shared workspaces
-  app.get('/api/workspaces', async (_req, res) => {
+function setupChatRoutes(app: express.Express): void {
+  // List saved conversation summaries for a workspace
+  // GET /api/chat/list?workspaceId=:sharedId
+  app.get('/api/chat/list', async (req, res) => {
     try {
-      const workspaces = workspaceManager.getSharedWorkspaces();
-      const activeWorkspace = workspaceManager.getActiveWorkspace();
-
-      res.json({
-        workspaces: workspaces.map(ws => ({
-          sharedId: ws.sharedId,
-          workspaceId: ws.workspaceId,
-          name: ws.name,
-          folderCount: ws.folderCount,
-          isActive: ws.isActive,
-          isSingleFolder: ws.isSingleFolder,
-          addedAt: ws.addedAt,
-        })),
-        activeWorkspaceId: activeWorkspace?.sharedId || null,
-        count: workspaces.length,
-      });
-    } catch (error) {
-      console.error('[RemoteServer] Error fetching workspaces:', error);
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  // Get specific workspace details
-  app.get('/api/workspaces/:sharedId', async (req, res) => {
-    try {
-      const { sharedId } = req.params;
-      const workspace = workspaceManager.getWorkspaceById(sharedId);
-
-      if (!workspace) {
+      const workspaceId = req.query.workspaceId as string | undefined;
+      if (!workspaceId) {
+        res.status(400).json({ error: 'Missing workspaceId' });
+        return;
+      }
+      const workspacePath = getSharedWorkspaceManager().getWorkingDirectory(workspaceId);
+      if (!workspacePath) {
         res.status(404).json({ error: 'Workspace not found' });
         return;
       }
-
-      res.json({
-        sharedId: workspace.sharedId,
-        workspaceId: workspace.workspaceId,
-        name: workspace.name,
-        folderCount: workspace.folderCount,
-        folders: workspace.folders.map(f => ({
-          id: f.id,
-          path: f.path,
-          name: f.name,
-        })),
-        isActive: workspace.isActive,
-        isSingleFolder: workspace.isSingleFolder,
-        addedAt: workspace.addedAt,
-      });
+      const result = await getChatStorage().listConversations(workspacePath);
+      res.json(result);
     } catch (error) {
-      console.error('[RemoteServer] Error fetching workspace:', error);
       res.status(500).json({ error: (error as Error).message });
     }
   });
 
-  // Get folders for a specific workspace
-  app.get('/api/workspaces/:sharedId/folders', async (req, res) => {
+  // Load full conversation (with messages) by ID for a workspace
+  // GET /api/chat/load/:conversationId?workspaceId=:sharedId
+  app.get('/api/chat/load/:conversationId', async (req, res) => {
     try {
-      const { sharedId } = req.params;
-      const folders = workspaceManager.getWorkspaceFolders(sharedId);
-
-      if (folders.length === 0) {
-        res.status(404).json({ error: 'Workspace not found or has no folders' });
+      const workspaceId = req.query.workspaceId as string | undefined;
+      if (!workspaceId) {
+        res.status(400).json({ error: 'Missing workspaceId' });
         return;
       }
-
-      res.json({
-        sharedId,
-        folders: folders.map(f => ({
-          id: f.id,
-          path: f.path,
-          name: f.name,
-        })),
-        count: folders.length,
-      });
-    } catch (error) {
-      console.error('[RemoteServer] Error fetching workspace folders:', error);
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  // Switch active workspace
-  app.post('/api/workspaces/switch', async (req, res) => {
-    try {
-      const { sharedId } = req.body;
-
-      if (!sharedId) {
-        res.status(400).json({ error: 'Missing sharedId' });
+      const workspacePath = getSharedWorkspaceManager().getWorkingDirectory(workspaceId);
+      if (!workspacePath) {
+        res.status(404).json({ error: 'Workspace not found' });
         return;
       }
-
-      const success = workspaceManager.setActiveWorkspace(sharedId);
-
-      if (success) {
-        const workspace = workspaceManager.getActiveWorkspace();
-        res.json({
-          success: true,
-          activeWorkspace: workspace ? {
-            sharedId: workspace.sharedId,
-            name: workspace.name,
-            workingDirectory: workspace.folders[0]?.path || null,
-          } : null,
-        });
-      } else {
-        res.status(400).json({ error: 'Failed to switch workspace - workspace not found' });
-      }
-    } catch (error) {
-      console.error('[RemoteServer] Error switching workspace:', error);
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  // Get current active workspace
-  app.get('/api/workspaces/active', async (_req, res) => {
-    try {
-      const workspace = workspaceManager.getActiveWorkspace();
-
-      if (!workspace) {
-        res.json({
-          activeWorkspace: null,
-          workingDirectory: null,
-        });
+      const result = await getChatStorage().loadConversations(workspacePath);
+      const conversation = result.conversations?.find(
+        (c) => c.id === req.params.conversationId
+      ) ?? null;
+      if (!conversation) {
+        res.status(404).json({ error: 'Conversation not found' });
         return;
       }
-
-      res.json({
-        activeWorkspace: {
-          sharedId: workspace.sharedId,
-          workspaceId: workspace.workspaceId,
-          name: workspace.name,
-          folderCount: workspace.folderCount,
-          folders: workspace.folders.map(f => ({
-            id: f.id,
-            path: f.path,
-            name: f.name,
-          })),
-          isSingleFolder: workspace.isSingleFolder,
-        },
-        workingDirectory: workspace.folders[0]?.path || null,
-      });
+      res.json({ conversation });
     } catch (error) {
-      console.error('[RemoteServer] Error fetching active workspace:', error);
       res.status(500).json({ error: (error as Error).message });
     }
   });
@@ -497,6 +513,12 @@ function setupAgentRoutes(app: express.Express): void {
       const success = agentBridge.createConversation(conversationId, model, provider);
 
       if (success) {
+        remoteConversationMeta.set(conversationId, {
+          workspacePath: resolveWorkingDirectory(req),
+          model,
+          provider,
+          createdAt: Date.now(),
+        });
         res.json({ success: true, conversationId });
       } else {
         res.status(400).json({ error: 'Failed to create conversation' });
@@ -517,7 +539,8 @@ function setupAgentRoutes(app: express.Express): void {
       }
 
       // Start the message processing (events will stream via SSE)
-      agentBridge.sendMessage(conversationId, message, workingDirectory).catch((error) => {
+      const resolvedCwd = workingDirectory || resolveWorkingDirectory(req);
+      agentBridge.sendMessage(conversationId, message, resolvedCwd).catch((error) => {
         console.error(`[RemoteServer] Error sending message to ${conversationId}:`, error);
       });
 
@@ -555,165 +578,21 @@ function setupAgentRoutes(app: express.Express): void {
       }
 
       const success = agentBridge.closeConversation(conversationId);
+      remoteConversationMeta.delete(conversationId);
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
 
-  // Get conversation summaries (from all shared workspaces)
+  // Get active conversations
   app.get('/api/agent/conversations', async (_req, res) => {
     try {
-      const chatStorage = getChatStorage();
-      
-      // Get all shared workspaces
-      const workspaceManager = getSharedWorkspaceManager();
-      const activeWorkspace = workspaceManager.getActiveWorkspace();
-      const allWorkspaces = workspaceManager.getSharedWorkspaces();
-      const activeWorkspaceId = activeWorkspace?.sharedId || null;
-      
-      console.log('[DEBUG Server] Loading conversations from all', allWorkspaces.length, 'shared workspaces');
-      
-      // Load conversations from ALL shared workspaces
-      const allConversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number; workspaceId: string | null }> = [];
-      
-      for (const workspace of allWorkspaces) {
-        let workspaceConversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }> = [];
-        
-        console.log('[DEBUG Server] Processing workspace:', workspace.name, 'sharedId:', workspace.sharedId, 'folders:', workspace.folders.length);
-        
-        if (workspace.folders.length === 0) {
-          console.log('[DEBUG Server] Workspace', workspace.name, 'has no folders, skipping');
-          continue;
-        }
-        
-        // First, try to load from workspace-specific storage
-        const workspaceContext = {
-          type: 'workspace' as const,
-          workspace: {
-            id: workspace.sharedId,
-            name: workspace.name,
-            folders: workspace.folders.map(f => ({ id: f.id, path: f.path })),
-          },
-        };
-        const storageResult = await chatStorage.listConversations(workspaceContext);
-        
-        if (storageResult.conversations.length > 0) {
-          workspaceConversations = storageResult.conversations;
-          console.log('[DEBUG Server] Loaded', workspaceConversations.length, 'conversations from workspace storage for', workspace.name);
-        } else {
-          // Fall back to project storage
-          const projectPath = workspace.folders[0].path;
-          console.log('[DEBUG Server] Trying project storage for', workspace.name, 'at', projectPath);
-          const projectResult = await chatStorage.listConversationsForProject(projectPath);
-          if (projectResult.conversations.length > 0) {
-            workspaceConversations = projectResult.conversations;
-            console.log('[DEBUG Server] Loaded', workspaceConversations.length, 'conversations from project storage for', workspace.name);
-          } else {
-            console.log('[DEBUG Server] No conversations found for', workspace.name, 'in workspace or project storage');
-          }
-        }
-        
-        // Add workspaceId to each conversation and add to combined list
-        for (const conv of workspaceConversations) {
-          allConversations.push({
-            ...conv,
-            workspaceId: workspace.sharedId,
-          });
-        }
-      }
-      
-      console.log('[DEBUG Server] Total conversations from all workspaces:', allConversations.length);
-      
-      // Get active conversations from agent bridge (for current workspace only)
-      const activeConversationIds = agentBridge.getActiveConversations();
-      
-      // Create a map for quick lookup
-      const savedMap = new Map(allConversations.map(c => [c.id, c]));
-      
-      // Add any active conversations not in saved list (in-memory only, for active workspace)
-      for (const activeId of activeConversationIds) {
-        if (!savedMap.has(activeId)) {
-          allConversations.push({
-            id: activeId,
-            title: 'Active Conversation',
-            updatedAt: Date.now(),
-            messageCount: 0,
-            workspaceId: activeWorkspaceId,
-          });
-        }
-      }
-      
-      // Sort by updatedAt descending
-      allConversations.sort((a, b) => b.updatedAt - a.updatedAt);
-      
-      console.log('[DEBUG Server] Returning', allConversations.length, 'total conversations from all workspaces');
-      
-      res.json({ 
-        conversations: allConversations,
-        total: allConversations.length 
-      });
+      const conversations = agentBridge.getActiveConversations();
+      res.json({ conversations });
     } catch (error) {
-      console.error('[RemoteServer] Error in /api/agent/conversations:', error);
       res.status(500).json({ error: (error as Error).message });
     }
-  });
-
-  // Load a specific conversation by ID
-  app.get('/api/agent/conversation/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const workspacePath = getWorkingDirectory();
-      const chatStorage = getChatStorage();
-      
-      // Load all conversations and find the one we need
-      const { conversations, error } = await chatStorage.loadConversationsForProject(workspacePath);
-      
-      if (error) {
-        return res.status(500).json({ error });
-      }
-      
-      const conversation = conversations.find(c => c.id === id);
-      
-      if (!conversation) {
-        // Check if it's an active conversation in memory
-        if (agentBridge.hasConversation(id)) {
-          return res.json({
-            id,
-            title: 'Active Conversation',
-            messages: [],
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          });
-        }
-        return res.status(404).json({ error: 'Conversation not found' });
-      }
-      
-      res.json(conversation);
-    } catch (error) {
-      console.error('[RemoteServer] Error in /api/agent/conversation/:id:', error);
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  // SSE endpoint for conversation sync — receives lifecycle events (created/updated/deleted)
-  app.get('/api/sync/events', (validateApiKey as RequestHandler), (_req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    registerSyncConnection(res);
-
-    // Send initial connection confirmation
-    res.write(`data: ${JSON.stringify({ type: 'sync_connected', timestamp: Date.now() })}\n\n`);
-
-    const keepAlive = setInterval(() => {
-      res.write(':keepalive\n\n');
-    }, 30000);
-
-    res.on('close', () => {
-      clearInterval(keepAlive);
-    });
   });
 
   // SSE endpoint for agent events
@@ -793,7 +672,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
       const content = await fs.readFile(resolvedPath, 'utf-8');
 
       res.json({ content, path: resolvedPath });
@@ -812,7 +691,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
 
       // Ensure directory exists
       await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
@@ -843,7 +722,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
       const content = await fs.readFile(resolvedPath, 'utf-8');
 
       if (!content.includes(oldString)) {
@@ -863,16 +742,19 @@ function setupFileRoutes(app: express.Express): void {
   // List directory
   app.get('/api/files/list', async (req, res) => {
     try {
-      const dirPath = (req.query.path as string) || getWorkingDirectory();
-      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
+      const cwd = resolveWorkingDirectory(req);
+      const dirPath = (req.query.path as string) || cwd;
+      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(cwd, dirPath);
 
       const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 
-      const files = entries.map((entry) => ({
-        name: entry.name,
-        isDirectory: entry.isDirectory(),
-        path: path.join(resolvedPath, entry.name),
-      }));
+      const files = entries
+        .filter((entry) => !entry.name.startsWith('.'))
+        .map((entry) => ({
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+          path: path.join(resolvedPath, entry.name),
+        }));
 
       res.json({ files, path: resolvedPath });
     } catch (error) {
@@ -890,7 +772,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
+      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(resolveWorkingDirectory(req), dirPath);
       await fs.mkdir(resolvedPath, { recursive: true });
 
       res.json({ success: true, path: resolvedPath });
@@ -921,7 +803,7 @@ function setupTerminalRoutes(app: express.Express): void {
         return;
       }
 
-      const terminalCwd = cwd || getWorkingDirectory();
+      const terminalCwd = cwd || resolveWorkingDirectory(req);
       const success = createTerminal(id, terminalCwd, cols || 80, rows || 24, mainWindow);
 
       // Setup output tracking for this terminal
@@ -1045,64 +927,4 @@ function setupToolRoutes(app: express.Express): void {
       res.status(500).json({ error: (error as Error).message });
     }
   });
-}
-
-/**
- * Generate QR code for mobile connection
- * Returns a data URL containing the QR code image
- */
-export async function generateConnectionQR(): Promise<{
-  success: boolean;
-  dataUrl?: string;
-  error?: string;
-}> {
-  try {
-    if (!isRunning || !publicUrl) {
-      return {
-        success: false,
-        error: 'Server is not running. Start the remote server first.',
-      };
-    }
-
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        error: 'No API key configured.',
-      };
-    }
-
-    const serverName = (settingsManager.get('remoteAccess.serverName') as string) ||
-      require('os').hostname() ||
-      'Omni Code Server';
-
-    const connectionData = {
-      v: 1, // Version for future compatibility
-      url: publicUrl,
-      key: apiKey,
-      name: serverName,
-    };
-
-    const jsonData = JSON.stringify(connectionData);
-
-    const dataUrl = await QRCode.toDataURL(jsonData, {
-      width: 256,
-      margin: 2,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF',
-      },
-    });
-
-    return {
-      success: true,
-      dataUrl,
-    };
-  } catch (error) {
-    console.error('[RemoteServer] Failed to generate QR code:', error);
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
-  }
 }

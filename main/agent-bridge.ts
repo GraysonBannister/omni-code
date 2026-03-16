@@ -66,7 +66,7 @@ interface ProviderRegistry {
 // Factory function type - can accept optional conversationId, model, and provider
 type AgentFactory = (conversationId?: string, model?: string, provider?: string) => AgentInstance;
 
-interface UnifiedMessage {
+export interface UnifiedMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | unknown[];
@@ -264,6 +264,21 @@ export class AgentBridge {
   // Get list of active conversation IDs
   getActiveConversations(): string[] {
     return Array.from(this.conversations.keys());
+  }
+
+  // Get a snapshot of a conversation's messages and model info for persistence
+  getConversationSnapshot(conversationId: string): {
+    messages: UnifiedMessage[];
+    model: string;
+    provider: string;
+  } | null {
+    const state = this.conversations.get(conversationId);
+    if (!state) return null;
+    return {
+      messages: [...state.agent.messages],
+      model: state.agent.config.model,
+      provider: state.agent.config.provider.name,
+    };
   }
 
   // Get available models from the provider registry

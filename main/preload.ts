@@ -136,7 +136,6 @@ type WindowAPI = {
 type DialogAPI = {
   openFolder: () => Promise<{ canceled: boolean; path: string | null }>;
   createFolder: () => Promise<{ canceled: boolean; path: string | null; error?: string }>;
-  openWorkspace: () => Promise<{ canceled: boolean; path: string | null }>;
 };
 
 // App API
@@ -159,10 +158,6 @@ type SettingsAPI = {
   getRecentFolders: () => Promise<{ value: string[]; error: string | null }>;
   addRecentWorkspace: (workspacePath: string) => Promise<{ success: boolean; error: string | null }>;
   getRecentWorkspaces: () => Promise<{ value: string[]; error: string | null }>;
-  addSavedWorkspace: (workspacePath: string) => Promise<{ success: boolean; error: string | null }>;
-  removeSavedWorkspace: (workspacePath: string) => Promise<{ success: boolean; error: string | null }>;
-  getSavedWorkspaces: () => Promise<{ value: string[]; error: string | null }>;
-  resolve: (key: string, workspaceSettings?: Record<string, any>, projectSettings?: Record<string, any>) => Promise<{ value: any; error: string | null }>;
 };
 
 // Chat Storage API
@@ -258,6 +253,11 @@ type BrowserAPI = {
   sendScreenshotResponse: (tabId: string, dataUrl?: string, error?: string) => Promise<void>;
 };
 
+// Project Discovery API
+type ProjectAPI = {
+  scan: (dirs: string[]) => Promise<{ projects: string[] }>;
+};
+
 // Remote Access API
 type RemoteServerStatus = {
   running: boolean;
@@ -276,155 +276,6 @@ type RemoteAPI = {
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<RemoteServerStatus>;
   regenerateApiKey: () => Promise<{ success: boolean; apiKey?: string; error?: string }>;
-  getQRCode: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
-};
-
-// Shared Workspace Types
-type SharedWorkspace = {
-  sharedId: string;
-  workspaceId: string;
-  filePath: string;
-  name: string;
-  folderCount: number;
-  folders: Array<{ id: string; path: string; name: string }>;
-  isActive: boolean;
-  addedAt: number;
-  isSingleFolder: boolean;
-};
-
-type SharedWorkspacesAPI = {
-  list: () => Promise<{ success: boolean; workspaces: SharedWorkspace[]; error?: string }>;
-  addWorkspace: (filePath: string) => Promise<{ success: boolean; workspace?: SharedWorkspace; error?: string }>;
-  addFolder: (folderPath: string) => Promise<{ success: boolean; workspace?: SharedWorkspace; error?: string }>;
-  remove: (sharedId: string) => Promise<{ success: boolean; error?: string }>;
-  setActive: (sharedId: string) => Promise<{ success: boolean; error?: string }>;
-  getActive: () => Promise<{ success: boolean; workspace?: SharedWorkspace; error?: string }>;
-};
-
-// Workspace Types
-type FolderRef = {
-  id: string;
-  path: string;
-  name?: string;
-};
-
-type WorkspaceSettings = {
-  ai?: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-    maxContextTokens?: number;
-  };
-  indexing?: {
-    autoIndex?: boolean;
-    autoSync?: boolean;
-    syncIntervalMinutes?: number;
-    excludePatterns?: string[];
-  };
-  excludePatterns?: string[];
-};
-
-type Workspace = {
-  version: string;
-  id: string;
-  name: string;
-  folders: FolderRef[];
-  settings?: WorkspaceSettings;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type WorkspaceSummary = {
-  id: string;
-  name: string;
-  folderCount: number;
-  filePath?: string;
-  lastOpenedAt?: number;
-};
-
-type CreateWorkspaceOptions = {
-  name: string;
-  folders?: string[];
-  settings?: WorkspaceSettings;
-};
-
-type WorkspaceOperationResult = {
-  success: boolean;
-  error?: string;
-  workspace?: Workspace;
-};
-
-type WorkspaceIndexingState = {
-  status: 'idle' | 'indexing' | 'complete' | 'error' | 'paused';
-  progress: number;
-  totalFiles: number;
-  processedFiles: number;
-  indexedChunks: number;
-  lastSyncAt: number | null;
-  lastError: string | null;
-  isSemanticSearchReady: boolean;
-  perProjectState: Record<string, {
-    status: 'pending' | 'indexing' | 'complete' | 'error';
-    processedFiles: number;
-    totalFiles: number;
-  }>;
-};
-
-type WorkspaceSearchResult = {
-  id: string;
-  content: string;
-  metadata: {
-    file: string;
-    startLine: number;
-    endLine: number;
-    type: string;
-    name?: string;
-    signature?: string;
-    language: string;
-    lastModified: number;
-    projectId?: string;
-    projectName?: string;
-  };
-  timestamp: string;
-  type: string;
-  relativePath?: string;
-};
-
-// Workspace API
-type WorkspaceChatAPI = {
-  save: (workspace: Workspace, conversation: unknown) => Promise<{ success: boolean; error?: string }>;
-  load: (workspace: Workspace) => Promise<{ conversations: unknown[]; error?: string }>;
-  delete: (workspace: Workspace, conversationId: string) => Promise<{ success: boolean; error?: string }>;
-  list: (workspace: Workspace) => Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }>;
-};
-
-type WorkspaceIndexingAPI = {
-  start: (workspace: Workspace) => Promise<{ success: boolean; error: string | null }>;
-  reindex: (workspace: Workspace) => Promise<{ success: boolean; error: string | null }>;
-  reindexProject: (workspace: Workspace, projectId: string) => Promise<{ success: boolean; error: string | null }>;
-  stop: (workspaceId: string) => Promise<{ success: boolean; error: string | null }>;
-  getState: (workspaceId: string) => Promise<{ state: WorkspaceIndexingState | null; error: string | null }>;
-  query: (workspaceId: string, query: string, options?: { topK?: number; projectId?: string }) => Promise<{ results: WorkspaceSearchResult[]; error: string | null }>;
-  clear: (workspaceId: string) => Promise<{ success: boolean; error: string | null }>;
-  close: (workspaceId: string) => Promise<{ success: boolean; error: string | null }>;
-  closeAll: () => Promise<{ success: boolean; error: string | null }>;
-};
-
-type WorkspaceAPI = {
-  create: (options: CreateWorkspaceOptions) => Promise<WorkspaceOperationResult>;
-  saveToFile: (workspace: Workspace, filePath: string) => Promise<WorkspaceOperationResult>;
-  loadFromFile: (filePath: string) => Promise<WorkspaceOperationResult>;
-  loadById: (workspaceId: string) => Promise<WorkspaceOperationResult>;
-  update: (workspace: Workspace) => Promise<WorkspaceOperationResult>;
-  list: () => Promise<{ workspaces: WorkspaceSummary[]; error?: string }>;
-  delete: (workspaceId: string, deleteData?: boolean) => Promise<{ success: boolean; error?: string }>;
-  addFolder: (workspaceId: string, folderPath: string, folderName?: string) => Promise<WorkspaceOperationResult>;
-  removeFolder: (workspaceId: string, folderId: string) => Promise<WorkspaceOperationResult>;
-  rename: (workspaceId: string, newName: string) => Promise<WorkspaceOperationResult>;
-  export: (workspaceId: string, targetDir: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
-  import: (sourceDir: string) => Promise<WorkspaceOperationResult>;
-  chat: WorkspaceChatAPI;
-  indexing: WorkspaceIndexingAPI;
 };
 
 // Main Electron API
@@ -444,8 +295,7 @@ type ElectronAPI = {
   terminal: TerminalAPI;
   browser: BrowserAPI;
   remote: RemoteAPI;
-  sharedWorkspaces: SharedWorkspacesAPI;
-  workspace: WorkspaceAPI;
+  project: ProjectAPI;
 };
 
 // Expose APIs via contextBridge
@@ -521,7 +371,6 @@ const api: ElectronAPI = {
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:open-folder'),
     createFolder: () => ipcRenderer.invoke('dialog:create-folder'),
-    openWorkspace: () => ipcRenderer.invoke('dialog:open-workspace'),
   },
 
   settings: {
@@ -533,10 +382,6 @@ const api: ElectronAPI = {
     getRecentFolders: () => ipcRenderer.invoke('settings:getRecentFolders'),
     addRecentWorkspace: (workspacePath: string) => ipcRenderer.invoke('settings:addRecentWorkspace', workspacePath),
     getRecentWorkspaces: () => ipcRenderer.invoke('settings:getRecentWorkspaces'),
-    addSavedWorkspace: (workspacePath: string) => ipcRenderer.invoke('settings:addSavedWorkspace', workspacePath),
-    removeSavedWorkspace: (workspacePath: string) => ipcRenderer.invoke('settings:removeSavedWorkspace', workspacePath),
-    getSavedWorkspaces: () => ipcRenderer.invoke('settings:getSavedWorkspaces'),
-    resolve: (key: string, workspaceSettings?: Record<string, any>, projectSettings?: Record<string, any>) => ipcRenderer.invoke('settings:resolve', key, workspaceSettings, projectSettings),
   },
 
   chatStorage: {
@@ -670,48 +515,10 @@ const api: ElectronAPI = {
     stop: () => ipcRenderer.invoke('remote:stop'),
     status: () => ipcRenderer.invoke('remote:status'),
     regenerateApiKey: () => ipcRenderer.invoke('remote:regenerate-api-key'),
-    getQRCode: () => ipcRenderer.invoke('remote:get-qr-code'),
   },
 
-  workspace: {
-    create: (options: CreateWorkspaceOptions) => ipcRenderer.invoke('workspace:create', options),
-    saveToFile: (workspace: Workspace, filePath: string) => ipcRenderer.invoke('workspace:saveToFile', workspace, filePath),
-    loadFromFile: (filePath: string) => ipcRenderer.invoke('workspace:loadFromFile', filePath),
-    loadById: (workspaceId: string) => ipcRenderer.invoke('workspace:loadById', workspaceId),
-    update: (workspace: Workspace) => ipcRenderer.invoke('workspace:update', workspace),
-    list: () => ipcRenderer.invoke('workspace:list'),
-    delete: (workspaceId: string, deleteData?: boolean) => ipcRenderer.invoke('workspace:delete', workspaceId, deleteData),
-    addFolder: (workspaceId: string, folderPath: string, folderName?: string) => ipcRenderer.invoke('workspace:addFolder', workspaceId, folderPath, folderName),
-    removeFolder: (workspaceId: string, folderId: string) => ipcRenderer.invoke('workspace:removeFolder', workspaceId, folderId),
-    rename: (workspaceId: string, newName: string) => ipcRenderer.invoke('workspace:rename', workspaceId, newName),
-    export: (workspaceId: string, targetDir: string) => ipcRenderer.invoke('workspace:export', workspaceId, targetDir),
-    import: (sourceDir: string) => ipcRenderer.invoke('workspace:import', sourceDir),
-    chat: {
-      save: (workspace: Workspace, conversation: unknown) => ipcRenderer.invoke('workspace:chat:save', workspace, conversation),
-      load: (workspace: Workspace) => ipcRenderer.invoke('workspace:chat:load', workspace),
-      delete: (workspace: Workspace, conversationId: string) => ipcRenderer.invoke('workspace:chat:delete', workspace, conversationId),
-      list: (workspace: Workspace) => ipcRenderer.invoke('workspace:chat:list', workspace),
-    },
-    indexing: {
-      start: (workspace: Workspace) => ipcRenderer.invoke('workspace:indexing:start', workspace),
-      reindex: (workspace: Workspace) => ipcRenderer.invoke('workspace:indexing:reindex', workspace),
-      reindexProject: (workspace: Workspace, projectId: string) => ipcRenderer.invoke('workspace:indexing:reindexProject', workspace, projectId),
-      stop: (workspaceId: string) => ipcRenderer.invoke('workspace:indexing:stop', workspaceId),
-      getState: (workspaceId: string) => ipcRenderer.invoke('workspace:indexing:getState', workspaceId),
-      query: (workspaceId: string, query: string, options?: { topK?: number; projectId?: string }) => ipcRenderer.invoke('workspace:indexing:query', workspaceId, query, options),
-      clear: (workspaceId: string) => ipcRenderer.invoke('workspace:indexing:clear', workspaceId),
-      close: (workspaceId: string) => ipcRenderer.invoke('workspace:indexing:close', workspaceId),
-      closeAll: () => ipcRenderer.invoke('workspace:indexing:closeAll'),
-    },
-  },
-
-  sharedWorkspaces: {
-    list: () => ipcRenderer.invoke('shared-workspaces:list'),
-    addWorkspace: (filePath: string) => ipcRenderer.invoke('shared-workspaces:add-workspace', filePath),
-    addFolder: (folderPath: string) => ipcRenderer.invoke('shared-workspaces:add-folder', folderPath),
-    remove: (sharedId: string) => ipcRenderer.invoke('shared-workspaces:remove', sharedId),
-    setActive: (sharedId: string) => ipcRenderer.invoke('shared-workspaces:set-active', sharedId),
-    getActive: () => ipcRenderer.invoke('shared-workspaces:active'),
+  project: {
+    scan: (dirs: string[]) => ipcRenderer.invoke('project:scan', dirs),
   },
 };
 
@@ -745,9 +552,6 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI,
-  WorkspaceAPI, WorkspaceChatAPI, WorkspaceIndexingAPI,
-  IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
-  Workspace, WorkspaceSummary, FolderRef, WorkspaceSettings, CreateWorkspaceOptions,
-  WorkspaceIndexingState, WorkspaceSearchResult, WorkspaceOperationResult
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI,
+  IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus
 };

@@ -133,10 +133,13 @@ export const App: React.FC = () => {
       console.log('[App] Starting initialization...');
       setIsInitializing(true);
       setInitError(null);
+
+      // Hoist setAppInitialized so it's accessible in catch/finally
+      const { setAppInitialized: storeSetAppInitialized } = useAppStore.getState();
       
       try {
         // Get store functions via getState() to avoid dependency issues
-        const { setAvailableModels, setAvailableProviders, setModel, setAppInitialized: storeSetAppInitialized } = useAppStore.getState();
+        const { setAvailableModels, setAvailableProviders, setModel } = useAppStore.getState();
         const { loadSettings, getRecentWorkspaces } = useSettingsStore.getState();
 
         // Load settings first

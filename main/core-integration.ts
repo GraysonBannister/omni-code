@@ -444,6 +444,16 @@ export async function initializeCore(): Promise<void> {
     coreInitialized = true;
     console.log('Core initialization complete');
 
+    // Auto-share all registered workspaces so the remote server has multi-workspace access
+    try {
+      const { getSharedWorkspaceManager } = await import('./shared-workspace-manager.js');
+      const sharedWM = getSharedWorkspaceManager();
+      await sharedWM.initialize();
+      await sharedWM.syncAllWorkspaces();
+    } catch (error) {
+      console.error('[CoreIntegration] Error syncing workspaces:', error);
+    }
+
     // Initialize remote access server if enabled
     try {
       const remoteEnabled = settingsManager.get('remoteAccess.enabled') as boolean;

@@ -75,11 +75,59 @@ export class SharedWorkspaceManager {
       const active = settingsManager.get(ACTIVE_WORKSPACE_KEY) as string | null | undefined;
 
       if (shared && Array.isArray(shared)) {
-        // Validate that workspaces still exist
+        // Validate that workspaces still exist and refresh folder info from disk
         const validWorkspaces: SharedWorkspace[] = [];
         for (const ws of shared) {
           try {
             await fs.access(ws.filePath);
+            
+            // Refresh folder information from disk
+            if (!ws.isSingleFolder && ws.filePath.endsWith('.omnicode-workspace')) {
+              // Re-read workspace file from disk to get current folders
+              try {
+                const content = await fs.readFile(ws.filePath, 'utf-8');
+                const workspace: Workspace = JSON.parse(content);
+                
+                if (workspace.folders && workspace.folders.length > 0) {
+                  const oldFolderCount = ws.folderCount;
+                  ws.folders = workspace.folders.map(f => ({
+                    id: f.id,
+                    path: f.path,
+                    name: f.name || path.basename(f.path),
+                  }));
+                  ws.folderCount = workspace.folders.length;
+                  ws.name = workspace.name; // Also refresh name
+                  
+                  if (oldFolderCount !== ws.folderCount) {
+                    console.log(`[SharedWorkspaceManager] Refreshed workspace "${ws.name}": ${oldFolderCount} -> ${ws.folderCount} folders`);
+                  }
+                }
+              } catch (readError) {
+                console.error(`[SharedWorkspaceManager] Failed to refresh workspace file ${ws.filePath}:`, readError);
+              }
+            } else if (ws.isSingleFolder) {
+              // For single-folder workspaces, validate the folder still exists
+              try {
+                const stats = await fs.stat(ws.filePath);
+                if (!stats.isDirectory()) {
+                  console.log(`[SharedWorkspaceManager] Skipping non-directory: ${ws.filePath}`);
+                  continue;
+                }
+                // Ensure folder info is correct
+                if (ws.folders.length === 0) {
+                  ws.folders = [{
+                    id: `folder-${Date.now()}`,
+                    path: ws.filePath,
+                    name: ws.name || path.basename(ws.filePath),
+                  }];
+                  ws.folderCount = 1;
+                }
+              } catch {
+                console.log(`[SharedWorkspaceManager] Skipping inaccessible folder: ${ws.filePath}`);
+                continue;
+              }
+            }
+            
             validWorkspaces.push(ws);
           } catch {
             // Workspace file no longer exists, skip it
@@ -87,6 +135,11 @@ export class SharedWorkspaceManager {
           }
         }
         this.sharedWorkspaces = validWorkspaces;
+        
+        // Save updated workspace info back to settings if any changes were made
+        if (this.sharedWorkspaces.length > 0) {
+          await this.saveToSettings();
+        }
       }
 
       // Validate active workspace still exists
@@ -113,6 +166,58 @@ export class SharedWorkspaceManager {
    */
   getSharedWorkspaces(): SharedWorkspace[] {
     return [...this.sharedWorkspaces];
+  }
+
+  /**
+   * Refresh a specific workspace from disk
+   */
+  async refreshWorkspaceFromDisk(sharedId: string): Promise<boolean> {
+    const ws = this.sharedWorkspaces.find(w => w.sharedId === sharedId);
+    if (!ws) {
+      console.log(`[SharedWorkspaceManager] Workspace not found for refresh: ${sharedId}`);
+      return false;
+    }
+
+    try {
+      if (!ws.isSingleFolder && ws.filePath.endsWith('.omnicode-workspace')) {
+        // Re-read workspace file
+        const content = await fs.readFile(ws.filePath, 'utf-8');
+        const workspace: Workspace = JSON.parse(content);
+        
+        if (workspace.folders) {
+          const oldFolderCount = ws.folderCount;
+          ws.folders = workspace.folders.map(f => ({
+            id: f.id,
+            path: f.path,
+            name: f.name || path.basename(f.path),
+          }));
+          ws.folderCount = workspace.folders.length;
+          ws.name = workspace.name;
+          
+          await this.saveToSettings();
+          console.log(`[SharedWorkspaceManager] Refreshed workspace "${ws.name}" from disk: ${oldFolderCount} -> ${ws.folderCount} folders`);
+          return true;
+        }
+      } else if (ws.isSingleFolder) {
+        // Validate single folder
+        const stats = await fs.stat(ws.filePath);
+        if (stats.isDirectory()) {
+          if (ws.folders.length === 0) {
+            ws.folders = [{
+              id: `folder-${Date.now()}`,
+              path: ws.filePath,
+              name: ws.name || path.basename(ws.filePath),
+            }];
+            ws.folderCount = 1;
+            await this.saveToSettings();
+          }
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error(`[SharedWorkspaceManager] Failed to refresh workspace ${sharedId}:`, error);
+    }
+    return false;
   }
 
   /**
@@ -295,6 +400,62 @@ export class SharedWorkspaceManager {
    */
   getWorkspaceById(sharedId: string): SharedWorkspace | null {
     return this.sharedWorkspaces.find(ws => ws.sharedId === sharedId) || null;
+  }
+
+  /**
+   * Get the working directory (first folder path) for a specific shared workspace.
+   * Returns null if the workspace is not found or has no folders.
+   */
+  getWorkingDirectory(sharedId: string): string | null {
+    const workspace = this.getWorkspaceById(sharedId);
+    if (!workspace || workspace.folders.length === 0) return null;
+    return workspace.folders[0].path;
+  }
+
+  /**
+   * Sync all registered workspaces from WorkspaceStorage into the shared list.
+   * Any workspace that already exists (matched by workspaceId) is skipped.
+   * Newly added workspaces that have no filePath (legacy entries) are skipped.
+   * After syncing, ensures at least one workspace is marked active.
+   */
+  async syncAllWorkspaces(): Promise<void> {
+    try {
+      const result = await this.workspaceStorage.listWorkspaces();
+      if (result.error) {
+        console.warn('[SharedWorkspaceManager] syncAllWorkspaces: WorkspaceStorage error:', result.error);
+      }
+
+      const summaries = result.workspaces ?? [];
+      let added = 0;
+
+      for (const summary of summaries) {
+        // Skip if it's already in the shared list (matched by workspace ID)
+        const alreadyShared = this.sharedWorkspaces.some(
+          sw => sw.workspaceId === summary.id
+        );
+        if (alreadyShared) continue;
+
+        // Skip entries without a file path (can't load them)
+        if (!summary.filePath) continue;
+
+        const newEntry = await this.addWorkspaceFile(summary.filePath);
+        if (newEntry) {
+          added++;
+        }
+      }
+
+      // Ensure at least one workspace is active
+      if (!this.activeWorkspaceId && this.sharedWorkspaces.length > 0) {
+        const first = this.sharedWorkspaces[0];
+        this.activeWorkspaceId = first.sharedId;
+        first.isActive = true;
+        await this.saveToSettings();
+      }
+
+      console.log(`[SharedWorkspaceManager] syncAllWorkspaces complete: added ${added}, total ${this.sharedWorkspaces.length}`);
+    } catch (error) {
+      console.error('[SharedWorkspaceManager] syncAllWorkspaces failed:', error);
+    }
   }
 
   /**

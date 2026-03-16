@@ -100,22 +100,12 @@ export interface SettingsSchema {
   // Files
   files: {
     excludePatterns: string[];
-    defaultFolder: string | null;
-    /** @deprecated Use recentFolders instead */
     defaultWorkspace: string | null;
     recentFolders: string[];
-    recentWorkspaces: string[];
     maxRecentFolders: number;
+    recentWorkspaces: string[];
     maxRecentWorkspaces: number;
     followSymlinks: boolean;
-  };
-
-  // Workspace Management
-  workspaces: {
-    /** List of saved workspace file paths */
-    savedWorkspaces: string[];
-    /** Maximum number of recent workspaces to track */
-    maxRecentWorkspaces: number;
   };
 
   // Indexing / Search
@@ -174,20 +164,6 @@ export interface SettingsSchema {
     allowedOrigins: string[];
     rateLimitRequests: number;
     rateLimitWindowMs: number;
-    /** Workspaces shared for remote access */
-    sharedWorkspaces: Array<{
-      sharedId: string;
-      workspaceId: string;
-      filePath: string;
-      name: string;
-      folderCount: number;
-      folders: Array<{ id: string; path: string; name: string }>;
-      isActive: boolean;
-      addedAt: number;
-      isSingleFolder: boolean;
-    }>;
-    /** Currently active shared workspace ID */
-    activeWorkspaceId: string | null;
   };
 }
 
@@ -263,18 +239,12 @@ export const defaultSettings: SettingsSchema = {
       '**/Thumbs.db',
       '**/.DS_Store',
     ],
-    defaultFolder: null,
-    defaultWorkspace: null, // @deprecated
+    defaultWorkspace: null,
     recentFolders: [],
-    recentWorkspaces: [],
     maxRecentFolders: 10,
+    recentWorkspaces: [],
     maxRecentWorkspaces: 10,
     followSymlinks: false,
-  },
-
-  workspaces: {
-    savedWorkspaces: [],
-    maxRecentWorkspaces: 10,
   },
 
   indexing: {
@@ -326,8 +296,6 @@ export const defaultSettings: SettingsSchema = {
     allowedOrigins: [],
     rateLimitRequests: 100,
     rateLimitWindowMs: 15 * 60 * 1000,  // 15 minutes
-    sharedWorkspaces: [],
-    activeWorkspaceId: null,
   },
 };
 
@@ -416,17 +384,14 @@ class SettingsManager {
     this.listeners.forEach((listener) => listener(key, value));
   }
 
-  // Add a recent folder
+  // Add a recent folder (plain directory, not a workspace file)
   addRecentFolder(folderPath: string): void {
     const store = this.ensureInitialized();
     const recent = store.get('files.recentFolders');
     const maxRecent = store.get('files.maxRecentFolders');
 
-    // Remove if already exists
-    const filtered = recent.filter((w) => w !== folderPath);
-    // Add to beginning
+    const filtered = recent.filter((f) => f !== folderPath);
     filtered.unshift(folderPath);
-    // Limit to max
     const limited = filtered.slice(0, maxRecent);
 
     store.set('files.recentFolders', limited);
@@ -438,11 +403,11 @@ class SettingsManager {
     return this.ensureInitialized().get('files.recentFolders');
   }
 
-  // Add a recent workspace (workspace file)
+  // Add a recent workspace
   addRecentWorkspace(workspacePath: string): void {
     const store = this.ensureInitialized();
     const recent = store.get('files.recentWorkspaces');
-    const maxRecent = store.get('workspaces.maxRecentWorkspaces');
+    const maxRecent = store.get('files.maxRecentWorkspaces');
 
     // Remove if already exists
     const filtered = recent.filter((w) => w !== workspacePath);
@@ -458,74 +423,6 @@ class SettingsManager {
   // Get recent workspaces
   getRecentWorkspaces(): string[] {
     return this.ensureInitialized().get('files.recentWorkspaces');
-  }
-
-  // Add a saved workspace (persisted workspace list)
-  addSavedWorkspace(workspacePath: string): void {
-    const store = this.ensureInitialized();
-    const saved = store.get('workspaces.savedWorkspaces');
-
-    // Avoid duplicates
-    if (!saved.includes(workspacePath)) {
-      saved.push(workspacePath);
-      store.set('workspaces.savedWorkspaces', saved);
-    }
-  }
-
-  // Remove a saved workspace
-  removeSavedWorkspace(workspacePath: string): void {
-    const store = this.ensureInitialized();
-    const saved = store.get('workspaces.savedWorkspaces');
-    const filtered = saved.filter((w) => w !== workspacePath);
-    store.set('workspaces.savedWorkspaces', filtered);
-  }
-
-  // Get all saved workspaces
-  getSavedWorkspaces(): string[] {
-    return this.ensureInitialized().get('workspaces.savedWorkspaces');
-  }
-
-  /**
-   * Resolve a setting value using hierarchical lookup:
-   * Global → Workspace → Project (if applicable)
-   * 
-   * @param key - Setting key path (e.g., 'ai.model')
-   * @param workspaceSettings - Optional workspace-level settings
-   * @param projectSettings - Optional project-level settings
-   * @returns The resolved setting value
-   */
-  resolveSetting<T>(
-    key: string,
-    workspaceSettings?: Record<string, any>,
-    projectSettings?: Record<string, any>
-  ): T {
-    const globalValue = this.get(key);
-
-    // Check project-level override
-    if (projectSettings && this.getNestedValue(projectSettings, key) !== undefined) {
-      return this.getNestedValue(projectSettings, key);
-    }
-
-    // Check workspace-level override
-    if (workspaceSettings && this.getNestedValue(workspaceSettings, key) !== undefined) {
-      return this.getNestedValue(workspaceSettings, key);
-    }
-
-    // Fall back to global setting
-    return globalValue;
-  }
-
-  /**
-   * Get a nested value from an object using dot notation
-   */
-  private getNestedValue(obj: Record<string, any>, path: string): any {
-    const parts = path.split('.');
-    let value = obj;
-    for (const part of parts) {
-      if (value === null || value === undefined) return undefined;
-      value = value[part];
-    }
-    return value;
   }
 }
 
@@ -600,30 +497,6 @@ const syncManagerProxy = {
     }
     return settingsManagerInstance.getRecentWorkspaces();
   },
-  addSavedWorkspace: (workspacePath: string) => {
-    if (!settingsManagerInstance) {
-      throw new Error('SettingsManager not initialized');
-    }
-    return settingsManagerInstance.addSavedWorkspace(workspacePath);
-  },
-  removeSavedWorkspace: (workspacePath: string) => {
-    if (!settingsManagerInstance) {
-      throw new Error('SettingsManager not initialized');
-    }
-    return settingsManagerInstance.removeSavedWorkspace(workspacePath);
-  },
-  getSavedWorkspaces: () => {
-    if (!settingsManagerInstance) {
-      throw new Error('SettingsManager not initialized');
-    }
-    return settingsManagerInstance.getSavedWorkspaces();
-  },
-  resolveSetting: (key: string, workspaceSettings?: Record<string, any>, projectSettings?: Record<string, any>) => {
-    if (!settingsManagerInstance) {
-      throw new Error('SettingsManager not initialized');
-    }
-    return settingsManagerInstance.resolveSetting(key, workspaceSettings, projectSettings);
-  },
   onChange: (callback: (key: string, value: any) => void) => {
     if (!settingsManagerInstance) {
       throw new Error('SettingsManager not initialized');
@@ -688,7 +561,7 @@ export function setupSettingsIpcHandlers(): void {
     }
   });
 
-  // Add recent folder
+  // Add recent workspace
   ipcMain.handle('settings:addRecentFolder', async (_: IpcMainInvokeEvent, folderPath: string) => {
     try {
       const manager = await getSettingsManager();
@@ -700,7 +573,6 @@ export function setupSettingsIpcHandlers(): void {
     }
   });
 
-  // Get recent folders
   ipcMain.handle('settings:getRecentFolders', async () => {
     try {
       const manager = await getSettingsManager();
@@ -708,11 +580,10 @@ export function setupSettingsIpcHandlers(): void {
       return { value, error: null };
     } catch (error) {
       console.error('[Settings] Error getting recent folders:', error);
-      return { value: null, error: (error as Error).message };
+      return { value: [], error: (error as Error).message };
     }
   });
 
-  // Add recent workspace (workspace file)
   ipcMain.handle('settings:addRecentWorkspace', async (_: IpcMainInvokeEvent, workspacePath: string) => {
     try {
       const manager = await getSettingsManager();
@@ -736,55 +607,7 @@ export function setupSettingsIpcHandlers(): void {
       return { value: null, error: (error as Error).message };
     }
   });
-
-  // Add saved workspace
-  ipcMain.handle('settings:addSavedWorkspace', async (_: IpcMainInvokeEvent, workspacePath: string) => {
-    try {
-      const manager = await getSettingsManager();
-      manager.addSavedWorkspace(workspacePath);
-      return { success: true, error: null };
-    } catch (error) {
-      console.error('[Settings] Error adding saved workspace:', error);
-      return { success: false, error: (error as Error).message };
-    }
-  });
-
-  // Remove saved workspace
-  ipcMain.handle('settings:removeSavedWorkspace', async (_: IpcMainInvokeEvent, workspacePath: string) => {
-    try {
-      const manager = await getSettingsManager();
-      manager.removeSavedWorkspace(workspacePath);
-      return { success: true, error: null };
-    } catch (error) {
-      console.error('[Settings] Error removing saved workspace:', error);
-      return { success: false, error: (error as Error).message };
-    }
-  });
-
-  // Get saved workspaces
-  ipcMain.handle('settings:getSavedWorkspaces', async () => {
-    try {
-      const manager = await getSettingsManager();
-      const value = manager.getSavedWorkspaces();
-      return { value, error: null };
-    } catch (error) {
-      console.error('[Settings] Error getting saved workspaces:', error);
-      return { value: null, error: (error as Error).message };
-    }
-  });
-
-  // Resolve a setting with hierarchical lookup
-  ipcMain.handle('settings:resolve', async (_: IpcMainInvokeEvent, key: string, workspaceSettings?: Record<string, any>, projectSettings?: Record<string, any>) => {
-    try {
-      const manager = await getSettingsManager();
-      const value = manager.resolveSetting(key, workspaceSettings, projectSettings);
-      return { value, error: null };
-    } catch (error) {
-      console.error('[Settings] Error resolving setting:', error);
-      return { value: null, error: (error as Error).message };
-    }
-  });
-
+  
   console.log('[Settings] IPC handlers setup complete');
 }
 
@@ -798,8 +621,4 @@ export function cleanupSettingsIpcHandlers(): void {
   ipcMain.removeHandler('settings:getRecentFolders');
   ipcMain.removeHandler('settings:addRecentWorkspace');
   ipcMain.removeHandler('settings:getRecentWorkspaces');
-  ipcMain.removeHandler('settings:addSavedWorkspace');
-  ipcMain.removeHandler('settings:removeSavedWorkspace');
-  ipcMain.removeHandler('settings:getSavedWorkspaces');
-  ipcMain.removeHandler('settings:resolve');
 }
