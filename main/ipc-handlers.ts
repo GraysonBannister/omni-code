@@ -933,6 +933,43 @@ export function setupIpcHandlers(): void {
       return { success: false, error: (error as Error).message };
     }
   });
+
+  ipcMain.handle('remote:generate-qr', async () => {
+    try {
+      const { getRemoteServerStatus } = await import('./remote-server.js');
+      const { default: QRCode } = await import('qrcode');
+      const status = getRemoteServerStatus();
+
+      if (!status.running || !status.url || !status.apiKey) {
+        return { success: false, error: 'Remote server is not running or not configured' };
+      }
+
+      // Generate QR code data with connection info
+      const qrData = {
+        url: status.url,
+        key: status.apiKey,
+        name: 'Omni Code Desktop',
+      };
+
+      // Convert to JSON and generate QR code as data URL
+      const qrCodeDataUrl = await QRCode.toDataURL(JSON.stringify(qrData), {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      });
+
+      return {
+        success: true,
+        qrCodeDataUrl,
+        url: status.url,
+      };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
 }
 
 // Set main window reference for browser events
@@ -1023,4 +1060,5 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('remote:stop');
   ipcMain.removeHandler('remote:status');
   ipcMain.removeHandler('remote:regenerate-api-key');
+  ipcMain.removeHandler('remote:generate-qr');
 }

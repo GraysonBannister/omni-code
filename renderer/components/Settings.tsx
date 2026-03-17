@@ -49,6 +49,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   } | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
 
+  // QR code state
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+
   // Load settings when panel opens or when embedded
   useEffect(() => {
     if ((isOpen || embedded) && !settings) {
@@ -131,10 +135,27 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
       if (result?.success && result.apiKey) {
         setSetting('remoteAccess.apiKey', result.apiKey);
         setRemoteStatus(prev => prev ? { ...prev, apiKey: result.apiKey } : null);
+        // Clear existing QR code since API key changed
+        setQrCodeDataUrl(null);
       }
     } catch (error) {
       console.error('Failed to regenerate API key:', error);
     }
+  };
+
+  const handleGenerateQR = async () => {
+    setQrLoading(true);
+    try {
+      const result = await window.electronAPI?.remote?.generateQR();
+      if (result?.success && result.qrCodeDataUrl) {
+        setQrCodeDataUrl(result.qrCodeDataUrl);
+      } else {
+        console.error('Failed to generate QR code:', result?.error);
+      }
+    } catch (error) {
+      console.error('Failed to generate QR code:', error);
+    }
+    setQrLoading(false);
   };
 
   const copyToClipboard = (text: string) => {
@@ -937,6 +958,59 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   Regenerate API Key
                 </button>
               </div>
+
+              {/* QR Code Section - Only show when server is running */}
+              {remoteStatus?.running && (
+                <div className="qr-code-section" style={{ marginTop: '24px' }}>
+                  <h3 className="settings-section-title">Quick Connect via QR Code</h3>
+                  <p className="settings-section-description">
+                    Scan this QR code with your mobile app to connect instantly.
+                    <strong> Keep this private - anyone with access can connect to your server.</strong>
+                  </p>
+
+                  {!qrCodeDataUrl ? (
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleGenerateQR}
+                      disabled={qrLoading || !remoteStatus?.running}
+                    >
+                      {qrLoading ? 'Generating...' : 'Show QR Code'}
+                    </button>
+                  ) : (
+                    <div className="qr-code-display">
+                      <div
+                        className="qr-code-container"
+                        style={{
+                          background: 'white',
+                          padding: '16px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        }}
+                      >
+                        <img
+                          src={qrCodeDataUrl}
+                          alt="Connection QR Code"
+                          style={{
+                            width: '250px',
+                            height: '250px',
+                            display: 'block',
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginTop: '12px' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setQrCodeDataUrl(null)}
+                          style={{ fontSize: '14px' }}
+                        >
+                          Hide QR Code
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="settings-info-box" style={{ marginTop: '24px' }}>
                 <strong>Mobile App Setup:</strong>

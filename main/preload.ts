@@ -276,6 +276,7 @@ type RemoteAPI = {
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<RemoteServerStatus>;
   regenerateApiKey: () => Promise<{ success: boolean; apiKey?: string; error?: string }>;
+  generateQR: () => Promise<{ success: boolean; qrCodeDataUrl?: string; url?: string; error?: string }>;
 };
 
 // Main Electron API
@@ -515,6 +516,7 @@ const api: ElectronAPI = {
     stop: () => ipcRenderer.invoke('remote:stop'),
     status: () => ipcRenderer.invoke('remote:status'),
     regenerateApiKey: () => ipcRenderer.invoke('remote:regenerate-api-key'),
+    generateQR: () => ipcRenderer.invoke('remote:generate-qr'),
   },
 
   project: {
