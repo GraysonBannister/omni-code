@@ -27,7 +27,7 @@ type AgentAPI = {
   createConversation: (conversationId: string, model?: string, provider?: string) => Promise<boolean>;
   closeConversation: (conversationId: string) => Promise<boolean>;
   hasConversation: (conversationId: string) => Promise<boolean>;
-  sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => Promise<void>;
   abort: (conversationId: string) => Promise<void>;
   switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
   onEvent: (callback: (event: ConversationAgentEvent) => void) => () => void;
@@ -306,8 +306,8 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('agent:create-conversation', conversationId, model, provider),
     closeConversation: (conversationId: string) => ipcRenderer.invoke('agent:close-conversation', conversationId),
     hasConversation: (conversationId: string) => ipcRenderer.invoke('agent:has-conversation', conversationId),
-    sendMessage: (conversationId: string, message: string, workingDirectory?: string) =>
-      ipcRenderer.invoke('agent:send-message', conversationId, message, workingDirectory),
+    sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) =>
+      ipcRenderer.invoke('agent:send-message', conversationId, message, workingDirectory, fileReferences),
     abort: (conversationId: string) => ipcRenderer.invoke('agent:abort', conversationId),
     switchModel: (conversationId: string, model: string, provider: string) =>
       ipcRenderer.invoke('agent:switch-model', conversationId, model, provider),

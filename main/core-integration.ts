@@ -1,6 +1,6 @@
 // Core Integration - Initializes omni-code core for Electron
 import { ConfigManager } from '../src/config/config-manager.js';
-import { ProviderRegistry } from '../src/providers/provider-registry.js';
+import { ProviderRegistry, type ProviderRegistry as ProviderRegistryType } from '../src/providers/provider-registry.js';
 import { AnthropicProvider } from '../src/providers/anthropic/anthropic-provider.js';
 import { OpenAIProvider } from '../src/providers/openai/openai-provider.js';
 import { GoogleProvider } from '../src/providers/google/google-provider.js';
@@ -21,11 +21,12 @@ import { agentBridge } from './agent-bridge.js';
 import { setToolsRef, setConfigRef, setAgentRef } from './ipc-handlers.js';
 import { getUsageStorage } from './usage-storage.js';
 import type { UsageRecord } from '../src/core/usage-types.js';
-import { settingsManager } from './settings.js';
+import { settingsManager, type SettingsSchema } from './settings.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
 let agentInstance: AgentImpl | null = null;
+let providerRegistry: ProviderRegistry | null = null;
 
 // Module-level PermissionManager so its mode can be updated at runtime.
 // Initialized to 'auto-allow' until initializeCore() creates it with the
@@ -122,7 +123,7 @@ export async function initializeCore(): Promise<void> {
     const eventBus = new EventBus();
 
     // Initialize providers
-    const providerRegistry = new ProviderRegistry();
+    providerRegistry = new ProviderRegistry();
     providerRegistry.register(new AnthropicProvider());
     providerRegistry.register(new OpenAIProvider());
     providerRegistry.register(new GoogleProvider());
@@ -132,8 +133,42 @@ export async function initializeCore(): Promise<void> {
     providerRegistry.register(new BedrockProvider());
     providerRegistry.register(new MoonshotProvider());
 
-    // Build provider configs from environment variables
+    // Build provider configs from settings, config file, and environment variables
+    // Priority: settingsManager > config file > environment variables
     const providerConfigs: Record<string, any> = { ...config.get('providers') };
+
+    // Map provider names to their corresponding settingsManager apiKeys field
+    const settingsApiKeys: Record<string, keyof SettingsSchema['apiKeys']> = {
+      anthropic: 'anthropic',
+      openai: 'openai',
+      google: 'google',
+      mistral: 'openai', // Mistral uses OpenAI-compatible API
+      groq: 'groq',
+      xai: 'xai',
+      bedrock: 'anthropic', // Bedrock uses AWS credentials
+      moonshot: 'moonshot',
+    };
+
+    // First, apply API keys from settingsManager (highest priority)
+    const apiKeys = settingsManager.get('apiKeys');
+    console.log('[CoreIntegration] API keys from settings:', Object.keys(apiKeys));
+    console.log('[CoreIntegration] Moonshot key exists:', !!apiKeys['moonshot']);
+    console.log('[CoreIntegration] Moonshot key length:', apiKeys['moonshot']?.length || 0);
+
+    for (const [providerName, settingsKey] of Object.entries(settingsApiKeys)) {
+      const apiKey = apiKeys[settingsKey];
+      if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+        providerConfigs[providerName] = {
+          ...providerConfigs[providerName],
+          apiKey: apiKey.trim(),
+        };
+        console.log(`[CoreIntegration] Loaded API key for ${providerName} from settings`);
+      } else {
+        console.log(`[CoreIntegration] No API key found for ${providerName} in settings`);
+      }
+    }
+
+    // Then, apply environment variables (lowest priority - only if not already set)
     const envKeys: Record<string, string> = {
       ANTHROPIC_API_KEY: 'anthropic',
       OPENAI_API_KEY: 'openai',
@@ -154,7 +189,12 @@ export async function initializeCore(): Promise<void> {
       }
     }
 
+    console.log('[CoreIntegration] Initializing providers with configs:', Object.keys(providerConfigs));
     await providerRegistry.initializeAll(providerConfigs);
+
+    // Log provider availability after initialization
+    const availableProviders = providerRegistry.getAvailable().map(p => p.name);
+    console.log('[CoreIntegration] Available providers after init:', availableProviders);
 
     // Resolve default model and provider
     const defaultModel = config.get('defaultModel') || 'claude-sonnet-4-5';
@@ -167,6 +207,8 @@ export async function initializeCore(): Promise<void> {
 
     if (!activeProvider || !activeProvider.isAvailable()) {
       console.warn(`Provider "${currentProviderName}" is not available.`);
+    } else {
+      console.log(`[CoreIntegration] Default provider "${currentProviderName}" is available`);
     }
 
     // Initialize tools
@@ -475,6 +517,23 @@ export async function initializeCore(): Promise<void> {
       // Don't fail core initialization if remote server fails
     }
 
+    // Listen for API key changes and re-initialize providers
+    settingsManager.onChange((key: string, value: any) => {
+      if (key.startsWith('apiKeys.')) {
+        const providerName = key.replace('apiKeys.', '');
+        console.log(`[CoreIntegration] API key changed for provider: ${providerName}`);
+
+        // Re-initialize providers with the new API key
+        reinitializeProviders().then(result => {
+          if (result.success) {
+            console.log(`[CoreIntegration] Providers re-initialized after API key change for ${providerName}`);
+          } else {
+            console.error(`[CoreIntegration] Failed to re-initialize providers: ${result.error}`);
+          }
+        });
+      }
+    });
+
   } catch (error) {
     console.error('Failed to initialize core:', error);
     throw error;
@@ -483,4 +542,91 @@ export async function initializeCore(): Promise<void> {
 
 export function isCoreInitialized(): boolean {
   return coreInitialized;
+}
+
+/**
+ * Re-initialize providers with updated API keys from settings.
+ * Call this when API keys change in settings.
+ */
+export async function reinitializeProviders(): Promise<{ success: boolean; error?: string }> {
+  if (!providerRegistry) {
+    return { success: false, error: 'Provider registry not initialized' };
+  }
+
+  try {
+    console.log('[CoreIntegration] Re-initializing providers with updated API keys...');
+
+    // Build provider configs from settings (same logic as in initializeCore)
+    const providerConfigs: Record<string, any> = {};
+
+    const settingsApiKeys: Record<string, keyof SettingsSchema['apiKeys']> = {
+      anthropic: 'anthropic',
+      openai: 'openai',
+      google: 'google',
+      mistral: 'openai',
+      groq: 'groq',
+      xai: 'xai',
+      bedrock: 'anthropic',
+      moonshot: 'moonshot',
+    };
+
+    // Apply API keys from settingsManager
+    const apiKeys = settingsManager.get('apiKeys');
+    console.log('[CoreIntegration:Reinit] API keys from settings:', Object.keys(apiKeys));
+    console.log('[CoreIntegration:Reinit] Moonshot key exists:', !!apiKeys['moonshot']);
+
+    for (const [providerName, settingsKey] of Object.entries(settingsApiKeys)) {
+      const apiKey = apiKeys[settingsKey];
+      if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+        providerConfigs[providerName] = {
+          ...providerConfigs[providerName],
+          apiKey: apiKey.trim(),
+        };
+        console.log(`[CoreIntegration:Reinit] Loaded API key for ${providerName}`);
+      } else {
+        console.log(`[CoreIntegration:Reinit] No API key for ${providerName}`);
+      }
+    }
+
+    // Apply environment variables (only if not already set)
+    const envKeys: Record<string, string> = {
+      ANTHROPIC_API_KEY: 'anthropic',
+      OPENAI_API_KEY: 'openai',
+      GOOGLE_API_KEY: 'google',
+      MISTRAL_API_KEY: 'mistral',
+      GROQ_API_KEY: 'groq',
+      XAI_API_KEY: 'xai',
+      AWS_ACCESS_KEY_ID: 'bedrock',
+      MOONSHOT_API_KEY: 'moonshot',
+    };
+
+    for (const [envVar, providerName] of Object.entries(envKeys)) {
+      if (process.env[envVar] && !providerConfigs[providerName]?.apiKey) {
+        providerConfigs[providerName] = {
+          ...providerConfigs[providerName],
+          apiKey: process.env[envVar],
+        };
+      }
+    }
+
+    await providerRegistry.initializeAll(providerConfigs);
+
+    // Log which providers are now available
+    const availableProviders = providerRegistry.getAvailable().map(p => p.name);
+    console.log('[CoreIntegration] Providers re-initialized. Available:', availableProviders);
+
+    return { success: true };
+  } catch (error) {
+    const errorMsg = (error as Error).message;
+    console.error('[CoreIntegration] Failed to re-initialize providers:', error);
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Get the provider registry instance.
+ * Used by IPC handlers to access provider information.
+ */
+export function getProviderRegistry(): ProviderRegistryType | null {
+  return providerRegistry;
 }

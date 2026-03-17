@@ -15,6 +15,7 @@ export type AgentEvent =
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: ToolResult }
   | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
+  | { type: 'tool_results_complete'; message: UnifiedMessage }
   | { type: 'permission_request'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'permission_granted'; toolId: string }
   | { type: 'permission_denied'; toolId: string }

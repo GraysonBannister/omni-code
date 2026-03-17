@@ -24,15 +24,19 @@ export class MoonshotProvider extends BaseProvider {
   }
 
   protected async createClient(config: ProviderInitConfig): Promise<void> {
+    console.log('[MoonshotProvider] createClient called, apiKey exists:', !!config.apiKey);
+    console.log('[MoonshotProvider] apiKey length:', config.apiKey?.length || 0);
     if (!config.apiKey) {
       throw new Error('Moonshot API key is required. Set MOONSHOT_API_KEY environment variable.');
     }
+    console.log('[MoonshotProvider] Creating OpenAI client with baseURL:', config.baseUrl ?? 'https://api.moonshot.cn/v1');
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl ?? 'https://api.moonshot.cn/v1',
       maxRetries: config.maxRetries ?? 3,
       timeout: config.timeout ?? 60_000,
     });
+    console.log('[MoonshotProvider] OpenAI client created successfully');
   }
 
   listModels(): ModelInfo[] { return this.models; }
@@ -124,72 +128,93 @@ export class MoonshotProvider extends BaseProvider {
   }
 
   async *streamComplete(request: CompletionRequest): AsyncIterable<StreamDelta> {
+    console.log('[MoonshotProvider:streamComplete] Starting stream for model:', request.model);
+    console.log('[MoonshotProvider:streamComplete] Client available:', !!this.client);
+    console.log('[MoonshotProvider:streamComplete] Provider available:', this.isAvailable());
+
     const params = this.buildParams(request);
-    const stream = await this.client.chat.completions.create({
-      ...params,
-      stream: true,
-      stream_options: { include_usage: true },
-    } as OpenAI.ChatCompletionCreateParamsStreaming);
+    console.log('[MoonshotProvider:streamComplete] Params built, making API call...');
 
-    const toolBuffers = new Map<number, { id: string; name: string; args: string }>();
+    try {
+      console.log('[MoonshotProvider:streamComplete] Sending request to Moonshot API...');
+      console.log('[MoonshotProvider:streamComplete] Request params:', JSON.stringify(params, null, 2));
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta;
-      if (!delta) {
-        if (chunk.usage) {
-          yield {
-            type: 'usage',
-            usage: {
-              inputTokens: chunk.usage.prompt_tokens || 0,
-              outputTokens: chunk.usage.completion_tokens || 0,
-            },
-          };
-        }
-        continue;
-      }
+      const stream = await this.client.chat.completions.create({
+        ...params,
+        stream: true,
+        stream_options: { include_usage: true },
+      } as OpenAI.ChatCompletionCreateParamsStreaming);
+      console.log('[MoonshotProvider:streamComplete] Stream created successfully');
 
-      if (delta.content) {
-        yield { type: 'text', text: delta.content };
-      }
+      const toolBuffers = new Map<number, { id: string; name: string; args: string }>();
 
-      if (delta.tool_calls) {
-        for (const tc of delta.tool_calls) {
-          if (tc.function?.name) {
-            const id = tc.id || crypto.randomUUID();
-            toolBuffers.set(tc.index, {
-              id,
-              name: tc.function.name,
-              args: tc.function.arguments || '',
-            });
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) {
+          if (chunk.usage) {
             yield {
-              type: 'tool_use_start',
-              toolUse: { id, name: tc.function.name },
+              type: 'usage',
+              usage: {
+                inputTokens: chunk.usage.prompt_tokens || 0,
+                outputTokens: chunk.usage.completion_tokens || 0,
+              },
             };
-            if (tc.function.arguments) {
+          }
+          continue;
+        }
+
+        if (delta.content) {
+          yield { type: 'text', text: delta.content };
+        }
+
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            if (tc.function?.name) {
+              const id = tc.id || crypto.randomUUID();
+              toolBuffers.set(tc.index, {
+                id,
+                name: tc.function.name,
+                args: tc.function.arguments || '',
+              });
               yield {
-                type: 'tool_use_delta',
-                toolUse: { id, inputDelta: tc.function.arguments },
+                type: 'tool_use_start',
+                toolUse: { id, name: tc.function.name },
               };
-            }
-          } else if (tc.function?.arguments) {
-            const buf = toolBuffers.get(tc.index);
-            if (buf) {
-              buf.args += tc.function.arguments;
-              yield {
-                type: 'tool_use_delta',
-                toolUse: { id: buf.id, inputDelta: tc.function.arguments },
-              };
+              if (tc.function.arguments) {
+                yield {
+                  type: 'tool_use_delta',
+                  toolUse: { id, inputDelta: tc.function.arguments },
+                };
+              }
+            } else if (tc.function?.arguments) {
+              const buf = toolBuffers.get(tc.index);
+              if (buf) {
+                buf.args += tc.function.arguments;
+                yield {
+                  type: 'tool_use_delta',
+                  toolUse: { id: buf.id, inputDelta: tc.function.arguments },
+                };
+              }
             }
           }
         }
-      }
 
-      if (chunk.choices?.[0]?.finish_reason) {
-        for (const [, buf] of toolBuffers) {
-          yield { type: 'tool_use_end', toolUse: { id: buf.id } };
+        if (chunk.choices?.[0]?.finish_reason) {
+          for (const [, buf] of toolBuffers) {
+            yield { type: 'tool_use_end', toolUse: { id: buf.id } };
+          }
+          yield { type: 'done' };
         }
-        yield { type: 'done' };
       }
+      console.log('[MoonshotProvider:streamComplete] Stream completed successfully');
+    } catch (error) {
+      console.error('[MoonshotProvider:streamComplete] Error during streaming:', (error as Error).message);
+      console.error('[MoonshotProvider:streamComplete] Error status:', (error as any).status);
+      console.error('[MoonshotProvider:streamComplete] Error code:', (error as any).code);
+      console.error('[MoonshotProvider:streamComplete] Error type:', (error as any).type);
+      console.error('[MoonshotProvider:streamComplete] Error response:', (error as any).response);
+      console.error('[MoonshotProvider:streamComplete] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      throw error;
     }
   }
 
@@ -211,9 +236,15 @@ export class MoonshotProvider extends BaseProvider {
   }
 
   private buildParams(request: CompletionRequest): any {
+    console.log('[MoonshotProvider:buildParams] Building params for model:', request.model);
+    console.log('[MoonshotProvider:buildParams] Message count:', request.messages.length);
+
+    const formattedMessages = this.formatMessages(request.messages);
+    console.log('[MoonshotProvider:buildParams] Formatted messages:', JSON.stringify(formattedMessages, null, 2));
+
     const params: any = {
       model: request.model,
-      messages: this.formatMessages(request.messages),
+      messages: formattedMessages,
     };
 
     if (request.systemPrompt) {
@@ -221,14 +252,17 @@ export class MoonshotProvider extends BaseProvider {
         { role: 'system', content: request.systemPrompt },
         ...params.messages,
       ];
+      console.log('[MoonshotProvider:buildParams] Added system prompt');
     }
     if (request.tools && request.tools.length > 0) {
       params.tools = this.formatTools(request.tools);
+      console.log('[MoonshotProvider:buildParams] Added', request.tools.length, 'tools');
     }
     if (request.temperature !== undefined) params.temperature = request.temperature;
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
 
+    console.log('[MoonshotProvider:buildParams] Final params:', JSON.stringify(params, null, 2));
     return params;
   }
 

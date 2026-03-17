@@ -129,6 +129,20 @@ export class AgentImpl implements Agent {
         thinking: thinkingConfig,
       };
 
+      // Debug: Log messages being sent to provider
+      console.log('[AgentImpl:run] Sending request to provider:', {
+        provider: this.config.provider.name,
+        model: this.config.model,
+        messageCount: this._messages.length,
+        messages: this._messages.map(m => ({
+          id: m.id,
+          role: m.role,
+          contentType: typeof m.content,
+          hasContentBlocks: Array.isArray(m.content),
+          contentBlocksTypes: Array.isArray(m.content) ? m.content.map((c: any) => c.type).join(', ') : 'N/A',
+        })),
+      });
+
       const assistantContent: ContentBlock[] = [];
       let textBuffer = '';
       const toolCallBuffers = new Map<string, { id: string; name: string; inputJson: string }>();

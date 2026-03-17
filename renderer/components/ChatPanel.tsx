@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files, Layers, Check } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
+import { MentionPopup, type MentionFile } from './MentionPopup';
+import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
 import { ModeSelector, AIMode } from './ModeSelector';
 import { UserInputCard, type UserInputRequest } from './UserInputCard';
 import { PermissionCard, type PermissionRequest } from './PermissionCard';
@@ -418,6 +420,7 @@ export const ChatPanel: React.FC = () => {
     availableProviders,
     currentModel,
     projectPath,
+    files,
     openFolder,
     openRecentWorkspace,
   } = useAppStore();
@@ -433,6 +436,14 @@ export const ChatPanel: React.FC = () => {
   const [conversationFileChanges, setConversationFileChanges] = useState<FileChange[]>([]);
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
+  
+  // Mention (@ file reference) state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
+  const [mentionHighlightedIndex, setMentionHighlightedIndex] = useState(0);
+  const [selectedReferences, setSelectedReferences] = useState<FileReference[]>([]);
+  const mentionPopupRef = useRef<HTMLDivElement>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -526,6 +537,41 @@ export const ChatPanel: React.FC = () => {
 
   // Get the active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId) || null;
+  
+  // Flatten files for mention search
+  const flattenFiles = useCallback((fileList: typeof files): MentionFile[] => {
+    const result: MentionFile[] = [];
+    const traverse = (items: typeof files) => {
+      for (const item of items) {
+        result.push({
+          path: item.path,
+          name: item.name,
+          isDirectory: item.isDirectory,
+          extension: item.isDirectory ? undefined : item.name.split('.').pop(),
+        });
+      }
+    };
+    traverse(fileList);
+    return result;
+  }, []);
+  
+  const allFiles = useMemo(() => flattenFiles(files), [files, flattenFiles]);
+  
+  // Close mention popup helper (defined early for use in effects)
+  const closeMentionPopup = useCallback(() => {
+    setMentionQuery(null);
+    setMentionStartIndex(-1);
+    setMentionHighlightedIndex(0);
+  }, []);
+
+  // Filter files based on mention query
+  const filteredMentionFiles = useMemo(() => {
+    if (!mentionQuery) return allFiles.slice(0, 50);
+    const query = mentionQuery.toLowerCase();
+    return allFiles
+      .filter(f => f.name.toLowerCase().includes(query))
+      .slice(0, 50);
+  }, [allFiles, mentionQuery]);
 
   // Get the model for the active conversation
   const activeModel = activeConversation?.model || currentModel;
@@ -647,6 +693,21 @@ export const ChatPanel: React.FC = () => {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [projectPickerOpen]);
+  
+  // Close mention popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mentionPopupRef.current && !mentionPopupRef.current.contains(event.target as Node)) {
+        if (mentionQuery !== null) {
+          closeMentionPopup();
+        }
+      }
+    };
+    if (mentionQuery !== null) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [mentionQuery, closeMentionPopup]);
 
   // Handle model switch for the active conversation
   const handleModelSwitch = useCallback(async (modelId: string, providerName: string) => {
@@ -1034,31 +1095,184 @@ export const ChatPanel: React.FC = () => {
 
     const userMessage = inputValue.trim();
     setInputValue('');
+    
+    // Fetch file contents for references
+    const resolvedRefs: FileReference[] = [];
+    if (selectedReferences.length > 0 && window.electronAPI) {
+      for (const ref of selectedReferences) {
+        if (!ref.isDirectory && !ref.content) {
+          try {
+            const result = await window.electronAPI.file.read(ref.path);
+            if (!result.error) {
+              resolvedRefs.push({ ...ref, content: result.content });
+            } else {
+              resolvedRefs.push(ref);
+            }
+          } catch (e) {
+            console.error(`Failed to read file ${ref.path}:`, e);
+            resolvedRefs.push(ref);
+          }
+        } else {
+          resolvedRefs.push(ref);
+        }
+      }
+    }
+    
+    // Clear selected references
+    setSelectedReferences([]);
 
-    // Add user message to active conversation
+    // Add user message to active conversation with file references
     addMessageToConversation(activeConversationId, {
       id: crypto.randomUUID(),
       role: 'user',
       content: userMessage,
       timestamp: Date.now(),
+      fileChanges: resolvedRefs.map(r => ({
+        filePath: r.path,
+        fileName: r.name,
+        extension: r.extension || '',
+        changeType: 'added' as const,
+        additions: 0,
+        deletions: 0,
+      })),
     });
 
     setConversationProcessing(activeConversationId, true);
 
     try {
-      await window.electronAPI!.agent.sendMessage(activeConversationId, userMessage, projectPath || undefined);
+      // Send message with file references
+      await window.electronAPI!.agent.sendMessage(
+        activeConversationId, 
+        userMessage, 
+        projectPath || undefined,
+        resolvedRefs.length > 0 ? resolvedRefs : undefined
+      );
     } catch (error) {
       console.error('Failed to send message:', error);
       setConversationProcessing(activeConversationId, false);
     }
-  }, [inputValue, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath]);
+  }, [inputValue, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath, selectedReferences]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Handle mention popup keyboard navigation
+    if (mentionQuery !== null) {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setMentionHighlightedIndex(prev => 
+            Math.min(prev + 1, filteredMentionFiles.length - 1)
+          );
+          return;
+        case 'ArrowUp':
+          e.preventDefault();
+          setMentionHighlightedIndex(prev => Math.max(prev - 1, 0));
+          return;
+        case 'Enter':
+          e.preventDefault();
+          if (filteredMentionFiles.length > 0) {
+            const selected = filteredMentionFiles[mentionHighlightedIndex];
+            if (selected) {
+              handleMentionSelect(selected);
+            }
+          }
+          return;
+        case 'Escape':
+          e.preventDefault();
+          closeMentionPopup();
+          return;
+      }
+    }
+    
+    // Handle @ key to start mention
+    if (e.key === '@' && mentionQuery === null) {
+      const textarea = inputRef.current;
+      if (textarea) {
+        const cursorPos = textarea.selectionStart;
+        // Check if @ is at start or preceded by whitespace
+        if (cursorPos === 0 || inputValue[cursorPos - 1]?.trim() === '') {
+          setMentionStartIndex(cursorPos);
+          setMentionQuery('');
+          setMentionHighlightedIndex(0);
+        }
+      }
+    }
+    
+    // Handle send on Enter (without shift)
+    if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) {
       e.preventDefault();
       handleSend();
     }
-  }, [handleSend]);
+  }, [handleSend, mentionQuery, filteredMentionFiles, mentionHighlightedIndex, inputValue]);
+  
+  // Handle input changes for mention detection
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    
+    setInputValue(newValue);
+    
+    // Update mention query if we're in mention mode
+    if (mentionQuery !== null && mentionStartIndex >= 0) {
+      // Check if cursor is still after the @
+      if (cursorPos <= mentionStartIndex) {
+        closeMentionPopup();
+        return;
+      }
+      
+      // Extract query text
+      const queryText = newValue.substring(mentionStartIndex + 1, cursorPos);
+      
+      // Check if query contains whitespace (end mention)
+      if (/\s/.test(queryText)) {
+        closeMentionPopup();
+        return;
+      }
+      
+      setMentionQuery(queryText);
+      setMentionHighlightedIndex(0);
+    }
+  }, [mentionQuery, mentionStartIndex]);
+  
+  // Handle file selection from mention popup
+  const handleMentionSelect = useCallback((file: MentionFile) => {
+    const textarea = inputRef.current;
+    if (!textarea || mentionStartIndex < 0) return;
+    
+    const cursorPos = textarea.selectionStart;
+    const beforeMention = inputValue.substring(0, mentionStartIndex);
+    const afterMention = inputValue.substring(cursorPos);
+    
+    // Insert the file reference
+    const newText = `${beforeMention}@${file.name} ${afterMention}`;
+    setInputValue(newText);
+    
+    // Add to selected references
+    const newRef: FileReference = {
+      path: file.path,
+      name: file.name,
+      isDirectory: file.isDirectory,
+      extension: file.extension,
+    };
+    setSelectedReferences(prev => [...prev, newRef]);
+    
+    // Close popup and refocus
+    closeMentionPopup();
+    
+    // Set cursor position after the inserted text
+    setTimeout(() => {
+      const newCursorPos = mentionStartIndex + file.name.length + 2; // +2 for @ and space
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+      textarea.focus();
+    }, 0);
+  }, [inputValue, mentionStartIndex, closeMentionPopup]);
+  
+  // Remove a selected reference
+  const handleRemoveReference = useCallback((refToRemove: FileReference) => {
+    setSelectedReferences(prev => prev.filter(r => r.path !== refToRemove.path));
+    // Also remove from input text
+    const refText = `@${refToRemove.name}`;
+    setInputValue(prev => prev.replace(refText, '').replace(/\s+/g, ' ').trim());
+  }, []);
 
   const handleAbort = useCallback(async () => {
     if (!activeConversationId) return;
@@ -1499,6 +1713,31 @@ export const ChatPanel: React.FC = () => {
 
       {/* Input */}
       <div className="chat-input-container">
+        {/* Selected File References */}
+        {selectedReferences.length > 0 && (
+          <div className="chat-input-references">
+            <FileReferenceChipRow
+              references={selectedReferences}
+              onRemove={handleRemoveReference}
+              compact
+              maxChips={4}
+            />
+          </div>
+        )}
+        
+        {/* Mention Popup */}
+        {mentionQuery !== null && (
+          <div ref={mentionPopupRef} className="chat-input-mention-popup">
+            <MentionPopup
+              files={filteredMentionFiles}
+              query={mentionQuery || ''}
+              highlightedIndex={mentionHighlightedIndex}
+              onSelect={handleMentionSelect}
+              onClose={closeMentionPopup}
+            />
+          </div>
+        )}
+        
         {/* File History Toggle Toolbar */}
         {conversationFileChanges.length > 0 && (
           <div className="chat-input-toolbar file-history-toolbar">
@@ -1551,9 +1790,9 @@ export const ChatPanel: React.FC = () => {
           ref={inputRef}
           className="chat-input"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder={isProcessing ? 'Processing...' : 'Type a message...'}
+          placeholder={isProcessing ? 'Processing...' : 'Type a message... Use @ to reference files'}
           disabled={isProcessing || !activeConversation}
           rows={1}
         />

@@ -1,0 +1,143 @@
+/* File Reference Chip Styles */
+
+.file-reference-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.file-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.file-reference-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.file-reference-chip.compact {
+  padding: 4px 8px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.file-reference-chip-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-reference-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 2px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: currentColor;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.file-reference-chip-remove:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.file-reference-chip-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 16px;
+  background: var(--surface-container, #3c3c3c);
+  color: var(--text-muted, #6e7681);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.file-reference-chip-more.compact {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+/* Input container for chips + input */
+.file-reference-input-container {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-color, #1e1e1e);
+  border: 1px solid var(--border-color, #3e3e42);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.file-reference-input-container:focus-within {
+  border-color: var(--primary-color, #007acc);
+  box-shadow: 0 0 0 1px var(--primary-color, #007acc);
+}
+
+.file-reference-chips-area {
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--border-color-subtle, #2d2d30);
+}
+
+.file-reference-input-area {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+.file-reference-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary, #cccccc);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  font-family: inherit;
+  min-height: 20px;
+}
+
+.file-reference-input::placeholder {
+  color: var(--text-muted, #6e7681);
+}
+
+.file-reference-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: var(--primary-color, #007acc);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.file-reference-send-btn:hover {
+  background: var(--primary-color-hover, #005f9e);
+}
+
+.file-reference-send-btn:disabled {
+  background: var(--disabled-bg, #3c3c3c);
+  color: var(--disabled-text, #6e7681);
+  cursor: not-allowed;
+}

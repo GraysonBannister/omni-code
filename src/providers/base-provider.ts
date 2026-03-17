@@ -17,12 +17,15 @@ export abstract class BaseProvider implements LLMProvider {
   protected _available = false;
 
   async initialize(config: ProviderInitConfig): Promise<void> {
+    console.log(`[BaseProvider:${this.name}] initialize called`);
     this.config = config;
     try {
       await this.createClient(config);
       this._available = true;
+      console.log(`[BaseProvider:${this.name}] initialized successfully, available: true`);
     } catch (error) {
       this._available = false;
+      console.error(`[BaseProvider:${this.name}] initialization failed:`, (error as Error).message);
       throw error;
     }
   }

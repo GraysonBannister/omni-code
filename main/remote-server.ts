@@ -26,6 +26,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getWorkingDirectory } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
+import { getConfigModels, getConfigProviders } from './ipc-handlers.js';
 import { getChatStorage } from './chat-storage.js';
 import { BrowserWindow } from 'electron';
 
@@ -391,6 +392,26 @@ function setupConfigRoutes(app: express.Express): void {
       res.status(500).json({ error: (error as Error).message });
     }
   });
+
+  // Get all available AI models from configured providers
+  app.get('/api/models', async (_req, res) => {
+    try {
+      const models = getConfigModels();
+      res.json({ models });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get all providers with their available models
+  app.get('/api/providers', async (_req, res) => {
+    try {
+      const providers = getConfigProviders();
+      res.json({ providers });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
 }
 
 /**
@@ -503,18 +524,20 @@ function setupAgentRoutes(app: express.Express): void {
   // Create conversation
   app.post('/api/agent/create-conversation', async (req, res) => {
     try {
-      const { conversationId, model, provider } = req.body;
+      const { conversationId, model, provider, workingDirectory } = req.body;
 
       if (!conversationId) {
         res.status(400).json({ error: 'Missing conversationId' });
         return;
       }
 
-      const success = agentBridge.createConversation(conversationId, model, provider);
+      // Resolve working directory: prefer explicit param, then workspace from request, then global cwd
+      const resolvedCwd = workingDirectory || resolveWorkingDirectory(req);
+      const success = agentBridge.createConversation(conversationId, model, provider, resolvedCwd);
 
       if (success) {
         remoteConversationMeta.set(conversationId, {
-          workspacePath: resolveWorkingDirectory(req),
+          workspacePath: resolvedCwd,
           model,
           provider,
           createdAt: Date.now(),

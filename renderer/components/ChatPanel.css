@@ -489,6 +489,19 @@
   gap: var(--spacing-sm);
 }
 
+/* File References in Input */
+.chat-input-references {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border-subtle, #2d2d30);
+}
+
+/* Mention Popup in Input */
+.chat-input-mention-popup {
+  position: relative;
+  width: 100%;
+  z-index: 1000;
+}
+
 /* Input Toolbar for File History Toggle */
 .chat-input-toolbar {
   display: flex;

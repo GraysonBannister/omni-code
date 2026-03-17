@@ -198,20 +198,35 @@ export class AgentBridge {
     this.providerRegistry = registry;
   }
 
-  // Create a new conversation with optional model and provider
-  createConversation(conversationId: string, model?: string, provider?: string): boolean {
+  // Create a new conversation with optional model, provider, and working directory
+  createConversation(conversationId: string, model?: string, provider?: string, workingDirectory?: string): boolean {
+    console.log(`[AgentBridge] createConversation: id=${conversationId}, model=${model || 'default'}, provider=${provider || 'default'}, workingDirectory=${workingDirectory || 'default'}`);
     if (!this.agentFactory) {
-      console.error('AgentBridge not initialized - no agent factory');
+      console.error('[AgentBridge] Not initialized - no agent factory');
       return false;
     }
 
     if (this.conversations.has(conversationId)) {
-      console.warn(`Conversation ${conversationId} already exists`);
-      return false;
+      console.log(`[AgentBridge] Conversation ${conversationId} already exists, reusing`);
+      // Update working directory if a new one is provided
+      if (workingDirectory) {
+        const existing = this.conversations.get(conversationId)!;
+        existing.agent.updateConfig({ cwd: workingDirectory });
+        this.workspacePath = workingDirectory;
+      }
+      return true;
     }
 
     // Pass conversationId, model, and provider to factory for per-conversation model selection
     const agent = this.agentFactory(conversationId, model, provider);
+
+    // Apply the working directory immediately so the system prompt uses the correct workspace
+    if (workingDirectory) {
+      agent.updateConfig({ cwd: workingDirectory });
+      this.workspacePath = workingDirectory;
+      console.log(`[AgentBridge] Set cwd for conversation ${conversationId}: ${workingDirectory}`);
+    }
+
     this.conversations.set(conversationId, {
       agent,
       isRunning: false,
@@ -219,7 +234,7 @@ export class AgentBridge {
       pendingFileChanges: new Map(),
     });
 
-    console.log(`[AgentBridge] Created conversation: ${conversationId} (model: ${model || 'default'}, provider: ${provider || 'default'})`);
+    console.log(`[AgentBridge] Created conversation: ${conversationId} (model: ${model || 'default'}, provider: ${provider || 'default'}, cwd: ${workingDirectory || 'default'})`);
     return true;
   }
 
@@ -354,7 +369,7 @@ export class AgentBridge {
     return undefined;
   }
 
-  async sendMessage(conversationId: string, message: string, workingDirectory?: string): Promise<void> {
+  async sendMessage(conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>): Promise<void> {
     const state = this.conversations.get(conversationId);
     if (!state) {
       console.error(`Conversation ${conversationId} not found`);
@@ -381,15 +396,34 @@ export class AgentBridge {
         state.agent.updateConfig({ cwd: workingDir });
       }
     }
+    
+    // Build message with file references if provided
+    let messageWithContext = message;
+    if (fileReferences && fileReferences.length > 0) {
+      const fileContext = fileReferences
+        .filter(ref => !ref.isDirectory && ref.content)
+        .map(ref => `\n\n--- File: ${ref.path} ---\n${ref.content}`)
+        .join('');
+      
+      if (fileContext) {
+        messageWithContext = `${message}${fileContext}`;
+      }
+    }
 
     try {
-      for await (const event of state.agent.run(message)) {
+      console.log(`[AgentBridge] Starting agent.run for conversation ${conversationId}`);
+      for await (const event of state.agent.run(messageWithContext)) {
         // Check if aborted
         if (state.abortController.signal.aborted) {
           break;
         }
 
         const agentEvent = event as AgentEvent;
+
+        // Debug: Log all agent events
+        if (agentEvent.type === 'error') {
+          console.error('[AgentBridge] Agent error event:', agentEvent.error);
+        }
 
         if (agentEvent.type === 'turn_complete') {
           const stopReason = (agentEvent.message as UnifiedMessage).metadata?.stopReason;
@@ -492,7 +526,15 @@ export class AgentBridge {
         }
       }
     } catch (error) {
-      console.error(`Agent error in conversation ${conversationId}:`, error);
+      console.error(`[AgentBridge] Agent error in conversation ${conversationId}:`, error);
+      console.error('[AgentBridge] Error details:', {
+        message: (error as Error).message,
+        stack: (error as Error).stack,
+        status: (error as any).status,
+        code: (error as any).code,
+        type: (error as any).type,
+        response: (error as any).response,
+      });
       this.emitEvent(conversationId, {
         type: 'error',
         error: { message: (error as Error).message },
@@ -658,23 +700,35 @@ export class AgentBridge {
   }
 
   async switchModel(conversationId: string, model: string, providerName: string): Promise<boolean> {
+    console.log(`[AgentBridge] switchModel called: conversation=${conversationId}, model=${model}, provider=${providerName}`);
     const state = this.conversations.get(conversationId);
     if (!state) {
-      console.error(`Conversation ${conversationId} not found`);
+      console.error(`[AgentBridge] Conversation ${conversationId} not found`);
       return false;
     }
 
     try {
       // Resolve the new provider if different from current
       let newProvider = state.agent.config.provider;
+      console.log(`[AgentBridge] Current provider: ${newProvider.name}, requested: ${providerName}`);
+
       if (providerName && providerName !== state.agent.config.provider.name) {
         if (this.providerRegistry) {
+          console.log(`[AgentBridge] Looking up provider ${providerName} in registry`);
           const resolved = this.providerRegistry.getProvider(providerName);
+          console.log(`[AgentBridge] Provider ${providerName} found:`, !!resolved);
+          if (resolved) {
+            console.log(`[AgentBridge] Provider ${providerName} isAvailable:`, resolved.isAvailable());
+          }
+
           if (resolved && resolved.isAvailable()) {
             newProvider = resolved;
             console.log(`[AgentBridge] Switched provider to ${providerName} for conversation ${conversationId}`);
           } else {
             console.warn(`[AgentBridge] Provider ${providerName} not available, keeping current provider`);
+            if (resolved && !resolved.isAvailable()) {
+              console.warn(`[AgentBridge] Provider ${providerName} exists but is not available (check API key)`);
+            }
           }
         } else {
           console.warn(`[AgentBridge] No provider registry set, cannot switch provider`);

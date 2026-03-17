@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { setWorkingDirectory, getWorkingDirectory, setPermissionMode } from './core-integration.js';
+import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
@@ -39,7 +39,7 @@ let agentRef: {
   createConversation: (conversationId: string, model?: string, provider?: string) => boolean;
   closeConversation: (conversationId: string) => boolean;
   hasConversation: (conversationId: string) => boolean;
-  sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => Promise<void>;
   abort: (conversationId: string) => void;
   switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
   setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
@@ -81,6 +81,55 @@ export function setConfigRef(config: typeof configRef): void {
   configRef = config;
 }
 
+// Export functions to access config for remote server API
+// These now use the provider registry to get real-time availability status
+export function getConfigModels(): Array<{ id: string; name: string; provider: string; available: boolean }> {
+  const registry = getProviderRegistry();
+  if (!registry) return [];
+
+  // Get all models from all providers
+  const allModels = registry.getAllModels();
+
+  // Map to the expected format with real availability status
+  return allModels.map(model => {
+    const provider = registry.getProvider(model.provider);
+    const isProviderAvailable = provider?.isAvailable() ?? false;
+
+    return {
+      id: model.id,
+      name: model.name || model.id,
+      provider: model.provider,
+      available: isProviderAvailable,
+    };
+  });
+}
+
+export function getConfigProviders(): Array<{ name: string; available: boolean; models: string[] }> {
+  const registry = getProviderRegistry();
+  if (!registry) return [];
+
+  // Get all providers and their models
+  const allModels = registry.getAllModels();
+  const providers = new Map<string, { name: string; available: boolean; models: string[] }>();
+
+  for (const model of allModels) {
+    const provider = registry.getProvider(model.provider);
+    const isProviderAvailable = provider?.isAvailable() ?? false;
+
+    if (!providers.has(model.provider)) {
+      providers.set(model.provider, {
+        name: model.provider,
+        available: isProviderAvailable,
+        models: [],
+      });
+    }
+
+    providers.get(model.provider)!.models.push(model.id);
+  }
+
+  return Array.from(providers.values());
+}
+
 export function setupIpcHandlers(): void {
   // Agent handlers - now conversation-scoped for multi-tab support
   ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
@@ -98,9 +147,9 @@ export function setupIpcHandlers(): void {
     return agentRef.hasConversation(conversationId);
   });
 
-  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string) => {
+  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    await agentRef.sendMessage(conversationId, message, workingDirectory);
+    await agentRef.sendMessage(conversationId, message, workingDirectory, fileReferences);
   });
 
   ipcMain.handle('agent:abort', async (_: IpcMainInvokeEvent, conversationId: string) => {
@@ -562,9 +611,21 @@ export function setupIpcHandlers(): void {
   // Working directory handler
   ipcMain.handle('config:set-cwd', async (_: IpcMainInvokeEvent, cwd: string) => {
     setWorkingDirectory(cwd);
+    
+    // Add the opened folder as a shared workspace so it appears in the Flutter app
+    const sharedManager = getSharedWorkspaceManager();
+    try {
+      // First try to add as a single folder workspace
+      await sharedManager.addFolder(cwd);
+      console.log('[IPC] Added folder to shared workspaces:', cwd);
+    } catch (err) {
+      // Folder might already be added, that's ok
+      console.log('[IPC] Folder may already be shared:', cwd);
+    }
+    
     // Re-sync shared workspaces so any newly-opened folder is immediately available
     // on the remote API without requiring an app restart.
-    getSharedWorkspaceManager().syncAllWorkspaces().catch((err) => {
+    sharedManager.syncAllWorkspaces().catch((err) => {
       console.error('[IPC] Failed to sync shared workspaces after cwd change:', err);
     });
     return { success: true };
@@ -594,58 +655,20 @@ export function setupIpcHandlers(): void {
     const window = BrowserWindow.getFocusedWindow();
     if (!window) return { canceled: true, path: null, error: 'No window available' };
 
-    // First, let user select parent directory
+    // Show a single dialog — the user can create a new folder using the OS "New Folder" button
+    // (macOS: Cmd+Shift+N in the dialog), then select it.
     const result = await dialog.showOpenDialog(window, {
       properties: ['openDirectory', 'createDirectory'],
-      title: 'Select Parent Directory for New Folder',
-      buttonLabel: 'Select Parent',
+      title: 'Create or Select a Project Folder',
+      buttonLabel: 'Select Folder',
+      message: 'Create a new folder or select an existing one',
     });
 
     if (result.canceled || !result.filePaths[0]) {
       return { canceled: true, path: null };
     }
 
-    const parentPath = result.filePaths[0];
-
-    // Prompt for folder name using input dialog
-    // Note: Electron doesn't have a built-in input dialog, so we use a custom prompt
-    // For simplicity, we'll create the folder with a default name and let user rename it later
-    // Or we can show a message box with input
-    const { response: folderName } = await dialog.showMessageBox(window, {
-      type: 'question',
-      buttons: ['Create', 'Cancel'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Create New Folder',
-      message: 'Enter a name for the new folder:',
-      detail: 'The folder will be created in: ' + parentPath,
-    });
-
-    if (response === 1) {
-      return { canceled: true, path: null };
-    }
-
-    // Use a simple approach - create with timestamp and let user rename via file explorer
-    // or we can use a more sophisticated approach with a custom dialog
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const defaultFolderName = `new-project-${timestamp}`;
-
-    const newFolderPath = path.join(parentPath, defaultFolderName);
-
-    try {
-      // Check if folder already exists
-      try {
-        await fs.access(newFolderPath);
-        return { canceled: false, path: null, error: `Folder "${defaultFolderName}" already exists` };
-      } catch {
-        // Folder doesn't exist, we can create it
-      }
-
-      await fs.mkdir(newFolderPath, { recursive: false });
-      return { canceled: false, path: newFolderPath };
-    } catch (error) {
-      return { canceled: false, path: null, error: (error as Error).message };
-    }
+    return { canceled: false, path: result.filePaths[0] };
   });
 
   ipcMain.handle('app:get-version', async () => {

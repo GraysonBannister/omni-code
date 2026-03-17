@@ -8,7 +8,7 @@ declare global {
   interface Window {
     electronAPI?: {
       agent: {
-        sendMessage: (conversationId: string, message: string, workingDirectory?: string) => Promise<void>;
+        sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => Promise<void>;
         abort: (conversationId: string) => Promise<void>;
         switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
         onEvent: (callback: (event: unknown) => void) => () => void;
