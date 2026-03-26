@@ -87,6 +87,10 @@
 .editor-content {
   flex: 1;
   overflow: hidden;
+  /* Ensure browser panel is properly contained */
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-loading,

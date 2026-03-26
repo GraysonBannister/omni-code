@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files, Layers, Check } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -10,6 +10,12 @@ import { CollapsibleToolSummary } from './CollapsibleToolSummary';
 import { useAppStore, type ToolCall } from '../stores/appStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import './ChatPanel.css';
+
+interface ImageAttachment {
+  mediaType: string;
+  data: string;
+  previewUrl: string;
+}
 
 interface CodeBlockProps {
   code: string;
@@ -443,6 +449,11 @@ export const ChatPanel: React.FC = () => {
   const [mentionHighlightedIndex, setMentionHighlightedIndex] = useState(0);
   const [selectedReferences, setSelectedReferences] = useState<FileReference[]>([]);
   const mentionPopupRef = useRef<HTMLDivElement>(null);
+
+  // Image attachment state
+  const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1099,10 +1110,14 @@ export const ChatPanel: React.FC = () => {
   }, [addMessageToConversation, appendConversationStreaming, setConversationStreaming, setConversationProcessing, setCost, addToolCallToConversation, updateToolCallInConversation, setConversationOrchestrationStatus, loadConversationFileChanges]);
 
   const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || isProcessing || !activeConversationId) return;
+    if ((!inputValue.trim() && attachedImages.length === 0) || isProcessing || !activeConversationId) return;
 
     const userMessage = inputValue.trim();
     setInputValue('');
+
+    // Snapshot and clear attached images
+    const imagesToSend = [...attachedImages];
+    setAttachedImages([]);
     
     // Fetch file contents for references
     const resolvedRefs: FileReference[] = [];
@@ -1148,18 +1163,19 @@ export const ChatPanel: React.FC = () => {
     setConversationProcessing(activeConversationId, true);
 
     try {
-      // Send message with file references
+      // Send message with file references and optional images
       await window.electronAPI!.agent.sendMessage(
         activeConversationId, 
         userMessage, 
         projectPath || undefined,
-        resolvedRefs.length > 0 ? resolvedRefs : undefined
+        resolvedRefs.length > 0 ? resolvedRefs : undefined,
+        imagesToSend.length > 0 ? imagesToSend.map(img => ({ mediaType: img.mediaType, data: img.data })) : undefined
       );
     } catch (error) {
       console.error('Failed to send message:', error);
       setConversationProcessing(activeConversationId, false);
     }
-  }, [inputValue, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath, selectedReferences]);
+  }, [inputValue, attachedImages, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath, selectedReferences]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Handle mention popup keyboard navigation
@@ -1281,6 +1297,61 @@ export const ChatPanel: React.FC = () => {
     const refText = `@${refToRemove.name}`;
     setInputValue(prev => prev.replace(refText, '').replace(/\s+/g, ' ').trim());
   }, []);
+
+  // Process File objects into ImageAttachment entries
+  const processImageFiles = useCallback((files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    for (const file of imageFiles) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (!dataUrl) return;
+        // Strip the "data:<mediaType>;base64," prefix
+        const [header, data] = dataUrl.split(',');
+        const mediaType = header.replace('data:', '').replace(';base64', '');
+        setAttachedImages(prev => [...prev, { mediaType, data, previewUrl: dataUrl }]);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
+  // Hidden file-input upload handler
+  const handleImageInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      processImageFiles(e.target.files);
+      e.target.value = '';
+    }
+  }, [processImageFiles]);
+
+  // Remove a single attached image by index
+  const handleImageRemove = useCallback((index: number) => {
+    setAttachedImages(prev => {
+      const next = [...prev];
+      URL.revokeObjectURL(next[index].previewUrl);
+      next.splice(index, 1);
+      return next;
+    });
+  }, []);
+
+  // Drag-and-drop handlers on the input container
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (e.dataTransfer.files) processImageFiles(e.dataTransfer.files);
+  }, [processImageFiles]);
 
   const handleAbort = useCallback(async () => {
     if (!activeConversationId) return;
@@ -1715,7 +1786,22 @@ export const ChatPanel: React.FC = () => {
       )}
 
       {/* Input */}
-      <div className="chat-input-container">
+      <div
+        className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {/* Hidden image file input */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleImageInputChange}
+        />
+
         {/* Selected File References */}
         {selectedReferences.length > 0 && (
           <div className="chat-input-references">
@@ -1789,6 +1875,25 @@ export const ChatPanel: React.FC = () => {
             </div>
           </div>
         )}
+        {/* Attached Image Previews */}
+        {attachedImages.length > 0 && (
+          <div className="chat-image-previews">
+            {attachedImages.map((img, index) => (
+              <div key={index} className="chat-image-thumb">
+                <img src={img.previewUrl} alt={`attachment ${index + 1}`} />
+                <button
+                  className="chat-image-remove"
+                  onClick={() => handleImageRemove(index)}
+                  type="button"
+                  title="Remove image"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <textarea
           ref={inputRef}
           className="chat-input"
@@ -1800,6 +1905,18 @@ export const ChatPanel: React.FC = () => {
           rows={1}
         />
         <div className="chat-input-actions">
+          {/* Image upload button */}
+          {!isProcessing && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={!activeConversation}
+              title="Attach image"
+              type="button"
+            >
+              <ImagePlus size={16} />
+            </button>
+          )}
           {isProcessing ? (
             <button
               className="btn btn-primary"
@@ -1812,7 +1929,7 @@ export const ChatPanel: React.FC = () => {
             <button
               className="btn btn-primary"
               onClick={handleSend}
-              disabled={!inputValue.trim() || !activeConversation}
+              disabled={(!inputValue.trim() && attachedImages.length === 0) || !activeConversation}
               title="Send (Enter)"
             >
               <Send size={16} />

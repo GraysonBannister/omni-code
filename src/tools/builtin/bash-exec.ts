@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import treeKill from 'tree-kill';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
+import { logger } from '../../utils/logger.js';
 
 export class BashExecTool implements Tool {
   readonly name = 'Bash';
@@ -59,11 +60,14 @@ export class BashExecTool implements Tool {
         }
       };
 
-      const proc = spawn('bash', ['-c', command], {
+      logger.info(`[BashExec] Spawning command: ${command} in cwd: ${context.cwd}`);
+      const proc = spawn(command, [], {
         cwd: context.cwd,
+        shell: true,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      logger.debug(`[BashExec] Process spawned with PID: ${proc.pid}`);
 
       proc.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString();
@@ -109,6 +113,8 @@ export class BashExecTool implements Tool {
         context.abortSignal.removeEventListener('abort', abortHandler);
         if (killed) return;
 
+        logger.info(`[BashExec] Process exited with code ${code}`);
+
         let output = '';
         if (stdout) output += stdout;
         if (stderr) {
@@ -127,6 +133,7 @@ export class BashExecTool implements Tool {
       proc.on('error', (error) => {
         clearTimeout(timer);
         context.abortSignal.removeEventListener('abort', abortHandler);
+        logger.error(`[BashExec] Process spawn error: ${error.message}`, error);
         resolve({
           content: `Failed to execute command: ${error.message}`,
           isError: true,

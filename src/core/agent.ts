@@ -44,7 +44,7 @@ export class AgentImpl implements Agent {
     return [...this._messages];
   }
 
-  async *run(userMessage: string): AsyncIterable<AgentEvent> {
+  async *run(userMessage: string | ContentBlock[]): AsyncIterable<AgentEvent> {
     // Check monthly limit before processing
     if (this.config.limitCheck) {
       const limitResult = await this.config.limitCheck.check();
@@ -64,7 +64,7 @@ export class AgentImpl implements Agent {
       }
     }
 
-    // Add user message
+    // Add user message — supports plain text or multi-part content blocks (e.g. text + images)
     const userMsg: UnifiedMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -356,6 +356,10 @@ export class AgentImpl implements Agent {
 
   addMessage(message: UnifiedMessage): void {
     this._messages.push(message);
+  }
+
+  restoreHistory(messages: UnifiedMessage[]): void {
+    this._messages = [...messages];
   }
 
   async compressContext(): Promise<void> {

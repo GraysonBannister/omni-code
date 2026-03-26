@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog } from 'electron';
+import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders } from './core-integration.js';
@@ -39,12 +39,13 @@ let agentRef: {
   createConversation: (conversationId: string, model?: string, provider?: string) => boolean;
   closeConversation: (conversationId: string) => boolean;
   hasConversation: (conversationId: string) => boolean;
-  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => Promise<void>;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) => Promise<void>;
   abort: (conversationId: string) => void;
   switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
   setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
   clearConversation: (conversationId: string) => void;
   getTokenCount: (conversationId: string) => Promise<number>;
+  restoreHistory: (conversationId: string, messages: unknown[]) => boolean;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => boolean;
   respondUserInput: (requestId: string, response: string, cancelled: boolean) => boolean;
   onEvent: (callback: (event: unknown) => void) => () => void;
@@ -147,9 +148,9 @@ export function setupIpcHandlers(): void {
     return agentRef.hasConversation(conversationId);
   });
 
-  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => {
+  ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) => {
     if (!agentRef) throw new Error('Agent not initialized');
-    await agentRef.sendMessage(conversationId, message, workingDirectory, fileReferences);
+    await agentRef.sendMessage(conversationId, message, workingDirectory, fileReferences, images);
   });
 
   ipcMain.handle('agent:abort', async (_: IpcMainInvokeEvent, conversationId: string) => {
@@ -185,6 +186,11 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('agent:set-mode', async (_: IpcMainInvokeEvent, conversationId: string, mode: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
     return await agentRef.setMode(conversationId, mode);
+  });
+
+  ipcMain.handle('agent:restore-history', async (_: IpcMainInvokeEvent, conversationId: string, messages: unknown[]) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return agentRef.restoreHistory(conversationId, messages);
   });
 
   ipcMain.handle('agent:set-permission-mode', (_: IpcMainInvokeEvent, autoRunMode: string) => {
@@ -305,8 +311,10 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:list', async (_: IpcMainInvokeEvent, dirPath: string) => {
+    console.log('[file:list] Listing directory:', dirPath);
     try {
       const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
+      console.log('[file:list] Resolved path:', resolvedPath);
       const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
       
       const files = entries.map(entry => ({
@@ -315,8 +323,10 @@ export function setupIpcHandlers(): void {
         path: path.join(resolvedPath, entry.name),
       }));
       
+      console.log(`[file:list] Found ${files.length} entries in ${resolvedPath}`);
       return { files };
     } catch (error) {
+      console.error('[file:list] Error:', (error as Error).message, 'for path:', dirPath);
       return { files: [], error: (error as Error).message };
     }
   });
@@ -337,11 +347,70 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:mkdir', async (_: IpcMainInvokeEvent, dirPath: string) => {
+    console.log('[file:mkdir] Creating directory:', dirPath);
     try {
       const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
       await fs.mkdir(resolvedPath, { recursive: true });
+      console.log('[file:mkdir] Created successfully:', resolvedPath);
       return { success: true };
     } catch (error) {
+      console.error('[file:mkdir] Error:', (error as Error).message, 'for path:', dirPath);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:rename', async (_: IpcMainInvokeEvent, oldPath: string, newPath: string) => {
+    console.log('[file:rename] Renaming:', oldPath, '->', newPath);
+    try {
+      const resolvedOld = path.isAbsolute(oldPath) ? oldPath : path.join(getWorkingDirectory(), oldPath);
+      const resolvedNew = path.isAbsolute(newPath) ? newPath : path.join(getWorkingDirectory(), newPath);
+      await fs.rename(resolvedOld, resolvedNew);
+      console.log('[file:rename] Renamed successfully');
+      return { success: true };
+    } catch (error) {
+      console.error('[file:rename] Error:', (error as Error).message);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:delete', async (_: IpcMainInvokeEvent, filePath: string) => {
+    console.log('[file:delete] Deleting:', filePath);
+    try {
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      await fs.rm(resolvedPath, { recursive: true, force: true });
+      console.log('[file:delete] Deleted successfully:', resolvedPath);
+      return { success: true };
+    } catch (error) {
+      console.error('[file:delete] Error:', (error as Error).message, 'for path:', filePath);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:revealInFinder', async (_: IpcMainInvokeEvent, filePath: string) => {
+    console.log('[file:revealInFinder] Revealing:', filePath);
+    try {
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      shell.showItemInFolder(resolvedPath);
+      console.log('[file:revealInFinder] Revealed successfully');
+      return { success: true };
+    } catch (error) {
+      console.error('[file:revealInFinder] Error:', (error as Error).message);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:copyPath', async (_: IpcMainInvokeEvent, filePath: string, type: 'full' | 'relative', workspacePath: string) => {
+    console.log('[file:copyPath] Copying path:', filePath, 'type:', type);
+    try {
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      const pathToCopy = type === 'relative'
+        ? path.relative(workspacePath || getWorkingDirectory(), resolvedPath)
+        : resolvedPath;
+      clipboard.writeText(pathToCopy);
+      console.log('[file:copyPath] Copied to clipboard:', pathToCopy);
+      return { success: true };
+    } catch (error) {
+      console.error('[file:copyPath] Error:', (error as Error).message);
       return { success: false, error: (error as Error).message };
     }
   });

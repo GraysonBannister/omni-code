@@ -1,4 +1,4 @@
-import type { UnifiedMessage, StreamDelta } from './message-types.js';
+import type { UnifiedMessage, ContentBlock, StreamDelta } from './message-types.js';
 import type { LLMProvider } from '../providers/provider-types.js';
 import type { ToolRegistration, ToolResult } from '../tools/tool-types.js';
 import type {
@@ -72,8 +72,9 @@ export interface Agent {
   readonly config: AgentConfig;
   readonly messages: UnifiedMessage[];
 
-  run(userMessage: string): AsyncIterable<AgentEvent>;
+  run(userMessage: string | ContentBlock[]): AsyncIterable<AgentEvent>;
   addMessage(message: UnifiedMessage): void;
+  restoreHistory(messages: UnifiedMessage[]): void;
   compressContext(): Promise<void>;
   getTokenCount(): Promise<number>;
   abort(): void;

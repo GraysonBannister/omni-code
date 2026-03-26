@@ -86,6 +86,7 @@ interface AgentInstance {
   updateConfig: (updates: Partial<AgentConfig>) => void;
   clearMessages: () => void;
   addMessage: (message: UnifiedMessage) => void;
+  restoreHistory: (messages: UnifiedMessage[]) => void;
 }
 
 interface ConversationState {
@@ -237,6 +238,18 @@ export class AgentBridge {
     return true;
   }
 
+  // Restore message history into an existing conversation's agent context
+  restoreHistory(conversationId: string, messages: UnifiedMessage[]): boolean {
+    const state = this.conversations.get(conversationId);
+    if (!state) {
+      console.warn(`[AgentBridge] restoreHistory: conversation ${conversationId} not found`);
+      return false;
+    }
+    state.agent.restoreHistory(messages);
+    console.log(`[AgentBridge] Restored ${messages.length} messages into conversation ${conversationId}`);
+    return true;
+  }
+
   // Close a conversation and cleanup
   closeConversation(conversationId: string): boolean {
     const state = this.conversations.get(conversationId);
@@ -368,7 +381,7 @@ export class AgentBridge {
     return undefined;
   }
 
-  async sendMessage(conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>): Promise<void> {
+  async sendMessage(conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>): Promise<void> {
     const state = this.conversations.get(conversationId);
     if (!state) {
       console.error(`Conversation ${conversationId} not found`);
@@ -409,9 +422,21 @@ export class AgentBridge {
       }
     }
 
+    // Build content: if images are attached, send as ContentBlock[] so the LLM receives vision data
+    type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; mediaType: string; data: string } };
+    const messageContent: string | ContentBlock[] = images && images.length > 0
+      ? [
+          { type: 'text' as const, text: messageWithContext },
+          ...images.map(img => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, mediaType: img.mediaType, data: img.data },
+          })),
+        ]
+      : messageWithContext;
+
     try {
-      console.log(`[AgentBridge] Starting agent.run for conversation ${conversationId}`);
-      for await (const event of state.agent.run(messageWithContext)) {
+      console.log(`[AgentBridge] Starting agent.run for conversation ${conversationId}${images?.length ? ` with ${images.length} image(s)` : ''}`);
+      for await (const event of state.agent.run(messageContent)) {
         // Check if aborted
         if (state.abortController.signal.aborted) {
           break;

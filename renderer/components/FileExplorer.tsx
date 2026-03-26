@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown, RefreshCw, FolderOpen as FolderOpenIcon, FilePlus, FolderPlus } from 'lucide-react';
+import {
+  Folder, FolderOpen, File, ChevronRight, ChevronDown,
+  RefreshCw, FolderOpen as FolderOpenIcon, FilePlus, FolderPlus,
+  Copy, Eye, Pencil, Trash2, Terminal,
+} from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
+import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import './FileExplorer.css';
 
 interface FileNodeProps {
@@ -8,6 +13,7 @@ interface FileNodeProps {
   path: string;
   isDirectory: boolean;
   depth: number;
+  projectPath: string;
   selectedFolderPath?: string | null;
   onSelectFolder?: (path: string) => void;
   isCreatingFile?: boolean;
@@ -15,6 +21,8 @@ interface FileNodeProps {
   newItemName?: string;
   setNewItemName?: (name: string) => void;
   handleKeyDown?: (e: React.KeyboardEvent) => void;
+  onRefresh: () => void;
+  onStartCreate: (type: 'file' | 'folder', targetPath: string) => void;
 }
 
 const FileNode: React.FC<FileNodeProps> = ({
@@ -22,39 +30,217 @@ const FileNode: React.FC<FileNodeProps> = ({
   path,
   isDirectory,
   depth,
+  projectPath,
   selectedFolderPath,
   onSelectFolder,
   isCreatingFile,
   isCreatingFolder,
   newItemName,
   setNewItemName,
-  handleKeyDown
+  handleKeyDown,
+  onRefresh,
+  onStartCreate,
 }) => {
   const { expandedDirs, toggleDir, openFile, activeFilePath, files } = useAppStore();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(name);
+
   const isExpanded = expandedDirs.has(path) || ((isCreatingFile || isCreatingFolder) && selectedFolderPath === path);
   const isActiveFile = activeFilePath === path;
   const isSelectedFolder = selectedFolderPath === path;
-
-  // Check if we're creating an item in this folder
   const showCreateInput = (isCreatingFile || isCreatingFolder) && selectedFolderPath === path;
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (isDirectory) {
-      // If clicking a folder, select it and optionally toggle expansion
-      if (onSelectFolder) {
-        onSelectFolder(path);
-      }
-      // Double-click or normal click to toggle
+      if (onSelectFolder) onSelectFolder(path);
       toggleDir(path);
       if (!isExpanded) {
-        // Get loadDirectory from store to avoid dependency cycle
         const { loadDirectory } = useAppStore.getState();
+        console.log('[FileNode] Loading directory on expand:', path);
         loadDirectory(path);
       }
     } else {
+      console.log('[FileNode] Opening file:', path);
       openFile(path);
     }
   }, [isDirectory, path, isExpanded, toggleDir, openFile, onSelectFolder]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[FileNode] Context menu triggered for:', path, 'isDirectory:', isDirectory);
+    if (isDirectory && onSelectFolder) onSelectFolder(path);
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, [path, isDirectory, onSelectFolder]);
+
+  const handleRename = useCallback(async () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === name) {
+      setIsRenaming(false);
+      setRenameValue(name);
+      return;
+    }
+    const parentDir = path.substring(0, path.lastIndexOf('/'));
+    const newPath = `${parentDir}/${trimmed}`;
+    console.log('[FileNode] Renaming:', path, '->', newPath);
+    const result = await window.electronAPI!.file.rename(path, newPath);
+    console.log('[FileNode] Rename result:', result);
+    if (result.success) {
+      onRefresh();
+    } else {
+      alert(`Rename failed: ${result.error}`);
+      setRenameValue(name);
+    }
+    setIsRenaming(false);
+  }, [path, name, renameValue, onRefresh]);
+
+  const handleDelete = useCallback(async () => {
+    const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    console.log('[FileNode] Deleting:', path);
+    const result = await window.electronAPI!.file.delete(path);
+    console.log('[FileNode] Delete result:', result);
+    if (result.success) {
+      onRefresh();
+    } else {
+      alert(`Delete failed: ${result.error}`);
+    }
+  }, [path, name, onRefresh]);
+
+  const handleRevealInFinder = useCallback(async () => {
+    console.log('[FileNode] Revealing in Finder:', path);
+    const result = await window.electronAPI!.file.revealInFinder(path);
+    console.log('[FileNode] Reveal result:', result);
+    if (!result.success) alert(`Could not reveal: ${result.error}`);
+  }, [path]);
+
+  const handleCopyPath = useCallback(async (type: 'full' | 'relative') => {
+    console.log('[FileNode] Copying path:', path, 'type:', type);
+    const result = await window.electronAPI!.file.copyPath(path, type, projectPath);
+    console.log('[FileNode] Copy path result:', result);
+    if (!result.success) alert(`Could not copy path: ${result.error}`);
+  }, [path, projectPath]);
+
+  const buildContextMenuItems = (): ContextMenuItem[] => {
+    const divider: ContextMenuItem = { id: 'divider', label: '', divider: true };
+
+    if (isDirectory) {
+      return [
+        {
+          id: 'new-file',
+          label: 'New File...',
+          icon: <FilePlus size={14} />,
+          action: () => {
+            console.log('[FileNode] Context: New File in', path);
+            onStartCreate('file', path);
+          },
+        },
+        {
+          id: 'new-folder',
+          label: 'New Folder...',
+          icon: <FolderPlus size={14} />,
+          action: () => {
+            console.log('[FileNode] Context: New Folder in', path);
+            onStartCreate('folder', path);
+          },
+        },
+        divider,
+        {
+          id: 'copy-path',
+          label: 'Copy Path',
+          icon: <Copy size={14} />,
+          shortcut: '⌥⌘C',
+          action: () => handleCopyPath('full'),
+        },
+        {
+          id: 'copy-rel-path',
+          label: 'Copy Relative Path',
+          icon: <Copy size={14} />,
+          shortcut: '⌥⇧⌘C',
+          action: () => handleCopyPath('relative'),
+        },
+        {
+          id: 'reveal',
+          label: 'Reveal in Finder',
+          icon: <Eye size={14} />,
+          shortcut: '⌥⌘R',
+          action: handleRevealInFinder,
+        },
+        divider,
+        {
+          id: 'rename',
+          label: 'Rename',
+          icon: <Pencil size={14} />,
+          action: () => {
+            console.log('[FileNode] Context: Rename', path);
+            setRenameValue(name);
+            setIsRenaming(true);
+          },
+        },
+        {
+          id: 'delete',
+          label: 'Delete',
+          icon: <Trash2 size={14} />,
+          action: handleDelete,
+        },
+      ];
+    }
+
+    // File
+    const items: ContextMenuItem[] = [
+      {
+        id: 'open',
+        label: 'Open',
+        icon: <File size={14} />,
+        action: () => {
+          console.log('[FileNode] Context: Open', path);
+          openFile(path);
+        },
+      },
+      divider,
+      {
+        id: 'copy-path',
+        label: 'Copy Path',
+        icon: <Copy size={14} />,
+        shortcut: '⌥⌘C',
+        action: () => handleCopyPath('full'),
+      },
+      {
+        id: 'copy-rel-path',
+        label: 'Copy Relative Path',
+        icon: <Copy size={14} />,
+        shortcut: '⌥⇧⌘C',
+        action: () => handleCopyPath('relative'),
+      },
+      {
+        id: 'reveal',
+        label: 'Reveal in Finder',
+        icon: <Eye size={14} />,
+        shortcut: '⌥⌘R',
+        action: handleRevealInFinder,
+      },
+      divider,
+      {
+        id: 'rename',
+        label: 'Rename',
+        icon: <Pencil size={14} />,
+        action: () => {
+          console.log('[FileNode] Context: Rename', path);
+          setRenameValue(name);
+          setIsRenaming(true);
+        },
+      },
+      {
+        id: 'delete',
+        label: 'Delete',
+        icon: <Trash2 size={14} />,
+        action: handleDelete,
+      },
+    ];
+
+    return items;
+  };
 
   const childFiles = files.filter(f => {
     const parentDir = path;
@@ -68,7 +254,8 @@ const FileNode: React.FC<FileNodeProps> = ({
         className={`file-node-row ${isActiveFile ? 'active' : ''} ${isSelectedFolder ? 'selected-folder' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
-        title={isDirectory ? 'Click to select folder, click again to expand/collapse' : ''}
+        onContextMenu={handleContextMenu}
+        title={isDirectory ? 'Click to select folder, click again to expand/collapse' : path}
       >
         <span className="file-node-icon">
           {isDirectory ? (
@@ -82,9 +269,27 @@ const FileNode: React.FC<FileNodeProps> = ({
             <File size={16} />
           )}
         </span>
-        <span className="file-node-name">{name}</span>
+        {isRenaming ? (
+          <input
+            className="file-node-rename-input"
+            value={renameValue}
+            autoFocus
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRename();
+              if (e.key === 'Escape') {
+                setIsRenaming(false);
+                setRenameValue(name);
+              }
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className="file-node-name">{name}</span>
+        )}
       </div>
-      
+
       {isDirectory && isExpanded && (
         <div className="file-node-children">
           {showCreateInput && (
@@ -110,6 +315,7 @@ const FileNode: React.FC<FileNodeProps> = ({
               path={child.path}
               isDirectory={child.isDirectory}
               depth={depth + 1}
+              projectPath={projectPath}
               selectedFolderPath={selectedFolderPath}
               onSelectFolder={onSelectFolder}
               isCreatingFile={isCreatingFile}
@@ -117,9 +323,20 @@ const FileNode: React.FC<FileNodeProps> = ({
               newItemName={newItemName}
               setNewItemName={setNewItemName}
               handleKeyDown={handleKeyDown}
+              onRefresh={onRefresh}
+              onStartCreate={onStartCreate}
             />
           ))}
         </div>
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={buildContextMenuItems()}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );
@@ -130,9 +347,7 @@ export const FileExplorer: React.FC = () => {
     projectPath,
     files,
     setProjectPath,
-    setFiles,
     openFolder,
-    isAppInitialized,
     isWorkspaceMode,
     currentWorkspace,
     activeFolderId,
@@ -145,6 +360,7 @@ export const FileExplorer: React.FC = () => {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [rootContextMenu, setRootContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Clear selected folder when project path changes
   useEffect(() => {
@@ -163,6 +379,7 @@ export const FileExplorer: React.FC = () => {
 
   // Check if electronAPI is available
   if (!window.electronAPI) {
+    console.warn('[FileExplorer] window.electronAPI is not available');
     return (
       <div className="file-explorer">
         <div className="file-explorer-header">
@@ -180,39 +397,37 @@ export const FileExplorer: React.FC = () => {
   // Load initial directory
   useEffect(() => {
     const loadInitialDir = async () => {
+      console.log('[FileExplorer] loadInitialDir called, projectPath:', projectPath);
       if (!projectPath) {
-        // Try to use current working directory from main process
         try {
           const result = await window.electronAPI!.config.getCwd() as { cwd: string };
           const cwd = result.cwd;
+          console.log('[FileExplorer] getCwd result:', cwd);
           if (cwd && cwd !== '/' && cwd !== process.cwd()) {
             setProjectPath(cwd);
-
             try {
               setIsLoading(true);
-              // Get loadDirectory from store to avoid dependency cycle
               const { loadDirectory } = useAppStore.getState();
+              console.log('[FileExplorer] Loading directory:', cwd);
               await loadDirectory(cwd);
+              console.log('[FileExplorer] Directory loaded successfully');
             } finally {
               setIsLoading(false);
             }
+          } else {
+            console.log('[FileExplorer] No valid cwd, showing empty state. cwd was:', cwd);
           }
         } catch (error) {
-          console.error('Failed to get cwd:', error);
+          console.error('[FileExplorer] Failed to get cwd:', error);
         }
-        // If no cwd is set or it's root, show empty state
-        // User can click "Open Folder" to select a workspace
       }
     };
 
     loadInitialDir();
 
-    // Setup file change listener
     const unsubscribe = window.electronAPI!.file.onChange((event) => {
-      console.log('File changed:', event);
-      // Refresh directory on changes
+      console.log('[FileExplorer] File changed:', event);
       if (projectPath) {
-        // Get loadDirectory from store to avoid dependency cycle
         const { loadDirectory } = useAppStore.getState();
         loadDirectory(projectPath);
       }
@@ -223,12 +438,16 @@ export const FileExplorer: React.FC = () => {
   }, [projectPath, setProjectPath]);
 
   const handleRefresh = useCallback(async () => {
-    if (!projectPath) return;
+    if (!projectPath) {
+      console.warn('[FileExplorer] handleRefresh: no projectPath');
+      return;
+    }
+    console.log('[FileExplorer] Refreshing:', projectPath);
     setIsLoading(true);
     try {
-      // Get loadDirectory from store to avoid dependency cycle
       const { loadDirectory } = useAppStore.getState();
       await loadDirectory(projectPath);
+      console.log('[FileExplorer] Refresh complete');
     } finally {
       setIsLoading(false);
     }
@@ -236,52 +455,67 @@ export const FileExplorer: React.FC = () => {
 
   const handleAddFileClick = useCallback(() => {
     if (!projectPath) return;
+    console.log('[FileExplorer] Starting file creation in:', selectedFolderPath || projectPath);
     setIsCreatingFile(true);
     setIsCreatingFolder(false);
     setNewItemName('');
-  }, [projectPath]);
+  }, [projectPath, selectedFolderPath]);
 
   const handleAddFolderClick = useCallback(() => {
     if (!projectPath) return;
+    console.log('[FileExplorer] Starting folder creation in:', selectedFolderPath || projectPath);
     setIsCreatingFolder(true);
     setIsCreatingFile(false);
     setNewItemName('');
-  }, [projectPath]);
+  }, [projectPath, selectedFolderPath]);
+
+  // Called from FileNode context menu or header buttons to start inline creation
+  const handleStartCreate = useCallback((type: 'file' | 'folder', targetPath: string) => {
+    console.log('[FileExplorer] handleStartCreate type:', type, 'targetPath:', targetPath);
+    setSelectedFolderPath(targetPath);
+    if (type === 'file') {
+      setIsCreatingFile(true);
+      setIsCreatingFolder(false);
+    } else {
+      setIsCreatingFolder(true);
+      setIsCreatingFile(false);
+    }
+    setNewItemName('');
+  }, []);
 
   const handleCreateItem = useCallback(async () => {
-    // Use selected folder path if available, otherwise use project root
     const targetPath = selectedFolderPath || projectPath;
-
     if (!targetPath || !newItemName.trim()) {
       setIsCreatingFile(false);
       setIsCreatingFolder(false);
       return;
     }
 
-    try {
-      const itemPath = `${targetPath}/${newItemName.trim()}`;
+    const itemPath = `${targetPath}/${newItemName.trim()}`;
+    console.log('[FileExplorer] Creating item:', itemPath, 'isFile:', isCreatingFile);
 
+    try {
       if (isCreatingFile) {
         const result = await window.electronAPI!.file.write(itemPath, '');
+        console.log('[FileExplorer] Create file result:', result);
         if (result.success) {
-          // Refresh the directory where the file was created
           const { loadDirectory } = useAppStore.getState();
           await loadDirectory(targetPath);
         } else {
-          console.error(`Failed to create file: ${result.error}`);
+          console.error('[FileExplorer] Failed to create file:', result.error);
         }
       } else if (isCreatingFolder) {
         const result = await window.electronAPI!.file.mkdir(itemPath);
+        console.log('[FileExplorer] Create folder result:', result);
         if (result.success) {
-          // Refresh the directory where the folder was created
           const { loadDirectory } = useAppStore.getState();
           await loadDirectory(targetPath);
         } else {
-          console.error(`Failed to create folder: ${result.error}`);
+          console.error('[FileExplorer] Failed to create folder:', result.error);
         }
       }
     } catch (error) {
-      console.error(`Failed to create item: ${(error as Error).message}`);
+      console.error('[FileExplorer] Exception creating item:', (error as Error).message);
     } finally {
       setIsCreatingFile(false);
       setIsCreatingFolder(false);
@@ -296,40 +530,73 @@ export const FileExplorer: React.FC = () => {
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleCreateItem();
-    } else if (e.key === 'Escape') {
-      handleCancelCreate();
-    }
+    if (e.key === 'Enter') handleCreateItem();
+    else if (e.key === 'Escape') handleCancelCreate();
   }, [handleCreateItem, handleCancelCreate]);
 
-  // Toggle project expansion in workspace mode
   const toggleProject = useCallback((projectId: string) => {
     setExpandedProjects(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(projectId)) {
-        newSet.delete(projectId);
-      } else {
-        newSet.add(projectId);
-      }
+      if (newSet.has(projectId)) newSet.delete(projectId);
+      else newSet.add(projectId);
       return newSet;
     });
   }, []);
 
-  // Handle project selection in workspace mode
   const handleProjectClick = useCallback((folder: { id: string; path: string; name?: string }) => {
     setActiveFolder(folder.id);
-    // Load the directory
     loadDirectory(folder.path);
   }, [setActiveFolder, loadDirectory]);
 
-  // Group files by parent directory
+  const handleRootContextMenu = useCallback((e: React.MouseEvent) => {
+    // Only trigger on blank area (not on file nodes)
+    if ((e.target as HTMLElement).closest('.file-node-row')) return;
+    e.preventDefault();
+    console.log('[FileExplorer] Root context menu at', e.clientX, e.clientY);
+    setRootContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const getRootContextMenuItems = (): ContextMenuItem[] => [
+    {
+      id: 'new-file',
+      label: 'New File...',
+      icon: <FilePlus size={14} />,
+      disabled: !projectPath,
+      action: handleAddFileClick,
+    },
+    {
+      id: 'new-folder',
+      label: 'New Folder...',
+      icon: <FolderPlus size={14} />,
+      disabled: !projectPath,
+      action: handleAddFolderClick,
+    },
+    { id: 'divider1', label: '', divider: true },
+    {
+      id: 'reveal',
+      label: 'Reveal in Finder',
+      icon: <Eye size={14} />,
+      disabled: !projectPath,
+      action: async () => {
+        if (!projectPath) return;
+        console.log('[FileExplorer] Reveal workspace in Finder:', projectPath);
+        await window.electronAPI!.file.revealInFinder(projectPath);
+      },
+    },
+    { id: 'divider2', label: '', divider: true },
+    {
+      id: 'refresh',
+      label: 'Refresh',
+      icon: <RefreshCw size={14} />,
+      action: handleRefresh,
+    },
+  ];
+
   const rootFiles = files.filter(f => {
     const parent = f.path.substring(0, f.path.lastIndexOf('/')) || '';
     return parent === projectPath || parent === '';
   });
 
-  // Get files for a specific project folder
   const getProjectFiles = useCallback((folderPath: string) => {
     return files.filter(f => {
       const parent = f.path.substring(0, f.path.lastIndexOf('/')) || '';
@@ -338,7 +605,7 @@ export const FileExplorer: React.FC = () => {
   }, [files]);
 
   return (
-    <div className="file-explorer">
+    <div className="file-explorer" onContextMenu={handleRootContextMenu}>
       <div className="file-explorer-header">
         <span className="file-explorer-title">Explorer</span>
         <div className="file-explorer-actions">
@@ -375,9 +642,8 @@ export const FileExplorer: React.FC = () => {
           </button>
         </div>
       </div>
-      
+
       <div className="file-explorer-content">
-        {/* Workspace Mode: Show project headers for each folder */}
         {isWorkspaceMode && currentWorkspace ? (
           <div className="file-explorer-workspace">
             <div className="file-explorer-workspace-header">
@@ -428,6 +694,7 @@ export const FileExplorer: React.FC = () => {
                             path={file.path}
                             isDirectory={file.isDirectory}
                             depth={0}
+                            projectPath={folder.path}
                             selectedFolderPath={selectedFolderPath}
                             onSelectFolder={setSelectedFolderPath}
                             isCreatingFile={isCreatingFile}
@@ -435,6 +702,8 @@ export const FileExplorer: React.FC = () => {
                             newItemName={newItemName}
                             setNewItemName={setNewItemName}
                             handleKeyDown={handleKeyDown}
+                            onRefresh={handleRefresh}
+                            onStartCreate={handleStartCreate}
                           />
                         ))
                       )}
@@ -445,7 +714,6 @@ export const FileExplorer: React.FC = () => {
             })}
           </div>
         ) : (
-          /* Single Folder Mode */
           <>
             {projectPath && (
               <div className="file-explorer-project">
@@ -474,7 +742,6 @@ export const FileExplorer: React.FC = () => {
               </div>
             ) : (
               <div className="file-explorer-tree">
-                {/* Show input at root only if no folder is selected */}
                 {(isCreatingFile || isCreatingFolder) && !selectedFolderPath && (
                   <div className="file-explorer-new-item" style={{ paddingLeft: '8px' }}>
                     <span className="file-node-icon">
@@ -498,6 +765,7 @@ export const FileExplorer: React.FC = () => {
                     path={file.path}
                     isDirectory={file.isDirectory}
                     depth={0}
+                    projectPath={projectPath}
                     selectedFolderPath={selectedFolderPath}
                     onSelectFolder={setSelectedFolderPath}
                     isCreatingFile={isCreatingFile}
@@ -505,6 +773,8 @@ export const FileExplorer: React.FC = () => {
                     newItemName={newItemName}
                     setNewItemName={setNewItemName}
                     handleKeyDown={handleKeyDown}
+                    onRefresh={handleRefresh}
+                    onStartCreate={handleStartCreate}
                   />
                 ))}
               </div>
@@ -512,6 +782,15 @@ export const FileExplorer: React.FC = () => {
           </>
         )}
       </div>
+
+      {rootContextMenu && (
+        <ContextMenu
+          x={rootContextMenu.x}
+          y={rootContextMenu.y}
+          items={getRootContextMenuItems()}
+          onClose={() => setRootContextMenu(null)}
+        />
+      )}
     </div>
   );
 };

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
+import { logger } from '../../utils/logger.js';
 
 interface ProcessInfo {
   name: string;
@@ -124,12 +125,15 @@ export class ProcessManagerTool implements Tool {
       existing.running = false;
     }
 
-    const proc = spawn('bash', ['-c', command], {
+    logger.info(`[ProcessManager] Starting process "${name}": ${command} in cwd: ${cwd}`);
+    const proc = spawn(command, [], {
       cwd,
+      shell: true,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
     });
+    logger.debug(`[ProcessManager] Process spawned with PID: ${proc.pid}`);
 
     if (!proc.pid) {
       return { content: `Failed to start process "${name}": no PID assigned`, isError: true };
@@ -154,10 +158,12 @@ export class ProcessManagerTool implements Tool {
     proc.on('close', (code) => {
       info.running = false;
       info.exitCode = code;
+      logger.info(`[ProcessManager] Process "${name}" exited with code ${code}`);
     });
 
     proc.on('error', (err) => {
       info.running = false;
+      logger.error(`[ProcessManager] Process "${name}" error: ${err.message}`, err);
       appendOutput(info, `[Process error: ${err.message}]`);
     });
 

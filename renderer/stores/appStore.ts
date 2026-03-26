@@ -588,13 +588,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           );
           set({ activeConversationId: mostRecent.id });
 
-          // Initialize agent for active conversation
+          // Initialize agent for all loaded conversations and restore their history
           if (window.electronAPI?.agent) {
-            await window.electronAPI.agent.createConversation(
-              mostRecent.id,
-              mostRecent.model,
-              mostRecent.provider
-            );
+            for (const conv of loadedConversations) {
+              await window.electronAPI.agent.createConversation(conv.id, conv.model, conv.provider);
+              if (conv.messages.length > 0) {
+                await window.electronAPI.agent.restoreHistory(conv.id, conv.messages).catch(console.error);
+              }
+            }
           }
         }
       }
@@ -1077,6 +1078,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Create conversations in the main process with their specific models and modes
         for (const conv of loadedConversations) {
           await window.electronAPI.agent.createConversation(conv.id, conv.model, conv.provider).catch(console.error);
+          // Restore message history into agent context so AI has full conversation awareness
+          if (conv.messages.length > 0) {
+            await window.electronAPI.agent.restoreHistory(conv.id, conv.messages).catch(console.error);
+          }
           // Restore the mode for this conversation
           if (conv.mode && conv.mode !== 'code') {
             await window.electronAPI.agent.setMode(conv.id, conv.mode).catch(console.error);
@@ -1174,6 +1179,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         loadedConversation.model,
         loadedConversation.provider
       ).catch(console.error);
+
+      // Restore message history into agent context so AI has full conversation awareness
+      if (loadedConversation.messages.length > 0) {
+        await window.electronAPI.agent.restoreHistory(conversationId, loadedConversation.messages).catch(console.error);
+      }
 
       // Restore the mode for this conversation
       if (loadedConversation.mode && loadedConversation.mode !== 'code') {

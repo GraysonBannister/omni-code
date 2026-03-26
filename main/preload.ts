@@ -27,12 +27,13 @@ type AgentAPI = {
   createConversation: (conversationId: string, model?: string, provider?: string) => Promise<boolean>;
   closeConversation: (conversationId: string) => Promise<boolean>;
   hasConversation: (conversationId: string) => Promise<boolean>;
-  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) => Promise<void>;
+  sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) => Promise<void>;
   abort: (conversationId: string) => Promise<void>;
   switchModel: (conversationId: string, model: string, provider: string) => Promise<boolean>;
   onEvent: (callback: (event: ConversationAgentEvent) => void) => () => void;
   clearConversation: (conversationId: string) => Promise<void>;
   getTokenCount: (conversationId: string) => Promise<number>;
+  restoreHistory: (conversationId: string, messages: unknown[]) => Promise<boolean>;
   setMode: (conversationId: string, mode: string) => Promise<{ success: boolean; mode: string }>;
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => Promise<{ success: boolean }>;
   respondUserInput: (requestId: string, response: string, cancelled: boolean) => Promise<{ success: boolean }>;
@@ -65,6 +66,11 @@ type FileAPI = {
   }>;
   edit: (filePath: string, oldString: string, newString: string) => Promise<{ success: boolean; error?: string }>;
   list: (dirPath: string) => Promise<{ files: Array<{ name: string; isDirectory: boolean; path: string }>; error?: string }>;
+  mkdir: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
+  rename: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>;
+  delete: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  revealInFinder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  copyPath: (filePath: string, type: 'full' | 'relative', workspacePath: string) => Promise<{ success: boolean; error?: string }>;
   watch: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
   unwatch: (dirPath: string) => Promise<void>;
   onChange: (callback: (event: { type: 'add' | 'change' | 'unlink'; path: string }) => void) => () => void;
@@ -319,13 +325,15 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('agent:create-conversation', conversationId, model, provider),
     closeConversation: (conversationId: string) => ipcRenderer.invoke('agent:close-conversation', conversationId),
     hasConversation: (conversationId: string) => ipcRenderer.invoke('agent:has-conversation', conversationId),
-    sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>) =>
-      ipcRenderer.invoke('agent:send-message', conversationId, message, workingDirectory, fileReferences),
+    sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) =>
+      ipcRenderer.invoke('agent:send-message', conversationId, message, workingDirectory, fileReferences, images),
     abort: (conversationId: string) => ipcRenderer.invoke('agent:abort', conversationId),
     switchModel: (conversationId: string, model: string, provider: string) =>
       ipcRenderer.invoke('agent:switch-model', conversationId, model, provider),
     clearConversation: (conversationId: string) => ipcRenderer.invoke('agent:clear-conversation', conversationId),
     getTokenCount: (conversationId: string) => ipcRenderer.invoke('agent:get-token-count', conversationId),
+    restoreHistory: (conversationId: string, messages: unknown[]) =>
+      ipcRenderer.invoke('agent:restore-history', conversationId, messages),
     setMode: (conversationId, mode) => ipcRenderer.invoke('agent:set-mode', conversationId, mode),
     respondPermission: (toolId, decision) => ipcRenderer.invoke('agent:respond-permission', toolId, decision),
     respondUserInput: (requestId, response, cancelled) => ipcRenderer.invoke('agent:respond-user-input', requestId, response, cancelled),
@@ -343,6 +351,12 @@ const api: ElectronAPI = {
     edit: (filePath: string, oldString: string, newString: string) =>
       ipcRenderer.invoke('file:edit', filePath, oldString, newString),
     list: (dirPath: string) => ipcRenderer.invoke('file:list', dirPath),
+    mkdir: (dirPath: string) => ipcRenderer.invoke('file:mkdir', dirPath),
+    rename: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
+    delete: (filePath: string) => ipcRenderer.invoke('file:delete', filePath),
+    revealInFinder: (filePath: string) => ipcRenderer.invoke('file:revealInFinder', filePath),
+    copyPath: (filePath: string, type: 'full' | 'relative', workspacePath: string) =>
+      ipcRenderer.invoke('file:copyPath', filePath, type, workspacePath),
     watch: (dirPath: string) => ipcRenderer.invoke('file:watch', dirPath),
     unwatch: (dirPath: string) => ipcRenderer.invoke('file:unwatch', dirPath),
     onChange: (callback: (event: { type: 'add' | 'change' | 'unlink'; path: string }) => void) => {
