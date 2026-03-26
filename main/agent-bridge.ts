@@ -48,13 +48,11 @@ interface AgentConfig {
     tool: {
       name: string;
       description: string;
-      availableInPlanMode: boolean;
     };
   }>;
   temperature?: number;
   maxContextTokens?: number;
   maxTurns?: number;
-  planMode?: boolean;
   cwd?: string;
   thinking?: { enabled: boolean; budgetTokens: number };
 }
@@ -87,6 +85,7 @@ interface AgentInstance {
   run: (userMessage: string) => AsyncGenerator<AgentEvent>;
   updateConfig: (updates: Partial<AgentConfig>) => void;
   clearMessages: () => void;
+  addMessage: (message: UnifiedMessage) => void;
 }
 
 interface ConversationState {
@@ -773,10 +772,6 @@ export class AgentBridge {
         updates.temperature = modeConfig.temperature;
       }
 
-      if (modeConfig.planMode !== undefined) {
-        updates.planMode = modeConfig.planMode;
-      }
-
       // Update system prompt with mode-specific guidance
       const currentSystemPrompt = state.agent.config.systemPrompt || '';
       // Remove any previous mode append (simple approach: look for mode markers)
@@ -788,7 +783,6 @@ export class AgentBridge {
 
       // Handle tool filtering if needed
       if (modeConfig.disabledTools || modeConfig.allowedTools) {
-        // Tools are filtered via availableInPlanMode or by modifying the tools array
         const updatedTools = state.agent.config.tools.map(tool => {
           const shouldDisable = modeConfig.disabledTools?.includes(tool.name);
           const shouldEnable = modeConfig.allowedTools?.includes(tool.name);
@@ -820,6 +814,51 @@ export class AgentBridge {
       return;
     }
     state.agent.clearMessages();
+  }
+
+  /**
+   * Truncate conversation messages to a specific index
+   * Keeps messages from 0 to messageIndex (inclusive)
+   * @returns true if successful, false if conversation not found
+   */
+  truncateMessages(conversationId: string, messageIndex: number): boolean {
+    const state = this.conversations.get(conversationId);
+    if (!state) {
+      console.warn(`[AgentBridge] Conversation ${conversationId} not found for truncate`);
+      return false;
+    }
+
+    const currentMessages = state.agent.messages;
+    if (messageIndex < 0 || messageIndex >= currentMessages.length) {
+      console.warn(`[AgentBridge] Invalid message index ${messageIndex} for conversation with ${currentMessages.length} messages`);
+      return false;
+    }
+
+    // Keep only messages up to and including messageIndex
+    const truncatedMessages = currentMessages.slice(0, messageIndex + 1);
+
+    // Clear messages and re-add using the agent's addMessage method
+    state.agent.clearMessages();
+    
+    // Check if agent has addMessage method (AgentImpl does)
+    const agentWithAddMessage = state.agent as AgentInstance & { addMessage?: (msg: UnifiedMessage) => void };
+    if (typeof agentWithAddMessage.addMessage === 'function') {
+      for (const msg of truncatedMessages) {
+        agentWithAddMessage.addMessage(msg);
+      }
+    } else {
+      // Fallback: Access internal _messages array if available
+      const agentWithInternal = state.agent as AgentInstance & { _messages?: UnifiedMessage[] };
+      if (agentWithInternal._messages) {
+        agentWithInternal._messages.push(...truncatedMessages);
+      } else {
+        console.error('[AgentBridge] Cannot add messages - no addMessage method or _messages array available');
+        return false;
+      }
+    }
+
+    console.log(`[AgentBridge] Truncated conversation ${conversationId} to ${truncatedMessages.length} messages (removed ${currentMessages.length - truncatedMessages.length})`);
+    return true;
   }
 
   onEvent(callback: (event: ConversationAgentEvent) => void): () => void {

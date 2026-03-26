@@ -202,7 +202,7 @@ export const defaultSettings: SettingsSchema = {
     autoAcceptEdits: false,
     contextCompressionThreshold: 0.9,
     contextRecentMessagesToKeep: 6,
-    maxTurns: 50,
+    maxTurns: 200,
   },
 
   chat: {

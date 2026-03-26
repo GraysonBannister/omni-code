@@ -14,7 +14,6 @@ export class MultiFileEditTool implements Tool {
   readonly description = 'Apply multiple edits across files atomically. All edits are validated first, then applied. Rolls back on failure.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

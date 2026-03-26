@@ -7,7 +7,6 @@ export class NetlifyTool extends PlatformCLIManager implements Tool {
   readonly description = 'Execute Netlify CLI commands for deployment, environment variables, functions, and site management. WARNING: Can deploy to production.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   protected cliName = 'Netlify';
   protected cliCommand = 'netlify';

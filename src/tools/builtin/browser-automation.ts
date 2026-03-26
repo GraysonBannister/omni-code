@@ -12,7 +12,6 @@ export class BrowserAutomationTool implements Tool {
   readonly description = `Automate a headless browser for web testing, scraping, or UI verification. Actions: navigate (go to URL), screenshot (capture page), evaluate (run JS), click (click selector), type (type into input), select (select option), content (get page text/HTML).`;
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

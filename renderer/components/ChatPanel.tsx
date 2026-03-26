@@ -537,7 +537,7 @@ export const ChatPanel: React.FC = () => {
 
   // Get the active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId) || null;
-  
+
   // Flatten files for mention search
   const flattenFiles = useCallback((fileList: typeof files): MentionFile[] => {
     const result: MentionFile[] = [];
@@ -843,7 +843,7 @@ export const ChatPanel: React.FC = () => {
         toolName?: string;
         toolId?: string;
         input?: Record<string, unknown>;
-        result?: { content: string; isError?: boolean };
+        result?: { content: string; isError?: boolean; metadata?: Record<string, unknown> };
         totalCost?: number;
         turnCost?: number;
         error?: { message: string };
@@ -868,17 +868,17 @@ export const ChatPanel: React.FC = () => {
       switch (agentEvent.type) {
         case 'stream_delta':
           if (agentEvent.delta?.type === 'text' && agentEvent.delta.text) {
-            const textChunk = typeof agentEvent.delta.text === 'string' 
-              ? agentEvent.delta.text 
+            const textChunk = typeof agentEvent.delta.text === 'string'
+              ? agentEvent.delta.text
               : String(agentEvent.delta.text);
             appendConversationStreaming(conversationId, textChunk);
           }
           break;
 
         case 'turn_complete':
-          const msg = agentEvent.message as { 
-            id: string; 
-            role: string; 
+          const msg = agentEvent.message as {
+            id: string;
+            role: string;
             content: string | ContentBlock[];
             timestamp: number;
             metadata?: unknown;
@@ -1030,6 +1030,13 @@ export const ChatPanel: React.FC = () => {
 
         case 'tool_call_end':
           if (agentEvent.toolId) {
+            // Debug logging
+            console.log('🔧 tool_call_end:', {
+              toolId: agentEvent.toolId,
+              toolName: agentEvent.toolName,
+              isError: agentEvent.result?.isError,
+            });
+
             updateToolCallInConversation(conversationId, agentEvent.toolId, {
               status: agentEvent.result?.isError ? 'error' : 'completed',
               phase: agentEvent.result?.isError ? 'error' : 'completed',
@@ -1038,6 +1045,7 @@ export const ChatPanel: React.FC = () => {
               error: agentEvent.result?.isError ? agentEvent.result.content : undefined,
               completedAt: Date.now(),
             });
+
           }
           break;
 
@@ -1511,12 +1519,7 @@ export const ChatPanel: React.FC = () => {
           {activeConversation?.title || 'Chat'}
         </span>
         <div className="chat-header-right">
-          <ModeSelector
-              value={(activeConversation?.mode as AIMode) || 'code'}
-              onChange={(mode) => setConversationMode(activeConversation?.id || '', mode)}
-              disabled={activeConversation?.isProcessing || false}
-            />
-            {/* Model Selector */}
+          {/* Model Selector */}
           {activeConversation && (
             <div className="chat-model-selector" ref={modelDropdownRef}>
               <button
@@ -1816,6 +1819,18 @@ export const ChatPanel: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Mode Selector - compact popup below input */}
+        {activeConversation && (
+          <div className="chat-input-mode-bar">
+            <span className="mode-bar-label">Mode:</span>
+            <ModeSelector
+              value={(activeConversation?.mode as AIMode) || 'code'}
+              onChange={(mode) => setConversationMode(activeConversation?.id || '', mode)}
+              disabled={activeConversation?.isProcessing || false}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -10,7 +10,6 @@ export class GrepSearchTool implements Tool {
   readonly description = 'Search file contents using regular expressions. Supports regex patterns, file type filtering, and context lines.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

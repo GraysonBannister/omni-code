@@ -21,7 +21,6 @@ export class DocGenTool implements Tool {
   readonly description = 'Generate documentation stubs (JSDoc/TSDoc/Python docstrings) for functions, classes, and interfaces in a file. Detects undocumented symbols and generates template comments.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

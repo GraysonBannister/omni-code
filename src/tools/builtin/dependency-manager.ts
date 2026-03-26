@@ -12,7 +12,6 @@ export class DependencyManagerTool implements Tool {
   readonly description = 'Add, remove, update, or list project dependencies. Auto-detects package manager (npm, yarn, pnpm, pip, cargo).';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

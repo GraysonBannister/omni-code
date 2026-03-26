@@ -8,7 +8,6 @@ export class GlobSearchTool implements Tool {
   readonly description = 'Fast file pattern matching. Supports glob patterns like "**/*.ts" or "src/**/*.tsx". Returns matching file paths.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

@@ -1734,6 +1734,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return false;
     }
   },
+
 }));
 
 // Subscribe to browser IPC events from the main process

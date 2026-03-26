@@ -12,7 +12,6 @@ export class DebuggerTool implements Tool {
   readonly description = `Connect to Node.js inspector for debugging. Actions: connect (start debug session), breakpoint (set breakpoint), evaluate (eval expression in paused context), pause, resume, step (stepOver/stepInto/stepOut), stacktrace, disconnect.`;
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

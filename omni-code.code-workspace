@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../omni-code"
+		},
+		{
+			"path": "../omni-code-electron"
+		},
+		{
+			"path": "."
+		},
+		{
+			"path": "../omni-code-go"
+		}
+	],
+	"settings": {}
+}

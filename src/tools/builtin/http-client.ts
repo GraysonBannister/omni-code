@@ -8,7 +8,6 @@ export class HTTPClientTool implements Tool {
   readonly description = 'Make HTTP requests (GET, POST, PUT, DELETE, PATCH). Useful for testing APIs and debugging endpoints.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

@@ -13,7 +13,6 @@ export class TestGenTool implements Tool {
   readonly description = 'Generate a test skeleton for a source file. Analyzes exports and creates describe/it blocks.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

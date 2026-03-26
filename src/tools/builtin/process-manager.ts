@@ -39,7 +39,6 @@ export class ProcessManagerTool implements Tool {
     '`status` to read its recent output, `stop` to kill it, and `list` to see all running processes.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

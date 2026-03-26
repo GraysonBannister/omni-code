@@ -14,7 +14,6 @@ export class WriteFileTool implements Tool {
   readonly description = 'Creates or overwrites a file with the specified content.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

@@ -19,7 +19,6 @@ export class UnifiedDiffEditTool implements Tool {
   readonly description = `Apply changes to a file using unified diff format. Accepts standard unified diff with @@ hunks and +/- line markers. More token-efficient than full file replacement for small changes.`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

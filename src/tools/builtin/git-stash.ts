@@ -7,7 +7,6 @@ export class GitStashTool implements Tool {
   readonly description = 'Manage git stash: save, restore, list, or drop stashed changes.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

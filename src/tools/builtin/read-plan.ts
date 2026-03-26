@@ -2,7 +2,6 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
-import { PLAN_FILE_NAME } from './create-plan.js';
 
 export interface PlanTask {
   description: string;
@@ -29,16 +28,62 @@ export interface PlanData {
   updatedAt?: string;
 }
 
+/**
+ * Find all plan files in the workspace
+ */
+async function findPlanFiles(cwd: string): Promise<string[]> {
+  try {
+    const files = await fs.readdir(cwd);
+    // Look for .plan.md files or legacy PLAN.md
+    return files.filter(f => f.endsWith('.plan.md') || f === 'PLAN.md');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get the most recently modified plan file
+ */
+async function getMostRecentPlan(cwd: string): Promise<string | null> {
+  const planFiles = await findPlanFiles(cwd);
+  if (planFiles.length === 0) return null;
+
+  if (planFiles.length === 1) return planFiles[0];
+
+  // Get stats for all plan files and find the most recent
+  const filesWithStats = await Promise.all(
+    planFiles.map(async (file) => {
+      const filePath = path.join(cwd, file);
+      try {
+        const stats = await fs.stat(filePath);
+        return { file, mtime: stats.mtime };
+      } catch {
+        return { file, mtime: new Date(0) };
+      }
+    })
+  );
+
+  filesWithStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return filesWithStats[0].file;
+}
+
 export class ReadPlanTool implements Tool {
   readonly name = 'ReadPlan';
-  readonly description = `Reads and parses the PLAN.md file to check current status, view tasks, and see progress. Returns structured data about tasks, sections, and completion status.`;
+  readonly description = `Reads and parses plan files (.plan.md) to check current status, view tasks, and see progress. Can read the most recent plan or a specific plan file. Returns structured data about tasks, sections, and completion status.`;
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',
     properties: {
+      planFile: {
+        type: 'string',
+        description: 'Specific plan file to read (e.g., "my_plan_abc123.plan.md"). If not provided, uses the most recent plan file.',
+      },
+      listAll: {
+        type: 'boolean',
+        description: 'If true, list all available plan files instead of reading one',
+      },
       section: {
         type: 'string',
         description: 'Filter by section title (optional)',
@@ -70,17 +115,60 @@ export class ReadPlanTool implements Tool {
     const sectionFilter = (input.section as string)?.trim();
     const statusFilter = (input.status as string) || 'all';
     const format = (input.format as string) || 'structured';
+    const planFile = input.planFile as string | undefined;
+    const listAll = input.listAll as boolean || false;
 
     try {
-      const planPath = path.join(context.cwd, PLAN_FILE_NAME);
+      // Handle listAll action
+      if (listAll) {
+        const planFiles = await findPlanFiles(context.cwd);
+        if (planFiles.length === 0) {
+          return {
+            content: 'No plan files found in the workspace. Use CreatePlan to create a plan.',
+            metadata: { exists: false, plans: [] },
+          };
+        }
+
+        const planList = planFiles.join('\n  - ');
+        return {
+          content: `Found ${planFiles.length} plan file(s):\n  - ${planList}\n\nUse 'planFile' parameter to specify which plan to read.`,
+          metadata: { exists: true, plans: planFiles },
+        };
+      }
+
+      // Determine which plan file to read
+      let targetPlanFile: string;
+      if (planFile) {
+        targetPlanFile = planFile;
+      } else {
+        const mostRecent = await getMostRecentPlan(context.cwd);
+        if (!mostRecent) {
+          return {
+            content: 'No plan files found in the workspace. Use CreatePlan to create a plan.',
+            isError: false,
+            metadata: { exists: false },
+          };
+        }
+        targetPlanFile = mostRecent;
+      }
+
+      const planPath = path.join(context.cwd, targetPlanFile);
 
       // Read plan file
       let content: string;
       try {
         content = await fs.readFile(planPath, 'utf-8');
       } catch {
+        const availablePlans = await findPlanFiles(context.cwd);
+        let errorMsg = `Plan file "${targetPlanFile}" not found.`;
+        if (availablePlans.length > 0) {
+          errorMsg += `\n\nAvailable plans:\n  - ${availablePlans.join('\n  - ')}`;
+          errorMsg += `\n\nUse 'planFile' parameter to specify which plan to read, or omit it to use the most recent plan.`;
+        } else {
+          errorMsg += ' Use CreatePlan to create a plan.';
+        }
         return {
-          content: `No PLAN.md found at ${planPath}. Use CreatePlan to create a plan.`,
+          content: errorMsg,
           isError: false,
           metadata: { exists: false },
         };
@@ -131,11 +219,11 @@ export class ReadPlanTool implements Tool {
           outputContent = content;
           break;
         case 'summary':
-          outputContent = this.formatSummary(filteredData);
+          outputContent = this.formatSummary(filteredData, targetPlanFile);
           break;
         case 'structured':
         default:
-          outputContent = this.formatStructured(filteredData);
+          outputContent = this.formatStructured(filteredData, targetPlanFile);
           break;
       }
 
@@ -144,6 +232,7 @@ export class ReadPlanTool implements Tool {
         metadata: {
           exists: true,
           path: planPath,
+          planFile: targetPlanFile,
           plan: filteredData,
         },
       };
@@ -275,8 +364,12 @@ export class ReadPlanTool implements Tool {
     return plan;
   }
 
-  private formatSummary(data: PlanData): string {
+  private formatSummary(data: PlanData, fileName?: string): string {
     const lines: string[] = [];
+    if (fileName) {
+      lines.push(`File: ${fileName}`);
+      lines.push('');
+    }
     lines.push(`Plan: ${data.title}`);
     lines.push(`Progress: ${data.progress.checked}/${data.progress.total} (${data.progress.percent}%)`);
     lines.push('');
@@ -290,8 +383,12 @@ export class ReadPlanTool implements Tool {
     return lines.join('\n');
   }
 
-  private formatStructured(data: PlanData): string {
+  private formatStructured(data: PlanData, fileName?: string): string {
     const lines: string[] = [];
+    if (fileName) {
+      lines.push(`**File:** ${fileName}`);
+      lines.push('');
+    }
     lines.push(`# ${data.title}`);
     lines.push('');
     lines.push(`**Progress:** ${data.progress.checked}/${data.progress.total} tasks (${data.progress.percent}%)`);
@@ -320,6 +417,7 @@ export class ReadPlanTool implements Tool {
     if (!result.metadata?.exists) return 'No plan exists yet';
 
     const plan = result.metadata.plan as PlanData;
-    return `Plan: ${plan.title} - ${plan.progress.checked}/${plan.progress.total} (${plan.progress.percent}%)`;
+    const fileName = result.metadata.planFile as string;
+    return `${fileName}: ${plan.title} - ${plan.progress.checked}/${plan.progress.total} (${plan.progress.percent}%)`;
   }
 }

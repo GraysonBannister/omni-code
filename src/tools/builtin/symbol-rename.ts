@@ -9,7 +9,6 @@ export class SymbolRenameTool implements Tool {
   readonly description = 'Rename a symbol across all matching files using word-boundary matching. Defaults to dry-run mode for previewing changes.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

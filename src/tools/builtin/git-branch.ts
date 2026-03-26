@@ -7,7 +7,6 @@ export class GitBranchTool implements Tool {
   readonly description = 'List, create, switch, or delete git branches.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

@@ -9,7 +9,6 @@ export class TypeCheckTool implements Tool {
   readonly description = 'Run type checker (tsc, mypy, cargo check) and return diagnostics. Auto-detects the project type.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

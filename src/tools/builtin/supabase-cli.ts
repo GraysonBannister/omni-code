@@ -8,7 +8,6 @@ export class SupabaseTool extends PlatformCLIManager implements Tool {
   readonly description = 'Execute Supabase CLI commands for local development, database management, and deployment. Supports init, start, stop, db operations, functions, and more. NOTE: login/logout require manual terminal use. Docker is required for local stack commands.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   protected cliName = 'Supabase';
   protected cliCommand = 'supabase';

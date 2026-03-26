@@ -11,7 +11,6 @@ export class DatabaseQueryTool implements Tool {
   readonly description = 'Run SQL queries against a local SQLite database. Read-only by default.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

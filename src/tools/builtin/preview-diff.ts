@@ -8,7 +8,6 @@ export class PreviewDiffTool implements Tool {
   readonly description = 'Preview git diff for current changes. Shows unstaged or staged changes, optionally for a specific file.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

@@ -50,15 +50,7 @@ export class ToolRunner {
       };
     }
 
-    // 2. Plan mode check
-    if (context.planMode && !tool.availableInPlanMode) {
-      return {
-        content: `Tool "${toolName}" is not available in plan mode (read-only).`,
-        isError: true,
-      };
-    }
-
-    // 3. Permission check
+    // 2. Permission check
     const permitted = await this.permissionManager.check(tool, normalizedInput, context, toolId);
     if (!permitted) {
       this.eventBus.emit('permission_denied', { toolName, toolId });

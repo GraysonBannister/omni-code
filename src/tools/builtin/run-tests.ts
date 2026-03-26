@@ -9,7 +9,6 @@ export class RunTestsTool implements Tool {
   readonly description = 'Run project tests. Auto-detects test framework (npm test, pytest, jest) or accepts a custom command.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

@@ -20,7 +20,6 @@ export class MCPToolBridge {
         inputSchema: mcpTool.inputSchema,
         permissionLevel: PermissionLevel.MODERATE,
         category: ToolCategory.EXECUTE,
-        availableInPlanMode: false,
 
         validate: () => null,
 

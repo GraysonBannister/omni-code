@@ -524,7 +524,7 @@ function setupAgentRoutes(app: express.Express): void {
   // Create conversation
   app.post('/api/agent/create-conversation', async (req, res) => {
     try {
-      const { conversationId, model, provider, workingDirectory } = req.body;
+      const { conversationId, model, provider, workingDirectory, mode } = req.body;
 
       if (!conversationId) {
         res.status(400).json({ error: 'Missing conversationId' });
@@ -542,6 +542,13 @@ function setupAgentRoutes(app: express.Express): void {
           provider,
           createdAt: Date.now(),
         });
+
+        // Apply mode immediately if provided
+        if (mode) {
+          await agentBridge.setMode(conversationId, mode);
+          console.log(`[RemoteServer] Applied mode '${mode}' to conversation ${conversationId}`);
+        }
+
         res.json({ success: true, conversationId });
       } else {
         res.status(400).json({ error: 'Failed to create conversation' });
@@ -675,6 +682,73 @@ function setupAgentRoutes(app: express.Express): void {
 
       const success = agentBridge.respondUserInput(requestId, response || '', cancelled || false);
       res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Switch model for a conversation
+  app.post('/api/agent/switch-model', async (req, res) => {
+    try {
+      const { conversationId, model, provider } = req.body;
+
+      if (!conversationId || !model || !provider) {
+        res.status(400).json({ error: 'Missing conversationId, model, or provider' });
+        return;
+      }
+
+      const success = await agentBridge.switchModel(conversationId, model, provider);
+      if (success) {
+        console.log(`[RemoteServer] Switched model to ${model} (${provider}) for conversation ${conversationId}`);
+        res.json({ success: true, conversationId, model, provider });
+      } else {
+        res.status(404).json({ error: 'Conversation not found or model switch failed' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Set AI mode for a conversation
+  app.post('/api/agent/set-mode', async (req, res) => {
+    try {
+      const { conversationId, mode } = req.body;
+
+      if (!conversationId || !mode) {
+        res.status(400).json({ error: 'Missing conversationId or mode' });
+        return;
+      }
+
+      const result = await agentBridge.setMode(conversationId, mode);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Truncate messages to a specific index
+  app.post('/api/agent/truncate-messages', async (req, res) => {
+    try {
+      const { conversationId, messageIndex } = req.body;
+
+      if (!conversationId || messageIndex === undefined) {
+        res.status(400).json({ error: 'Missing conversationId or messageIndex' });
+        return;
+      }
+
+      const index = parseInt(messageIndex, 10);
+      if (isNaN(index) || index < 0) {
+        res.status(400).json({ error: 'Invalid messageIndex' });
+        return;
+      }
+
+      const success = agentBridge.truncateMessages(conversationId, index);
+
+      if (success) {
+        res.json({ success: true, messageIndex: index });
+      } else {
+        res.status(404).json({ error: 'Conversation not found or invalid message index' });
+      }
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

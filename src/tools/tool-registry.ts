@@ -21,7 +21,6 @@ export class ToolRegistry {
 
   getForLLM(planMode: boolean): ToolDefinition[] {
     return Array.from(this.tools.values())
-      .filter(reg => reg.enabled && (!planMode || reg.tool.availableInPlanMode))
       .map(reg => ({
         name: reg.tool.name,
         description: reg.tool.description,

@@ -6,7 +6,6 @@ export class SearchWebTool implements Tool {
   readonly description = 'Search the web using DuckDuckGo. Returns results with titles, URLs, and snippets.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

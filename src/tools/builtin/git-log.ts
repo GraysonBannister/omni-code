@@ -7,7 +7,6 @@ export class GitLogTool implements Tool {
   readonly description = 'Show git commit history with optional formatting and filtering.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

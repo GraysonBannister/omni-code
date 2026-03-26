@@ -993,6 +993,7 @@ export function setupIpcHandlers(): void {
       return { success: false, error: (error as Error).message };
     }
   });
+
 }
 
 // Set main window reference for browser events

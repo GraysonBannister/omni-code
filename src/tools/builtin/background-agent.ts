@@ -19,7 +19,6 @@ export class BackgroundAgentTool implements Tool {
   readonly description = `Spawn a background agent that works independently on a task. Returns a task ID immediately. Use 'status' to check progress and retrieve results.`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.AGENT;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

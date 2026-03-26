@@ -16,7 +16,6 @@ export class ReadFileTool implements Tool {
   readonly description = 'Reads a file from the local filesystem. Returns content with line numbers.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

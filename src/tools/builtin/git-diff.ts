@@ -7,7 +7,6 @@ export class GitDiffTool implements Tool {
   readonly description = 'Show git diff for staged, unstaged, or branch comparison changes.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

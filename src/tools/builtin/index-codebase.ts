@@ -7,7 +7,6 @@ export class IndexCodebaseTool implements Tool {
   readonly description = `Indexes the codebase for semantic search. Chunks files into embeddable pieces and stores in vector DB. Use before complex tasks like refactoring. Runs ~1-5min first time. Uses smart semantic chunking for better results.`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

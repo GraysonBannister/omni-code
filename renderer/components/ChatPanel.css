@@ -489,6 +489,24 @@
   gap: var(--spacing-sm);
 }
 
+/* Mode Selector Bar - below input */
+.chat-input-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0 0 0;
+  margin-top: var(--spacing-xs);
+  border-top: 1px solid var(--color-border-subtle, #2d2d30);
+}
+
+.mode-bar-label {
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* File References in Input */
 .chat-input-references {
   padding: 4px 0;
@@ -949,4 +967,42 @@
   border-color: var(--color-accent);
   color: var(--color-accent);
   background: var(--color-accent-bg);
+}
+
+/* Plan Creation Components */
+
+.chat-plan-creation,
+.chat-plan-review,
+.chat-plan-execution,
+.chat-clarifying-question {
+  margin: 16px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mode bar plan creation */
+.chat-input-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary, #2a2a2a);
+  border-top: 1px solid var(--border-color, #3e3e3e);
+  border-radius: 0 0 8px 8px;
+}
+
+.mode-bar-label {
+  font-size: 11px;
+  color: var(--text-secondary, #a0a0a0);
+  font-weight: 500;
 }

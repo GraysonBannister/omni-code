@@ -57,7 +57,6 @@ export interface AgentConfig {
   contextRecentMessagesToKeep?: number; // 3 - 20, default 6
   isSubAgent?: boolean;
   parentAgentId?: string;
-  planMode?: boolean;
   cwd?: string;
   thinking?: {
     enabled: boolean;

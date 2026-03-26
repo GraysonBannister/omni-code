@@ -7,7 +7,6 @@ export class QueryCodebaseTool implements Tool {
   readonly description = `Search the indexed codebase using semantic/vector search. Returns relevant code chunks matching a natural language query. Run IndexCodebase first to build the index. Semantic search becomes available at 80% indexing completion.`;
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

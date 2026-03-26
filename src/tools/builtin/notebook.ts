@@ -14,7 +14,6 @@ export class NotebookTool implements Tool {
   readonly description = `JavaScript/TypeScript REPL and Jupyter notebook editor. Actions: eval (evaluate JS code in persistent context), notebook_read (read .ipynb), notebook_edit (edit a cell), notebook_add_cell (add cell), notebook_run (evaluate code cells).`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

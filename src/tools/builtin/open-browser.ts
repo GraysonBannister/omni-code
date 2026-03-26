@@ -21,7 +21,6 @@ The tab will open automatically without requiring user permission.`;
   // Safe permission level - opens automatically without user confirmation
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

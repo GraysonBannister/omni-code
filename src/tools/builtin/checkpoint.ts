@@ -11,7 +11,6 @@ export class CheckpointTool implements Tool {
   readonly description = 'Create, list, restore, or delete named git checkpoints. Useful for safe experimentation with rollback capability.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

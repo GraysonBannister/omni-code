@@ -14,7 +14,6 @@ export class FileTreeTool implements Tool {
   readonly description = 'Display hierarchical directory structure as a tree. Useful for understanding project layout.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

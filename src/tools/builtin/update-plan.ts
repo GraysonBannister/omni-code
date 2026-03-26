@@ -2,14 +2,51 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
-import { PLAN_FILE_NAME } from './create-plan.js';
+
+/**
+ * Find plan files in the workspace
+ */
+async function findPlanFiles(cwd: string): Promise<string[]> {
+  try {
+    const files = await fs.readdir(cwd);
+    // Look for .plan.md files or legacy PLAN.md
+    return files.filter(f => f.endsWith('.plan.md') || f === 'PLAN.md');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get the most recently modified plan file
+ */
+async function getMostRecentPlan(cwd: string): Promise<string | null> {
+  const planFiles = await findPlanFiles(cwd);
+  if (planFiles.length === 0) return null;
+
+  if (planFiles.length === 1) return planFiles[0];
+
+  // Get stats for all plan files and find the most recent
+  const filesWithStats = await Promise.all(
+    planFiles.map(async (file) => {
+      const filePath = path.join(cwd, file);
+      try {
+        const stats = await fs.stat(filePath);
+        return { file, mtime: stats.mtime };
+      } catch {
+        return { file, mtime: new Date(0) };
+      }
+    })
+  );
+
+  filesWithStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return filesWithStats[0].file;
+}
 
 export class UpdatePlanTool implements Tool {
   readonly name = 'UpdatePlan';
-  readonly description = `Updates the PLAN.md file - check/uncheck tasks, add new tasks or sections, or append notes. Use this to mark tasks complete as you work through the plan.`;
+  readonly description = `Updates a plan file - check/uncheck tasks, add new tasks or sections, or append notes. Can work with multiple plan files; uses the most recent plan by default or a specific plan file when specified. Use 'list_plans' action to see available plans.`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',
@@ -17,7 +54,11 @@ export class UpdatePlanTool implements Tool {
       action: {
         type: 'string',
         description: 'The update action to perform',
-        enum: ['check', 'uncheck', 'add_task', 'add_section', 'append_note', 'update_progress'],
+        enum: ['check', 'uncheck', 'add_task', 'add_section', 'append_note', 'update_progress', 'list_plans'],
+      },
+      planFile: {
+        type: 'string',
+        description: 'Specific plan file to update (e.g., "my_plan_abc123.plan.md"). If not provided, uses the most recent plan file.',
       },
       section: {
         type: 'string',
@@ -45,10 +86,15 @@ export class UpdatePlanTool implements Tool {
 
   validate(input: Record<string, unknown>): string | null {
     const action = input.action as string;
-    const validActions = ['check', 'uncheck', 'add_task', 'add_section', 'append_note', 'update_progress'];
+    const validActions = ['check', 'uncheck', 'add_task', 'add_section', 'append_note', 'update_progress', 'list_plans'];
 
     if (!validActions.includes(action)) {
       return `action must be one of: ${validActions.join(', ')}`;
+    }
+
+    // list_plans requires no additional parameters
+    if (action === 'list_plans') {
+      return null;
     }
 
     if (['check', 'uncheck', 'add_task'].includes(action)) {
@@ -84,17 +130,55 @@ export class UpdatePlanTool implements Tool {
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const action = input.action as string;
+    const planFile = input.planFile as string | undefined;
 
     try {
-      const planPath = path.join(context.cwd, PLAN_FILE_NAME);
+      // Handle list_plans action
+      if (action === 'list_plans') {
+        const planFiles = await findPlanFiles(context.cwd);
+        if (planFiles.length === 0) {
+          return {
+            content: 'No plan files found in the workspace. Use CreatePlan to create a plan.',
+            metadata: { plans: [] },
+          };
+        }
+
+        const planList = planFiles.join('\n  - ');
+        return {
+          content: `Found ${planFiles.length} plan file(s):\n  - ${planList}\n\nUse 'planFile' parameter to specify which plan to update.`,
+          metadata: { plans: planFiles },
+        };
+      }
+
+      // Determine which plan file to use
+      let targetPlanFile: string;
+      if (planFile) {
+        targetPlanFile = planFile;
+      } else {
+        const mostRecent = await getMostRecentPlan(context.cwd);
+        if (!mostRecent) {
+          return {
+            content: 'No plan files found in the workspace. Use CreatePlan to create a plan first.',
+            isError: true,
+          };
+        }
+        targetPlanFile = mostRecent;
+      }
+
+      const planPath = path.join(context.cwd, targetPlanFile);
 
       // Check if plan exists
       let content: string;
       try {
         content = await fs.readFile(planPath, 'utf-8');
       } catch {
+        const availablePlans = await findPlanFiles(context.cwd);
+        let errorMsg = `Error: Plan file "${targetPlanFile}" not found.`;
+        if (availablePlans.length > 0) {
+          errorMsg += `\n\nAvailable plans:\n  - ${availablePlans.join('\n  - ')}`;
+        }
         return {
-          content: `Error: No PLAN.md found at ${planPath}. Use CreatePlan to create a plan first.`,
+          content: errorMsg,
           isError: true,
         };
       }
@@ -273,6 +357,8 @@ export class UpdatePlanTool implements Tool {
         return `Added note to plan`;
       case 'update_progress':
         return `Updated progress`;
+      case 'list_plans':
+        return `Listed ${(result.metadata?.plans as string[] || []).length} plan(s)`;
       default:
         return `Updated plan`;
     }

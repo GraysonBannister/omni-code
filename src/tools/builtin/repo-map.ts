@@ -39,7 +39,6 @@ export class RepoMapTool implements Tool {
   readonly description = `Generate a structural map of the codebase showing files and their exported symbols (functions, classes, interfaces, types, enums) with signatures. Useful for understanding project architecture without reading every file.`;
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

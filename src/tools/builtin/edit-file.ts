@@ -8,7 +8,6 @@ export class EditFileTool implements Tool {
   readonly description = 'Performs exact string replacements in files. The old_string must be unique in the file.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

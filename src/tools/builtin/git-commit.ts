@@ -7,7 +7,6 @@ export class GitCommitTool implements Tool {
   readonly description = 'Stage files and create a git commit with a message. Can stage specific files or all changes.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

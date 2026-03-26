@@ -102,9 +102,9 @@ export class AgentImpl implements Agent {
         }
       }
 
-      // Build the tools list (respecting plan mode)
+      // Build the tools list
       const tools = this.config.tools
-        .filter(t => t.enabled && (!this.config.planMode || t.tool.availableInPlanMode))
+        .filter(t => t.enabled)
         .map(t => ({
           name: t.tool.name,
           description: t.tool.description,
@@ -293,11 +293,10 @@ export class AgentImpl implements Agent {
           {
             cwd: this.config.cwd || process.cwd(),
             sessionId: this.id,
-            planMode: this.config.planMode || false,
             abortSignal: this.abortController.signal,
             eventBus: this.toolRunner.getEventBus(),
-            spawnSubAgent: async (task: string, planMode: boolean): Promise<string> => {
-              const subAgent = this.spawnSubAgent({ planMode });
+            spawnSubAgent: async (task: string): Promise<string> => {
+              const subAgent = this.spawnSubAgent({});
               let subResult = '';
               for await (const event of subAgent.run(task)) {
                 if (event.type === 'turn_complete') {

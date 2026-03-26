@@ -258,6 +258,18 @@ type ProjectAPI = {
   scan: (dirs: string[]) => Promise<{ projects: string[] }>;
 };
 
+// Plan Creation API
+type PlanAPI = {
+  startCreation: (conversationId: string, userRequest: string) => Promise<{ success: boolean; error?: string }>;
+  submitAnswers: (conversationId: string, answers: Record<string, string>) => Promise<{ success: boolean; error?: string }>;
+  approve: (conversationId: string, planFile: string) => Promise<{ success: boolean; error?: string }>;
+  modify: (conversationId: string, planFile: string, modifications: string) => Promise<{ success: boolean; error?: string }>;
+  reject: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
+  pauseExecution: (conversationId: string) => Promise<{ success: boolean; paused?: boolean; error?: string }>;
+  resumeExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
+  abortExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
+};
+
 // Remote Access API
 type RemoteServerStatus = {
   running: boolean;
@@ -297,6 +309,7 @@ type ElectronAPI = {
   browser: BrowserAPI;
   remote: RemoteAPI;
   project: ProjectAPI;
+  plan: PlanAPI;
 };
 
 // Expose APIs via contextBridge
@@ -522,6 +535,25 @@ const api: ElectronAPI = {
   project: {
     scan: (dirs: string[]) => ipcRenderer.invoke('project:scan', dirs),
   },
+
+  plan: {
+    startCreation: (conversationId, userRequest) =>
+      ipcRenderer.invoke('plan:start-creation', conversationId, userRequest),
+    submitAnswers: (conversationId, answers) =>
+      ipcRenderer.invoke('plan:submit-answers', conversationId, answers),
+    approve: (conversationId, planFile) =>
+      ipcRenderer.invoke('plan:approve', conversationId, planFile),
+    modify: (conversationId, planFile, modifications) =>
+      ipcRenderer.invoke('plan:modify', conversationId, planFile, modifications),
+    reject: (conversationId) =>
+      ipcRenderer.invoke('plan:reject', conversationId),
+    pauseExecution: (conversationId) =>
+      ipcRenderer.invoke('plan:pause-execution', conversationId),
+    resumeExecution: (conversationId) =>
+      ipcRenderer.invoke('plan:resume-execution', conversationId),
+    abortExecution: (conversationId) =>
+      ipcRenderer.invoke('plan:abort-execution', conversationId),
+  },
 };
 
 // Expose to window.electronAPI
@@ -554,6 +586,6 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI,
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI,
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus
 };

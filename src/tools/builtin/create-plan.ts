@@ -3,7 +3,49 @@ import * as path from 'node:path';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
 
-export const PLAN_FILE_NAME = 'PLAN.md';
+/**
+ * Generate a unique plan filename like Cursor: {snake_case}_{8_char_hash}.plan.md
+ */
+function generatePlanFileName(title: string): string {
+  // Convert to snake_case
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .substring(0, 40);
+
+  // Generate 8-char hex hash
+  const hash = Array.from({ length: 8 }, () =>
+    '0123456789abcdef'.charAt(Math.floor(Math.random() * 16))
+  ).join('');
+
+  return `${slug}_${hash}.plan.md`;
+}
+
+/**
+ * Find an existing plan by title (partial match)
+ */
+async function findExistingPlan(cwd: string, title: string): Promise<string | null> {
+  try {
+    const files = await fs.readdir(cwd);
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+    // Look for files matching the pattern: {slug}_*.plan.md or PLAN.md
+    const planFiles = files.filter(f =>
+      f.endsWith('.plan.md') || f === 'PLAN.md'
+    );
+
+    // Check if any existing plan matches this title
+    for (const file of planFiles) {
+      if (file.startsWith(slug) || file === 'PLAN.md') {
+        return path.join(cwd, file);
+      }
+    }
+  } catch {
+    // Directory doesn't exist or can't read
+  }
+  return null;
+}
 
 export interface PlanSection {
   title: string;
@@ -20,10 +62,9 @@ export interface PlanMetadata {
 
 export class CreatePlanTool implements Tool {
   readonly name = 'CreatePlan';
-  readonly description = `Creates a PLAN.md file in the project root with a structured task list using markdown checkboxes. Use this in architect mode to create a plan that can be referenced and checked off as tasks are completed.`;
+  readonly description = `Creates a plan file in the project root with a structured task list using markdown checkboxes. Generates unique filenames like "my_plan_abc123.plan.md" so multiple plans can coexist. Use this in architect mode to create a plan that can be referenced and checked off as tasks are completed.`;
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',
@@ -90,18 +131,12 @@ export class CreatePlanTool implements Tool {
     const notes = (input.notes as string)?.trim();
 
     try {
-      const planPath = path.join(context.cwd, PLAN_FILE_NAME);
+      // Check for existing plan with same title
+      const existingPlan = await findExistingPlan(context.cwd, title);
 
-      // Check if plan already exists
-      try {
-        await fs.access(planPath);
-        return {
-          content: `Error: PLAN.md already exists at ${planPath}. Use UpdatePlan to modify the existing plan or delete it first.`,
-          isError: true,
-        };
-      } catch {
-        // File doesn't exist, proceed
-      }
+      // Generate unique filename
+      const planFileName = generatePlanFileName(title);
+      const planPath = path.join(context.cwd, planFileName);
 
       // Generate plan content
       const now = new Date().toISOString();
@@ -120,13 +155,19 @@ export class CreatePlanTool implements Tool {
       // Count total tasks
       const totalTasks = sections.reduce((sum, section) => sum + section.tasks.length, 0);
 
+      let message = `Created plan at ${planPath} with ${sections.length} sections and ${totalTasks} tasks.`;
+      if (existingPlan) {
+        message += `\n\nNote: Another plan with a similar title exists at ${existingPlan}. Both plans are preserved.`;
+      }
+
       return {
-        content: `Created plan at ${planPath} with ${sections.length} sections and ${totalTasks} tasks.`,
+        content: message,
         metadata: {
           path: planPath,
           title,
           sectionCount: sections.length,
           taskCount: totalTasks,
+          existingPlan: existingPlan || undefined,
         },
       };
     } catch (error) {
@@ -147,37 +188,85 @@ export class CreatePlanTool implements Tool {
   }): string {
     const lines: string[] = [];
 
-    // Header
-    lines.push(`# Project Plan: ${params.title}`);
-    lines.push('');
+    // Generate todos from sections
+    const todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' | 'cancelled'; complexity?: 'low' | 'medium' | 'high' }> = [];
+    let todoId = 1;
 
-    // Metadata
-    lines.push(`> Created: ${new Date(params.createdAt).toLocaleString()}`);
-    lines.push('');
+    for (const section of params.sections) {
+      for (const task of section.tasks) {
+        // Try to extract complexity from task text (e.g., "[MEDIUM] Task description")
+        let complexity: 'low' | 'medium' | 'high' | undefined;
+        let taskContent = task;
 
-    // Description
-    if (params.description) {
-      lines.push('## Overview');
-      lines.push(params.description);
-      lines.push('');
+        const complexityMatch = task.match(/^\[(LOW|MEDIUM|HIGH)\]\s*/i);
+        if (complexityMatch) {
+          complexity = complexityMatch[1].toLowerCase() as 'low' | 'medium' | 'high';
+          taskContent = task.replace(/^\[(LOW|MEDIUM|HIGH)\]\s*/i, '');
+        }
+
+        todos.push({
+          id: String(todoId++),
+          content: taskContent,
+          status: 'pending',
+          complexity,
+        });
+      }
     }
 
+    // Calculate estimated cost (rough estimate)
+    const estimatedCost = todos.reduce((sum, todo) => {
+      const complexityCost = todo.complexity === 'high' ? 0.5 : todo.complexity === 'medium' ? 0.2 : 0.1;
+      return sum + complexityCost;
+    }, 0.5); // Base cost
+
+    // YAML Frontmatter
+    lines.push('---');
+    lines.push(`name: ${params.title}`);
+    lines.push(`overview: |`);
+    lines.push(`  ${params.description || `Implementation plan for ${params.title}`}`);
+    lines.push(`isProject: true`);
+    lines.push(`createdAt: ${params.createdAt}`);
+    lines.push(`updatedAt: ${params.updatedAt}`);
+    lines.push(`estimatedCost: ${estimatedCost.toFixed(2)}`);
+    lines.push(`costLimit: ${Math.max(5, Math.ceil(estimatedCost * 2))}`);
+    lines.push('todos:');
+
+    for (const todo of todos) {
+      lines.push(`  - id: "${todo.id}"`);
+      lines.push(`    content: "${todo.content.replace(/"/g, '\\"')}"`);
+      lines.push(`    status: "${todo.status}"`);
+      if (todo.complexity) {
+        lines.push(`    complexity: "${todo.complexity}"`);
+      }
+    }
+
+    lines.push('---');
+    lines.push('');
+
+    // Overview section
+    lines.push('## Overview');
+    lines.push(params.description || `Implementation plan for ${params.title}`);
+    lines.push('');
+
     // Progress summary
-    const totalTasks = params.sections.reduce((sum, s) => sum + s.tasks.length, 0);
     lines.push('## Progress');
-    lines.push(`- [ ] **${totalTasks} tasks** in ${params.sections.length} sections`);
-    lines.push(`- Progress: 0/${totalTasks} (0%)`);
+    lines.push(`- Total Tasks: ${todos.length}`);
+    lines.push(`- Completed: 0/${todos.length} (0%)`);
+    lines.push(`- Estimated Cost: ~$${estimatedCost.toFixed(2)}`);
     lines.push('');
 
     // Tasks by section
-    lines.push('## Tasks');
+    lines.push('## Implementation Tasks');
     lines.push('');
 
+    let taskIdx = 0;
     for (const section of params.sections) {
       lines.push(`### ${section.title}`);
       lines.push('');
-      for (const task of section.tasks) {
-        lines.push(`- [ ] ${task}`);
+      for (const _task of section.tasks) {
+        const todo = todos[taskIdx++];
+        const complexityBadge = todo.complexity ? `[${todo.complexity.toUpperCase()}] ` : '';
+        lines.push(`- [ ] ${complexityBadge}${todo.content}`);
       }
       lines.push('');
     }

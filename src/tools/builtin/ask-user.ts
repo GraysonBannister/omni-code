@@ -10,7 +10,6 @@ export class AskUserTool implements Tool {
   readonly description = 'Pause the conversation to ask the user a question or prompt them to perform an action in their terminal. The AI will wait for the user to respond before continuing. Useful for interactive authentication, terminal commands that require user interaction, or getting user input.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.AGENT;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

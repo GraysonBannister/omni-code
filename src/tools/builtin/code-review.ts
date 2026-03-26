@@ -7,7 +7,6 @@ export class CodeReviewTool implements Tool {
   readonly description = `Gather git diff for code review analysis. Returns the diff formatted with review guidelines for systematic review of changes for bugs, security issues, style, and improvements.`;
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

@@ -7,7 +7,6 @@ export class RailwayTool extends PlatformCLIManager implements Tool {
   readonly description = 'Execute Railway CLI commands for deployment, environment variables, and service management. WARNING: up command deploys to production. Use down to stop services.';
   readonly permissionLevel = PermissionLevel.DANGEROUS;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   protected cliName = 'Railway';
   protected cliCommand = 'railway';

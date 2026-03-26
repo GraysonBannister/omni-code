@@ -8,7 +8,6 @@ export class BashExecTool implements Tool {
   readonly description = 'Executes a shell command and returns its output. Working directory persists between commands.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.EXECUTE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

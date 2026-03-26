@@ -29,7 +29,6 @@ export class SelfAnalyzeTool implements Tool {
   readonly description = 'Reports on the codebase structure: directory tree (depth-limited), file/dir stats by extension/language, total size, detected frameworks/project type from package.json, top dependencies. Supports custom root, maxDepth, statsOnly mode.';
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.READ;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

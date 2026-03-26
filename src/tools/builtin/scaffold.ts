@@ -16,7 +16,6 @@ export class ScaffoldTool implements Tool {
   readonly description = 'Generate boilerplate code from templates: react-component, api-route, test-file, typescript-class, express-middleware.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

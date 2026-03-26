@@ -6,7 +6,6 @@ export class WebFetchTool implements Tool {
   readonly description = 'Fetch a URL and return its content as readable text. Handles HTML (strips tags), JSON (pretty-prints), and plain text.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

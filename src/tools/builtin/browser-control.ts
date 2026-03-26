@@ -33,7 +33,6 @@ Note: Screenshots are captured from the visible browser tab and returned as imag
 
   readonly permissionLevel = PermissionLevel.SAFE;
   readonly category = ToolCategory.NETWORK;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',

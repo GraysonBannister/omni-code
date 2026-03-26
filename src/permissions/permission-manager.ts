@@ -25,11 +25,6 @@ export class PermissionManager {
     context: ToolContext,
     toolId?: string,
   ): Promise<boolean> {
-    // Plan mode: only allow tools marked as available
-    if (context.planMode && !tool.availableInPlanMode) {
-      return false;
-    }
-
     // Auto-allow mode
     if (this.mode === 'auto-allow') {
       return true;

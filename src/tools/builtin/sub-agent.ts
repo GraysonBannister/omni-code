@@ -12,7 +12,6 @@ export class SubAgentTool implements Tool {
   readonly description = 'Spawn parallel sub-agents for concurrent research tasks. Each sub-agent runs independently and results are collected.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.AGENT;
-  readonly availableInPlanMode = true;
 
   readonly inputSchema = {
     type: 'object',

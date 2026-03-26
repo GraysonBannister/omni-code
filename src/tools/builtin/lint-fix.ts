@@ -9,7 +9,6 @@ export class LintFixTool implements Tool {
   readonly description = 'Run ESLint/Prettier auto-fix on files. Detects project lint configuration automatically.';
   readonly permissionLevel = PermissionLevel.MODERATE;
   readonly category = ToolCategory.WRITE;
-  readonly availableInPlanMode = false;
 
   readonly inputSchema = {
     type: 'object',
