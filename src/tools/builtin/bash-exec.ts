@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import treeKill from 'tree-kill';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
@@ -60,9 +63,11 @@ export class BashExecTool implements Tool {
         }
       };
 
-      logger.info(`[BashExec] Spawning command: ${command} in cwd: ${context.cwd}`);
+      const resolvedCwd = path.resolve(context.cwd || os.homedir());
+      const safeCwd = fs.existsSync(resolvedCwd) ? resolvedCwd : os.homedir();
+      logger.info(`[BashExec] Spawning command: ${command} in cwd: ${safeCwd}`);
       const proc = spawn(command, [], {
-        cwd: context.cwd,
+        cwd: safeCwd,
         shell: true,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],

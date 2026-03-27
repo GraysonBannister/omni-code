@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import treeKill from 'tree-kill';
 import type { Tool, ToolResult, ToolContext } from '../tool-types.js';
 import { PermissionLevel, ToolCategory } from '../tool-types.js';
@@ -125,9 +128,11 @@ export class ProcessManagerTool implements Tool {
       existing.running = false;
     }
 
-    logger.info(`[ProcessManager] Starting process "${name}": ${command} in cwd: ${cwd}`);
+    const resolvedCwd = path.resolve(cwd || os.homedir());
+    const safeCwd = fs.existsSync(resolvedCwd) ? resolvedCwd : os.homedir();
+    logger.info(`[ProcessManager] Starting process "${name}": ${command} in cwd: ${safeCwd}`);
     const proc = spawn(command, [], {
-      cwd,
+      cwd: safeCwd,
       shell: true,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],

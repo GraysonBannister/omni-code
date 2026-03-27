@@ -1,6 +1,15 @@
 // Electron Application Entry Point
 // This file initializes the Electron app with the omni-code core
 
+// Prevent the Electron crash dialog for errors we can recover from
+process.on('uncaughtException', (error) => {
+  console.error('[Main] Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Main] Unhandled rejection:', reason);
+});
+
 import { app } from 'electron';
 import { createWindow, setupAppEventHandlers } from './main/app-window.js';
 import { initializeCore } from './main/core-integration.js';

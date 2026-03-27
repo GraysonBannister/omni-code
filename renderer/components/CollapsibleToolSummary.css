@@ -1,3 +1,4 @@
+/* Minimal cursor-style tool summary */
 .collapsible-tool-summary {
   margin: var(--spacing-xs) 0;
 }
@@ -6,146 +7,45 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) 0;
+  background: transparent;
+  border: none;
   cursor: pointer;
-  transition: all 0.15s ease;
   user-select: none;
+  font-family: inherit;
 }
 
-.collapsible-tool-summary-header:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-hover);
+.collapsible-tool-summary-header:hover .collapsible-tool-summary-text {
+  color: var(--color-text-primary);
 }
 
-.collapsible-tool-summary-header.has-errors {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.05);
+.collapsible-tool-summary-header.has-errors .collapsible-tool-summary-text {
+  color: var(--color-error);
 }
 
 .collapsible-tool-summary-header svg {
   flex-shrink: 0;
   color: var(--color-text-tertiary);
-  transition: transform 0.2s ease;
+  opacity: 0.6;
 }
 
 .collapsible-tool-summary-text {
-  flex: 1;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.collapsible-tool-summary-error-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  background: var(--color-error);
-  color: white;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
 }
 
 .collapsible-tool-summary-content {
-  margin-top: var(--spacing-xs);
-  padding-left: var(--spacing-lg);
+  padding-left: var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
-  animation: slideDown 0.2s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .collapsible-tool-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) 0;
   font-size: var(--font-size-sm);
-}
-
-.collapsible-tool-item.error {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.05);
-}
-
-.collapsible-tool-item.completed {
-  opacity: 0.85;
-}
-
-.collapsible-tool-item svg {
-  flex-shrink: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .collapsible-tool-item-name {
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.collapsible-tool-item-status {
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.collapsible-tool-item.pending .collapsible-tool-item-status {
-  background: rgba(156, 163, 175, 0.2);
-  color: var(--color-text-tertiary);
-}
-
-.collapsible-tool-item.running .collapsible-tool-item-status {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-}
-
-.collapsible-tool-item.completed .collapsible-tool-item-status {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-}
-
-.collapsible-tool-item.error .collapsible-tool-item-status {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-}
-
-.collapsible-tool-item-detail,
-.collapsible-tool-item-result {
-  flex: 1;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.collapsible-tool-item-error {
-  flex: 1;
-  color: var(--color-error);
-  font-size: var(--font-size-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

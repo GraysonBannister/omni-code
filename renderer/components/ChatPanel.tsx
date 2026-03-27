@@ -101,8 +101,10 @@ function extractTextFromBlocks(blocks: ContentBlock[]): string {
     .join('');
 }
 
-function isToolResultMessageContent(content: string | ContentBlock[] | null | undefined): boolean {
-  return Array.isArray(content) && content.some((block) => block.type === 'tool_result');
+function isToolOnlyMessage(content: string | ContentBlock[] | null | undefined): boolean {
+  // Returns true if message contains only tool blocks (no text content)
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block.type === 'tool_use' || block.type === 'tool_result');
 }
 
 function hasToolErrorContent(content: string | ContentBlock[] | null | undefined): boolean {
@@ -177,6 +179,16 @@ function inferToolPhase(message: string): string {
   return 'running';
 }
 
+// Tool calls are shown in the timeline via CollapsibleToolSummary, not inline
+const InlineToolCall: React.FC<{ block: Extract<ContentBlock, { type: 'tool_use' }> }> = () => {
+  return null;
+};
+
+// Tool results are shown in the timeline, not inline
+const InlineToolResult: React.FC<{ block: Extract<ContentBlock, { type: 'tool_result' }>; index: number }> = () => {
+  return null;
+};
+
 const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undefined }> = ({ content }) => {
   if (typeof content === 'string') {
     return <>{renderTextContent(content, 'string')}</>;
@@ -194,35 +206,11 @@ const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undef
         }
 
         if (block.type === 'tool_use') {
-          return (
-            <div key={block.id} className="chat-inline-tool-call">
-              <Terminal size={14} />
-              <span className="chat-inline-tool-call-name">{block.name}</span>
-              <span className="chat-inline-tool-call-input">{formatToolInput(block.input)}</span>
-            </div>
-          );
+          return <InlineToolCall key={block.id} block={block} />;
         }
 
         if (block.type === 'tool_result') {
-          const resultText = typeof block.content === 'string' ? block.content : extractTextFromBlocks(block.content);
-          if (!resultText) {
-            return null;
-          }
-
-          return (
-            <div
-              key={`tool-result-${index}`}
-              className={`chat-tool-result ${block.isError ? 'error' : 'success'}`}
-            >
-              <div className="chat-tool-result-label">
-                <Terminal size={14} />
-                <span>{block.isError ? 'Tool error' : 'Tool result'}</span>
-              </div>
-              <div className="chat-tool-result-content">
-                {renderTextContent(resultText, `tool-result-${index}`)}
-              </div>
-            </div>
-          );
+          return <InlineToolResult key={`tool-result-${index}`} block={block} index={index} />;
         }
 
         if (block.type === 'image') {
@@ -456,7 +444,9 @@ export const ChatPanel: React.FC = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isAtBottomRef = useRef(true);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const pastChatsPanelRef = useRef<HTMLDivElement>(null);
   const projectPickerRef = useRef<HTMLDivElement>(null);
@@ -731,10 +721,26 @@ export const ChatPanel: React.FC = () => {
     }
   }, [activeConversationId, switchConversationModel]);
 
-  // Scroll to bottom when messages change
+  // Check if user is near bottom of scroll container (within 100px threshold)
+  const checkIsAtBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const threshold = 100;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom < threshold;
+  }, []);
+
+  // Scroll to bottom when messages change — only if user is already near bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isAtBottomRef.current && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamingContent]);
+
+  // Handle scroll events to detect when user scrolls up/down
+  const handleMessagesScroll = useCallback(() => {
+    isAtBottomRef.current = checkIsAtBottom();
+  }, [checkIsAtBottom]);
 
   // Auto-save conversations when dirty (debounced)
   useEffect(() => {
@@ -1644,7 +1650,7 @@ export const ChatPanel: React.FC = () => {
       {/* Main Content Area with Messages and File Changes */}
       <div className="chat-main-content">
         {/* Messages */}
-      <div className="chat-messages">
+      <div ref={messagesContainerRef} className="chat-messages" onScroll={handleMessagesScroll}>
         {!activeConversation && (
           <div className="chat-welcome">
             <Bot size={48} className="chat-welcome-icon" />
@@ -1670,23 +1676,23 @@ export const ChatPanel: React.FC = () => {
         {createTimeline(messages, toolCalls).map((item, index) => {
           if (item.type === 'message') {
             const message = item.data;
+
+            // Tool-only messages are shown in the timeline via CollapsibleToolSummary, skip here
+            if (isToolOnlyMessage(message.content)) {
+              return null;
+            }
+
             return (
               <div
                 key={message.id}
-                className={`chat-message ${isToolResultMessageContent(message.content) ? 'tool' : message.role} ${hasToolErrorContent(message.content) ? 'tool-error' : ''}`}
+                className={`chat-message ${message.role}`}
               >
                 <div className="chat-message-header">
-                  {isToolResultMessageContent(message.content)
-                    ? <Terminal size={14} />
-                    : message.role === 'user'
-                      ? <User size={14} />
-                      : <Bot size={14} />}
+                  {message.role === 'user'
+                    ? <User size={14} />
+                    : <Bot size={14} />}
                   <span>
-                    {isToolResultMessageContent(message.content)
-                      ? (hasToolErrorContent(message.content) ? 'Tool Error' : 'Tool Output')
-                      : message.role === 'user'
-                        ? 'You'
-                        : 'Assistant'}
+                    {message.role === 'user' ? 'You' : 'Assistant'}
                   </span>
                   {message.metadata?.model && (
                     <span className="chat-message-model">
@@ -1718,18 +1724,14 @@ export const ChatPanel: React.FC = () => {
               />
             );
           } else {
+            // Single non-SAFE tool - wrap in CollapsibleToolSummary for consistent minimized display
             const tool = item.data;
             return (
-              <div key={tool.id} className={`chat-tool-call ${tool.status}`}>
-                <Terminal size={14} />
-                <span className="chat-tool-call-name">{tool.toolName}</span>
-                <span className="chat-tool-call-status">{tool.status}</span>
-                {!tool.error && !tool.result && getToolStatusDetail(tool, now) && (
-                  <span className="chat-tool-call-detail">{getToolStatusDetail(tool, now)}</span>
-                )}
-                {tool.error && <span className="chat-tool-call-detail">{tool.error}</span>}
-                {!tool.error && tool.result && <span className="chat-tool-call-detail">{tool.result}</span>}
-              </div>
+              <CollapsibleToolSummary
+                key={`tool-single-${tool.id}`}
+                tools={[tool]}
+                now={now}
+              />
             );
           }
         })}
