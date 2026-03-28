@@ -264,7 +264,6 @@ async function main() {
       tools: toolRegistry.getAll(),
       temperature: config.get('temperature'),
       maxContextTokens: config.get('maxContextTokens'),
-      planMode: false,
       thinking,
     },
     toolRunner,

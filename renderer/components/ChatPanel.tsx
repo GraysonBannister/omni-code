@@ -733,7 +733,7 @@ export const ChatPanel: React.FC = () => {
   // Scroll to bottom when messages change — only if user is already near bottom
   useEffect(() => {
     if (isAtBottomRef.current && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
     }
   }, [messages, streamingContent]);
 
@@ -881,6 +881,10 @@ export const ChatPanel: React.FC = () => {
 
       const { conversationId } = agentEvent;
       
+      if (agentEvent.type === 'user_message' || agentEvent.type === 'turn_complete') {
+        console.log(`[ChatPanel] Event received: type=${agentEvent.type}, conversationId=${conversationId}`);
+      }
+
       // Route events to the correct conversation
       switch (agentEvent.type) {
         case 'stream_delta':
@@ -1047,13 +1051,6 @@ export const ChatPanel: React.FC = () => {
 
         case 'tool_call_end':
           if (agentEvent.toolId) {
-            // Debug logging
-            console.log('🔧 tool_call_end:', {
-              toolId: agentEvent.toolId,
-              toolName: agentEvent.toolName,
-              isError: agentEvent.result?.isError,
-            });
-
             updateToolCallInConversation(conversationId, agentEvent.toolId, {
               status: agentEvent.result?.isError ? 'error' : 'completed',
               phase: agentEvent.result?.isError ? 'error' : 'completed',
@@ -1104,6 +1101,35 @@ export const ChatPanel: React.FC = () => {
         case 'orchestration_complete':
           setConversationOrchestrationStatus(conversationId, null);
           break;
+
+        case 'user_message': {
+          console.log('[ChatPanel] user_message event received, conversationId=', conversationId, 'raw event=', JSON.stringify(agentEvent).slice(0, 300));
+          const userMsg = agentEvent.message as { id: string; role: string; content: string | ContentBlock[]; timestamp: number } | undefined;
+          if (!userMsg) {
+            console.warn('[ChatPanel] user_message event has no message field, skipping');
+            break;
+          }
+          const existingConv = useAppStore.getState().conversations.find(c => c.id === conversationId);
+          console.log('[ChatPanel] user_message: conversation found=', !!existingConv, 'message count=', existingConv?.messages.length ?? 0);
+          const alreadyExists = existingConv?.messages.some(m => m.id === userMsg.id);
+          console.log('[ChatPanel] user_message: alreadyExists=', alreadyExists, 'msgId=', userMsg.id);
+          if (!alreadyExists) {
+            const contentStr = typeof userMsg.content === 'string'
+              ? userMsg.content
+              : Array.isArray(userMsg.content)
+                ? (userMsg.content as ContentBlock[]).filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+                : String(userMsg.content);
+            console.log('[ChatPanel] user_message: adding to conversation, content preview=', contentStr.slice(0, 100));
+            addMessageToConversation(conversationId, {
+              id: userMsg.id,
+              role: 'user',
+              content: contentStr,
+              timestamp: userMsg.timestamp,
+            });
+            setConversationProcessing(conversationId, true);
+          }
+          break;
+        }
 
         case 'error':
           console.error('Agent error:', agentEvent.error);

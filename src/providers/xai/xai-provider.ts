@@ -12,10 +12,13 @@ import { getTextContent, getToolUseBlocks, getToolResultBlocks, getToolResultTex
 import { getModelsForProvider } from '../model-registry.js';
 import { ToolCallNormalizer } from '../tool-call-normalizer.js';
 
-/** Models that require the /v1/responses endpoint instead of /v1/chat/completions */
-const RESPONSES_API_MODELS = new Set([
-  'grok-4.20-multi-agent-experimental-beta-0304',
-]);
+/**
+ * Models that require the /v1/responses endpoint instead of /v1/chat/completions.
+ * NOTE: Keep this empty until the Responses API path has full tool-call support.
+ * The current buildResponsesInput implementation strips all tool_use/tool_result
+ * blocks, causing models routed here to hallucinate tool calls in plain text.
+ */
+const RESPONSES_API_MODELS = new Set<string>([]);
 
 /**
  * xAI Grok provider — uses the OpenAI SDK with xAI's base URL for standard models,
@@ -49,7 +52,7 @@ export class XAIProvider extends BaseProvider {
   }
 
   private isResponsesModel(model: string): boolean {
-    return RESPONSES_API_MODELS.has(model) || model.includes('multi-agent');
+    return RESPONSES_API_MODELS.has(model);
   }
 
   listModels(): ModelInfo[] { return this.models; }

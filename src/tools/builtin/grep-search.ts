@@ -89,7 +89,7 @@ export class GrepSearchTool implements Tool {
     try {
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: 30_000,
-        maxBuffer: 10 * 1024 * 1024,
+        maxBuffer: 2 * 1024 * 1024,
       });
 
       const lines = stdout.trim().split('\n');

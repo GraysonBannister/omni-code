@@ -129,11 +129,41 @@ Note: Screenshots are captured from the visible browser tab and returned as imag
         }
 
         case 'screenshot': {
-          // Screenshot is not fully implemented yet
-          // The infrastructure is there but capturing from webview requires more work
+          // Request screenshot from the browser tab via IPC
+          const targetTabId = tabId || 'current';
+
+          // Import the screenshot helper from ipc-handlers
+          const { requestScreenshot } = await import('../../../main/ipc-handlers.js');
+          const result = await requestScreenshot(targetTabId);
+
+          if (result.error || !result.dataUrl) {
+            return {
+              content: `Screenshot failed: ${result.error || 'Unknown error'}`,
+              isError: true,
+              metadata: { action: 'screenshot', tabId: targetTabId },
+            };
+          }
+
+          // Extract base64 data from data URL (remove the data:image/png;base64, prefix)
+          const base64Data = result.dataUrl.replace(/^data:image\/png;base64,/, '');
+
+          // Create an ImageBlock to return the screenshot as an image the AI can analyze
+          const imageBlock: ImageBlock = {
+            type: 'image',
+            source: {
+              type: 'base64',
+              mediaType: 'image/png',
+              data: base64Data,
+            },
+          };
+
+          // Calculate approximate size for display
+          const sizeKB = (base64Data.length * 0.75 / 1024).toFixed(1);
+
           return {
-            content: 'Screenshot capture is not yet implemented. The browser tab has a screenshot button you can click manually.',
-            metadata: { action: 'screenshot' },
+            content: `Screenshot captured successfully (${sizeKB}KB). The image is attached for analysis.`,
+            contentBlocks: [imageBlock],
+            metadata: { action: 'screenshot', tabId: targetTabId, sizeKB },
           };
         }
 

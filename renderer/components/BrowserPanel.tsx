@@ -131,15 +131,68 @@ export const BrowserPanel: React.FC<BrowserPanelProps> = ({ url }) => {
     }
   }, [inputUrl]);
 
+  // Listen for screenshot requests from the main process and capture the webview
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.browser.onScreenshotRequest(async (event) => {
+      try {
+        const webview = webviewRef.current;
+        if (!webview) {
+          await window.electronAPI.browser.sendScreenshotResponse(event.tabId, undefined, 'Webview not available');
+          return;
+        }
+
+        // Capture the webview page
+        // @ts-ignore - capturePage is an Electron webview method
+        const image = await webview.capturePage();
+        if (!image) {
+          await window.electronAPI.browser.sendScreenshotResponse(event.tabId, undefined, 'Failed to capture page');
+          return;
+        }
+
+        // Convert to data URL (PNG format)
+        const dataUrl = image.toDataURL();
+        await window.electronAPI.browser.sendScreenshotResponse(event.tabId, dataUrl, undefined);
+      } catch (error) {
+        console.error('Failed to capture screenshot:', error);
+        await window.electronAPI.browser.sendScreenshotResponse(
+          event.tabId,
+          undefined,
+          error instanceof Error ? error.message : 'Unknown error capturing screenshot'
+        );
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
   const handleScreenshot = useCallback(async () => {
     try {
-      // Request screenshot via IPC
-      const result = await window.electronAPI.browser.sendScreenshotResponse(url, undefined, 'Not implemented yet');
-      console.log('Screenshot requested:', result);
+      // Capture screenshot directly from the webview
+      const webview = webviewRef.current;
+      if (!webview) {
+        console.error('Webview not available for screenshot');
+        return;
+      }
+
+      // @ts-ignore - capturePage is an Electron webview method
+      const image = await webview.capturePage();
+      if (!image) {
+        console.error('Failed to capture page');
+        return;
+      }
+
+      const dataUrl = image.toDataURL();
+      console.log('Screenshot captured, data URL length:', dataUrl.length);
+
+      // Open screenshot in a new window or download it
+      const link = document.createElement('a');
+      link.download = `screenshot-${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
     } catch (e) {
       console.error('Failed to take screenshot:', e);
     }
-  }, [url]);
+  }, []);
 
   return (
     <div className="browser-panel">

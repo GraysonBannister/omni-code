@@ -22,7 +22,8 @@ type AgentEvent =
   | { type: 'file_change'; conversationId: string; messageId: string; toolCallId: string; fileChanges: Array<{ filePath: string; changeType: string; hasBeforeContent: boolean; hasAfterContent: boolean }> }
   | { type: 'user_input_request'; requestId: string; prompt: string; terminalCommand?: string; waitForInput: boolean; placeholder?: string }
   | { type: 'user_input_responded'; requestId: string; response: string }
-  | { type: 'user_input_cancelled'; requestId: string };
+  | { type: 'user_input_cancelled'; requestId: string }
+  | { type: 'user_message'; message: { id: string; role: 'user'; content: string | unknown[]; timestamp: number } };
 
 // Extended agent event with conversation ID for routing
 export type ConversationAgentEvent = AgentEvent & { conversationId: string };
@@ -433,6 +434,20 @@ export class AgentBridge {
           })),
         ]
       : messageWithContext;
+
+    // Emit user message event so all listeners (Electron renderer, remote clients) see it
+    const userMsgId = `user-${Date.now()}`;
+    console.log(`[AgentBridge] Emitting user_message event: conversationId=${conversationId}, id=${userMsgId}, contentType=${typeof messageContent}, isArray=${Array.isArray(messageContent)}`);
+    this.emitEvent(conversationId, {
+      type: 'user_message',
+      message: {
+        id: userMsgId,
+        role: 'user',
+        content: messageContent,
+        timestamp: Date.now(),
+      },
+    });
+    console.log(`[AgentBridge] user_message event emitted, listener count=${this.eventListeners.size}`);
 
     try {
       console.log(`[AgentBridge] Starting agent.run for conversation ${conversationId}${images?.length ? ` with ${images.length} image(s)` : ''}`);
@@ -894,8 +909,13 @@ export class AgentBridge {
   private emitEvent(conversationId: string, event: AgentEvent): void {
     const eventWithId: ConversationAgentEvent = { ...event, conversationId };
 
+    const windows = BrowserWindow.getAllWindows();
+    if (event.type === 'user_message') {
+      console.log(`[AgentBridge.emitEvent] user_message: broadcasting to ${windows.length} window(s), ${this.eventListeners.size} listener(s), conversationId=${conversationId}`);
+    }
+
     // Send to all renderer windows
-    BrowserWindow.getAllWindows().forEach(window => {
+    windows.forEach(window => {
       window.webContents.send('agent:event', eventWithId);
     });
 

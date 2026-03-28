@@ -99,7 +99,14 @@ function broadcastEvent(event: ConversationAgentEvent): void {
 
   const responseSet = connections.get(conversationId);
   if (!responseSet || responseSet.size === 0) {
+    if (event.type === 'user_message') {
+      console.log(`[RemoteEventEmitter] user_message event has no SSE connections for conversation ${conversationId}. Active conversations: [${Array.from(connections.keys()).join(', ')}]`);
+    }
     return; // No connections for this conversation
+  }
+
+  if (event.type === 'user_message') {
+    console.log(`[RemoteEventEmitter] Broadcasting user_message to ${responseSet.size} SSE connection(s) for conversation ${conversationId}`);
   }
 
   const sseData = `data: ${JSON.stringify(eventData)}\n\n`;

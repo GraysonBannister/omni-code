@@ -55,7 +55,7 @@ export class BashExecTool implements Tool {
 
       const emitProgress = () => {
         const now = Date.now();
-        if (now - lastProgressAt > 500) {
+        if (now - lastProgressAt > 1000) {
           lastProgressAt = now;
           const combined = (stdout + (stderr ? '\n' + stderr : '')).trimEnd();
           const lines = combined.split('\n').slice(-8).join('\n');

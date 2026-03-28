@@ -128,6 +128,7 @@ export async function initializeRemoteServer(): Promise<{
       if (!meta) return; // not a remote conversation — skip, renderer handles it
 
       const snapshot = agentBridge.getConversationSnapshot(event.conversationId);
+      console.log(`[RemoteServer] Auto-save snapshot: conversationId=${event.conversationId}, messages=${snapshot?.messages.length ?? 0}, roles=${snapshot?.messages.map(m => m.role).join(',') ?? 'none'}`);
       if (!snapshot || snapshot.messages.length === 0) return;
 
       try {
@@ -507,9 +508,12 @@ function setupChatRoutes(app: express.Express): void {
         (c) => c.id === req.params.conversationId
       ) ?? null;
       if (!conversation) {
+        console.log(`[RemoteServer] loadConversation: NOT FOUND id=${req.params.conversationId}, available ids=[${result.conversations?.map(c => c.id).join(', ')}]`);
         res.status(404).json({ error: 'Conversation not found' });
         return;
       }
+      const msgRoles = (conversation.messages ?? []).map((m: { role: string }) => m.role).join(',');
+      console.log(`[RemoteServer] loadConversation: found id=${conversation.id}, messageCount=${(conversation.messages ?? []).length}, roles=${msgRoles}`);
       res.json({ conversation });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });

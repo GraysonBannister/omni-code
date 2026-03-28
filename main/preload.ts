@@ -16,7 +16,8 @@ type AgentEvent =
   | { type: 'error'; error: { message: string } }
   | { type: 'orchestration_task_start'; taskId: string; capability: string; description: string }
   | { type: 'orchestration_task_end'; taskId: string; success: boolean; durationMs: number }
-  | { type: 'orchestration_complete'; summary: string };
+  | { type: 'orchestration_complete'; summary: string }
+  | { type: 'user_message'; message: { id: string; role: string; content: string | unknown[]; timestamp: number } };
 
 // Extended agent event with conversation ID for multi-tab support
 type ConversationAgentEvent = AgentEvent & { conversationId: string };

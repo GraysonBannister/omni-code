@@ -876,7 +876,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   addMessageToConversation: (conversationId, message) => set(state => {
     const conversation = state.conversations.find(c => c.id === conversationId);
-    if (!conversation) return state;
+    if (!conversation) {
+      console.warn(`[AppStore] addMessageToConversation: conversation ${conversationId} not found in store (${state.conversations.length} conversations: [${state.conversations.map(c => c.id).join(', ')}])`);
+      return state;
+    }
 
     // Auto-generate title from first user message
     let title = conversation.title;

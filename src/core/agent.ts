@@ -421,7 +421,11 @@ export class AgentImpl implements Agent {
       timestamp: Date.now(),
     };
 
-    this._messages = [firstMsg, summaryMsg, ...recentMessages];
+    // Note: firstMsg is intentionally excluded here. Keeping it would create two
+    // consecutive user messages ([firstMsg, summaryMsg]) which is invalid for all
+    // OpenAI-compatible APIs and causes a 400 "no body" error.
+    // The summary already captures the context from the first message.
+    this._messages = [summaryMsg, ...recentMessages];
   }
 
   async getTokenCount(): Promise<number> {

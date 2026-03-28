@@ -70,6 +70,9 @@ let chatStorageRef = getChatStorage();
 const fileWatchers = new Map<string, AbortController>();
 const FILE_WRITE_TIMEOUT_MS = 15000;
 
+// Pending screenshot requests for browser tabs
+const pendingScreenshotRequests = new Map<string, { resolve: (value: { dataUrl?: string; error?: string }) => void; reject: (error: Error) => void }>();
+
 export function setAgentRef(agent: typeof agentRef): void {
   agentRef = agent;
 }
@@ -987,6 +990,45 @@ export function setupIpcHandlers(): void {
     return { success: true, tabId };
   });
 
+  // Screenshot handlers - Clear any existing pending requests and use module-level map
+  pendingScreenshotRequests.clear();
+
+  ipcMain.handle('browser:request-screenshot', async (_: IpcMainInvokeEvent, tabId: string) => {
+    if (!mainWindowRef) {
+      return { success: false, error: 'Main window not available' };
+    }
+    // Send request to renderer to capture screenshot
+    mainWindowRef.webContents.send('browser:request-screenshot', { tabId });
+    // Return a promise that resolves when the screenshot response comes back
+    return new Promise<{ success: boolean; dataUrl?: string; error?: string }>((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingScreenshotRequests.delete(tabId);
+        resolve({ success: false, error: 'Screenshot request timed out' });
+      }, 30000); // 30 second timeout
+
+      pendingScreenshotRequests.set(tabId, {
+        resolve: (result) => {
+          clearTimeout(timeout);
+          pendingScreenshotRequests.delete(tabId);
+          resolve({ success: !result.error, ...result });
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          pendingScreenshotRequests.delete(tabId);
+          resolve({ success: false, error: error.message });
+        }
+      });
+    });
+  });
+
+  ipcMain.handle('browser:screenshot-response', async (_: IpcMainInvokeEvent, { tabId, dataUrl, error }: { tabId: string; dataUrl?: string; error?: string }) => {
+    const pending = pendingScreenshotRequests.get(tabId);
+    if (pending) {
+      pending.resolve({ dataUrl, error });
+    }
+    return { success: true };
+  });
+
   // Remote access handlers
   ipcMain.handle('remote:start', async () => {
     try {
@@ -1065,6 +1107,42 @@ export function setupIpcHandlers(): void {
 
 }
 
+/**
+ * Request a screenshot from a browser tab
+ * This function is called by tools to capture screenshots of web pages
+ * @param tabId - The identifier for the browser tab (usually the URL)
+ * @returns The screenshot as a data URL or an error
+ */
+export async function requestScreenshot(tabId: string): Promise<{ dataUrl?: string; error?: string }> {
+  if (!mainWindowRef) {
+    return { error: 'Main window not available' };
+  }
+
+  // Send request to renderer to capture screenshot
+  mainWindowRef.webContents.send('browser:request-screenshot', { tabId });
+
+  // Return a promise that resolves when the screenshot response comes back
+  return new Promise<{ dataUrl?: string; error?: string }>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingScreenshotRequests.delete(tabId);
+      resolve({ error: 'Screenshot request timed out' });
+    }, 30000); // 30 second timeout
+
+    pendingScreenshotRequests.set(tabId, {
+      resolve: (result) => {
+        clearTimeout(timeout);
+        pendingScreenshotRequests.delete(tabId);
+        resolve(result);
+      },
+      reject: (error) => {
+        clearTimeout(timeout);
+        pendingScreenshotRequests.delete(tabId);
+        resolve({ error: error.message });
+      }
+    });
+  });
+}
+
 // Set main window reference for browser events
 export function setMainWindowForBrowser(window: BrowserWindow): void {
   mainWindowRef = window;
@@ -1077,6 +1155,9 @@ export function cleanupIpcHandlers(): void {
   // Clean up all file watchers
   fileWatchers.forEach(controller => controller.abort());
   fileWatchers.clear();
+
+  // Clean up pending screenshot requests
+  pendingScreenshotRequests.clear();
   
   // Remove all IPC handlers
   ipcMain.removeHandler('agent:create-conversation');
@@ -1145,6 +1226,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('browser:navigate');
   ipcMain.removeHandler('browser:close');
   ipcMain.removeHandler('browser:request-screenshot');
+  ipcMain.removeHandler('browser:screenshot-response');
 
   ipcMain.removeHandler('project:scan');
 
