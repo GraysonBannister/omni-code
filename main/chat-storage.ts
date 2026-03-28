@@ -21,6 +21,9 @@ interface SerializedConversation {
   provider?: string; // Per-conversation provider selection
   contextTokens?: number; // Token usage count
   maxContextTokens?: number; // Max context limit
+  mode?: string; // AI operating mode (code, architect, review, etc.)
+  planningApproach?: string; // Planning strategy: 'one-shot' | 'iterative'
+  pendingPlan?: unknown; // Plan awaiting user approval in architect mode
 }
 
 /**
@@ -61,6 +64,9 @@ export class ChatStorage {
         provider: conversation.provider,
         contextTokens: conversation.contextTokens,
         maxContextTokens: conversation.maxContextTokens,
+        mode: conversation.mode,
+        planningApproach: (conversation as any).planningApproach,
+        pendingPlan: (conversation as any).pendingPlan ?? undefined,
       };
 
       // Write to temp file first, then rename for atomic operation
@@ -119,8 +125,13 @@ export class ChatStorage {
             toolCalls: migrated.toolCalls,
             createdAt: migrated.createdAt,
             updatedAt: migrated.updatedAt,
+            model: migrated.model,
+            provider: migrated.provider,
             contextTokens: migrated.contextTokens,
             maxContextTokens: migrated.maxContextTokens,
+            mode: migrated.mode,
+            planningApproach: migrated.planningApproach,
+            pendingPlan: migrated.pendingPlan ?? null,
             // Reset runtime state
             isProcessing: false,
             streamingContent: '',

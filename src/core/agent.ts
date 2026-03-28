@@ -74,9 +74,9 @@ export class AgentImpl implements Agent {
     this._messages.push(userMsg);
 
     let turns = 0;
-    const maxTurns = this.config.maxTurns || 50;
+    const maxTurns = this.config.maxTurns ?? 50;
 
-    while (turns < maxTurns) {
+    while (maxTurns === null || turns < maxTurns) {
       turns++;
 
       // Auto-compress context if approaching token limit
@@ -346,7 +346,7 @@ export class AgentImpl implements Agent {
       // Loop back to let the LLM process tool results
     }
 
-    if (turns >= maxTurns) {
+    if (maxTurns !== null && turns >= maxTurns) {
       yield {
         type: 'error',
         error: new Error(`Agent reached maximum turns (${maxTurns}). Stopping.`),

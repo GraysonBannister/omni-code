@@ -78,7 +78,7 @@ export interface OrchestrationConfig {
   agentOverrides: Record<string, {
     temperature?: number;
     preferredModel?: string;
-    maxTurns?: number;
+    maxTurns?: number | null;
   }>;
 }
 

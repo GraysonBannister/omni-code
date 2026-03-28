@@ -4,10 +4,11 @@ import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
 import { ModeSelector, AIMode } from './ModeSelector';
+import { PlanningPanel, type ExecutionPlan, type PlanFile } from './PlanningPanel';
 import { UserInputCard, type UserInputRequest } from './UserInputCard';
 import { PermissionCard, type PermissionRequest } from './PermissionCard';
 import { CollapsibleToolSummary } from './CollapsibleToolSummary';
-import { useAppStore, type ToolCall } from '../stores/appStore';
+import { useAppStore, type ToolCall, type PendingPlan, type PlanningApproach, type PlanStepStatus } from '../stores/appStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import './ChatPanel.css';
 
@@ -397,6 +398,9 @@ export const ChatPanel: React.FC = () => {
     switchConversationModel,
     updateConversationContext,
     setConversationMode,
+    setPlanningApproach,
+    setPendingPlan,
+    updatePendingPlanStepStatus,
     // Past chats state
     pastChats,
     pastChatsLoaded,
@@ -583,6 +587,8 @@ export const ChatPanel: React.FC = () => {
   const isProcessing = activeConversation?.isProcessing || false;
   const toolCalls = activeConversation?.toolCalls || [];
   const orchestrationStatus = activeConversation?.orchestrationStatus || null;
+  const pendingPlan = activeConversation?.pendingPlan ?? null;
+  const planningApproach: PlanningApproach = activeConversation?.planningApproach ?? 'one-shot';
 
   useEffect(() => {
     if (!toolCalls.some(tool => tool.status === 'running' && tool.toolName === 'Write')) {
@@ -896,7 +902,7 @@ export const ChatPanel: React.FC = () => {
           }
           break;
 
-        case 'turn_complete':
+        case 'turn_complete': {
           const msg = agentEvent.message as {
             id: string;
             role: string;
@@ -912,6 +918,27 @@ export const ChatPanel: React.FC = () => {
             metadata: msg.metadata as Record<string, unknown>,
           });
           setConversationStreaming(conversationId, '');
+
+          // Detect <plan>...</plan> block in architect mode responses
+          const conv = useAppStore.getState().conversations.find(c => c.id === conversationId);
+          if (conv?.mode === 'architect') {
+            const fullText = typeof msg.content === 'string'
+              ? msg.content
+              : (msg.content as ContentBlock[])
+                  .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+                  .map(b => b.text)
+                  .join('');
+            const planMatch = fullText.match(/<plan>([\s\S]*?)<\/plan>/);
+            if (planMatch) {
+              try {
+                const parsed: PendingPlan = JSON.parse(planMatch[1].trim());
+                useAppStore.getState().setPendingPlan(conversationId, parsed);
+              } catch {
+                // Malformed plan JSON — ignore
+              }
+            }
+          }
+
           if ((msg.metadata as Record<string, unknown> | undefined)?.stopReason !== 'tool_use') {
             setConversationProcessing(conversationId, false);
             // Immediately persist the completed response so it survives a quit
@@ -921,6 +948,7 @@ export const ChatPanel: React.FC = () => {
             window.electronAPI!.notifications.requestSound('response_complete').catch(console.error);
           }
           break;
+        }
 
         case 'tool_results_complete':
           {
@@ -1073,6 +1101,19 @@ export const ChatPanel: React.FC = () => {
             // Also refresh conversation-level file changes
             loadConversationFileChanges();
           }
+          // Track plan step progress: match changed files against plan step file lists
+          {
+            const planConv = useAppStore.getState().conversations.find(c => c.id === conversationId);
+            if (planConv?.pendingPlan && planConv.mode === 'code' && agentEvent.fileChanges) {
+              for (const fileChange of agentEvent.fileChanges) {
+                for (const step of planConv.pendingPlan.steps) {
+                  if (step.files?.some(f => fileChange.filePath.endsWith(f))) {
+                    useAppStore.getState().updatePendingPlanStepStatus(conversationId, step.id, 'completed');
+                  }
+                }
+              }
+            }
+          }
           break;
 
         case 'cost_update':
@@ -1144,8 +1185,15 @@ export const ChatPanel: React.FC = () => {
   const handleSend = useCallback(async () => {
     if ((!inputValue.trim() && attachedImages.length === 0) || isProcessing || !activeConversationId) return;
 
-    const userMessage = inputValue.trim();
+    const rawMessage = inputValue.trim();
     setInputValue('');
+
+    // In architect mode with one-shot approach, instruct the agent to plan immediately
+    const activeConv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
+    const currentApproach = activeConv?.planningApproach ?? 'one-shot';
+    const userMessage = (activeConv?.mode === 'architect' && currentApproach === 'one-shot')
+      ? `[Generate the complete plan immediately without asking clarifying questions]\n\n${rawMessage}`
+      : rawMessage;
 
     // Snapshot and clear attached images
     const imagesToSend = [...attachedImages];
@@ -1177,10 +1225,11 @@ export const ChatPanel: React.FC = () => {
     setSelectedReferences([]);
 
     // Add user message to active conversation with file references
+    // Always display the raw user text (without any injected planning prefixes)
     addMessageToConversation(activeConversationId, {
       id: crypto.randomUUID(),
       role: 'user',
-      content: userMessage,
+      content: rawMessage,
       timestamp: Date.now(),
       fileChanges: resolvedRefs.map(r => ({
         filePath: r.path,
@@ -1208,6 +1257,66 @@ export const ChatPanel: React.FC = () => {
       setConversationProcessing(activeConversationId, false);
     }
   }, [inputValue, attachedImages, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath, selectedReferences]);
+
+  // ── Plan handlers ─────────────────────────────────────────────────────────
+
+  const handlePlanApprove = useCallback(async () => {
+    if (!activeConversationId || !pendingPlan) return;
+    // Do NOT clear pendingPlan — it stays as a live progress tracker during execution
+    setConversationMode(activeConversationId, 'code');
+    const planJson = JSON.stringify(pendingPlan, null, 2);
+    const executionMessage =
+      `The following plan has been approved. Please execute it step by step:\n\n\`\`\`json\n${planJson}\n\`\`\`\n\nImplement each step in order. Write clean, well-structured code.`;
+    setConversationProcessing(activeConversationId, true);
+    try {
+      await window.electronAPI!.agent.sendMessage(
+        activeConversationId,
+        executionMessage,
+        projectPath || undefined,
+      );
+    } catch (error) {
+      console.error('Failed to start plan execution:', error);
+      setConversationProcessing(activeConversationId, false);
+    }
+  }, [activeConversationId, pendingPlan, setConversationMode, setConversationProcessing, projectPath]);
+
+  const handlePlanModify = useCallback(() => {
+    if (!activeConversationId) return;
+    setPendingPlan(activeConversationId, null);
+    setInputValue('Please modify the plan: ');
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [activeConversationId, setPendingPlan]);
+
+  const handlePlanReject = useCallback(() => {
+    if (!activeConversationId) return;
+    setPendingPlan(activeConversationId, null);
+  }, [activeConversationId, setPendingPlan]);
+
+  const handlePlanDismiss = useCallback(() => {
+    if (!activeConversationId) return;
+    setPendingPlan(activeConversationId, null);
+  }, [activeConversationId, setPendingPlan]);
+
+  // ── Helper: convert PendingPlan → ExecutionPlan for PlanningPanel ─────────
+
+  const convertToExecutionPlan = useCallback((plan: PendingPlan): ExecutionPlan => ({
+    id: 'pending',
+    title: plan.title,
+    description: plan.goal,
+    goal: plan.goal,
+    files: plan.files as PlanFile[],
+    steps: plan.steps.map(s => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      files: s.files,
+      status: (plan.stepStatuses?.[s.id] ?? 'pending') as PlanStepStatus,
+    })),
+    risks: plan.risks,
+    questions: plan.questions,
+  }), []);
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Handle mention popup keyboard navigation
@@ -1801,6 +1910,20 @@ export const ChatPanel: React.FC = () => {
           </div>
         )}
 
+        {/* Planning panel — shown whenever a plan exists (architect: review; code: execution tracking) */}
+        {pendingPlan && (
+          <div className="planning-panel-wrapper">
+            <PlanningPanel
+              plan={convertToExecutionPlan(pendingPlan)}
+              onApprove={handlePlanApprove}
+              onModify={handlePlanModify}
+              onReject={handlePlanReject}
+              onDismiss={handlePlanDismiss}
+              isExecuting={isProcessing && activeConversation?.mode === 'code'}
+            />
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
       </div>
@@ -1971,9 +2094,36 @@ export const ChatPanel: React.FC = () => {
             <span className="mode-bar-label">Mode:</span>
             <ModeSelector
               value={(activeConversation?.mode as AIMode) || 'code'}
-              onChange={(mode) => setConversationMode(activeConversation?.id || '', mode)}
+              onChange={(mode) => {
+                setConversationMode(activeConversation?.id || '', mode);
+                // Clear any pending plan when switching away from architect
+                if (mode !== 'architect' && activeConversation?.id) {
+                  setPendingPlan(activeConversation.id, null);
+                }
+              }}
               disabled={activeConversation?.isProcessing || false}
             />
+            {/* Planning approach toggle — only visible in architect mode */}
+            {activeConversation?.mode === 'architect' && (
+              <div className="planning-approach-toggle" title="Choose how the agent plans">
+                <button
+                  className={`approach-btn${planningApproach === 'one-shot' ? ' active' : ''}`}
+                  onClick={() => setPlanningApproach(activeConversation.id, 'one-shot')}
+                  disabled={isProcessing}
+                  title="Generate the full plan in one response"
+                >
+                  One-shot
+                </button>
+                <button
+                  className={`approach-btn${planningApproach === 'iterative' ? ' active' : ''}`}
+                  onClick={() => setPlanningApproach(activeConversation.id, 'iterative')}
+                  disabled={isProcessing}
+                  title="Agent asks clarifying questions before planning"
+                >
+                  Iterative
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

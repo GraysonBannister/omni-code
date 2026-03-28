@@ -89,7 +89,7 @@ export const OmniCodeConfigSchema = z.object({
     agentOverrides: z.record(z.string(), z.object({
       temperature: z.number().optional(),
       preferredModel: z.string().optional(),
-      maxTurns: z.number().optional(),
+      maxTurns: z.number().nullable().optional(),
     })).default({}),
   }).default({
     enabled: true,

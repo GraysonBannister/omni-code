@@ -149,7 +149,7 @@ export class AgentRegistry {
       model: overrides.preferredModel || baseModel,
       systemPrompt,
       tools,
-      maxTurns: overrides.maxTurns || 15,
+      maxTurns: overrides.maxTurns ?? 15,
       temperature: overrides.temperature ?? spec.temperature,
       maxContextTokens: 50000,
       isSubAgent: true,

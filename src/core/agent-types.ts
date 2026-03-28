@@ -49,7 +49,7 @@ export interface AgentConfig {
   model: string;
   systemPrompt: string;
   tools: ToolRegistration[];
-  maxTurns?: number;
+  maxTurns?: number | null;
   temperature?: number;
   maxTokens?: number;
   maxContextTokens?: number;

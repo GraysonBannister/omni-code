@@ -451,14 +451,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 onChange={(value) => setSetting('ai.contextRecentMessagesToKeep', parseInt(value))}
               />
 
+              <SettingToggle
+                label="Limit Agent Turns"
+                description="Enable to set a maximum number of LLM calls per task. Disable for unlimited turns."
+                checked={currentSettings.ai.maxTurns !== null}
+                onChange={(checked) => setSetting('ai.maxTurns', checked ? 50 : null)}
+              />
+
               <SettingInput
                 label="Max Agent Turns"
-                description="Maximum LLM calls per task before stopping — increase for complex multi-step workflows (10-200)"
+                description="Maximum LLM calls per task before stopping — increase for complex multi-step workflows (10-500)"
                 value={currentSettings.ai.maxTurns ?? 50}
                 type="number"
                 min={10}
-                max={200}
+                max={500}
                 step={5}
+                disabled={currentSettings.ai.maxTurns === null}
                 onChange={(value) => setSetting('ai.maxTurns', parseInt(value))}
               />
 

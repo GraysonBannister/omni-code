@@ -61,6 +61,34 @@ export interface OpenFile {
   url?: string; // For browser tabs
 }
 
+// Planning mode types
+export type PlanningApproach = 'one-shot' | 'iterative';
+
+export interface PendingPlanFile {
+  path: string;
+  action: 'create' | 'modify' | 'delete';
+  reason: string;
+}
+
+export interface PendingPlanStep {
+  id: string;
+  title: string;
+  description: string;
+  files?: string[];
+}
+
+export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface PendingPlan {
+  title: string;
+  goal: string;
+  files: PendingPlanFile[];
+  steps: PendingPlanStep[];
+  risks?: string[];
+  questions?: string[];
+  stepStatuses?: Record<string, PlanStepStatus>;
+}
+
 // Multi-tab conversation support - each conversation is isolated
 export interface Conversation {
   id: string;
@@ -78,6 +106,8 @@ export interface Conversation {
   mode?: 'code' | 'architect' | 'review' | 'security' | 'debug'; // AI operating mode
   contextTokens?: number; // Current context token count
   maxContextTokens?: number; // Maximum allowed context tokens
+  planningApproach?: PlanningApproach; // Planning strategy when in architect mode
+  pendingPlan?: PendingPlan | null; // Plan awaiting approval in architect mode
 }
 
 // Terminal Session for multi-terminal support
@@ -190,6 +220,9 @@ interface AppState {
   saveAllConversations: () => Promise<void>;
   loadSavedConversations: (workspacePath: string) => Promise<void>;
   setConversationMode: (conversationId: string, mode: 'code' | 'architect' | 'review' | 'security' | 'debug') => void;
+  setPlanningApproach: (conversationId: string, approach: PlanningApproach) => void;
+  setPendingPlan: (conversationId: string, plan: PendingPlan | null) => void;
+  updatePendingPlanStepStatus: (conversationId: string, stepId: string, status: PlanStepStatus) => void;
   
   // Past Chats Actions
   listSavedConversations: () => Promise<void>;
@@ -573,6 +606,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           contextTokens: saved.contextTokens,
           maxContextTokens: saved.maxContextTokens,
           mode: saved.mode,
+          planningApproach: saved.planningApproach,
+          pendingPlan: saved.pendingPlan ?? null,
           // Reset runtime state
           isProcessing: false,
           streamingContent: '',
@@ -796,6 +831,45 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Notify the main process to set the mode for this conversation
     window.electronAPI?.agent.setMode?.(conversationId, mode).catch(console.error);
+  },
+
+  setPlanningApproach: (conversationId, approach) => {
+    set(state => ({
+      conversations: state.conversations.map(c =>
+        c.id === conversationId
+          ? { ...c, planningApproach: approach, updatedAt: Date.now() }
+          : c
+      ),
+    }));
+  },
+
+  setPendingPlan: (conversationId, plan) => {
+    set(state => ({
+      conversations: state.conversations.map(c =>
+        c.id === conversationId
+          ? { ...c, pendingPlan: plan, updatedAt: Date.now() }
+          : c
+      ),
+    }));
+  },
+
+  updatePendingPlanStepStatus: (conversationId, stepId, status) => {
+    set(state => ({
+      conversations: state.conversations.map(c => {
+        if (c.id !== conversationId || !c.pendingPlan) return c;
+        return {
+          ...c,
+          pendingPlan: {
+            ...c.pendingPlan,
+            stepStatuses: {
+              ...(c.pendingPlan.stepStatuses ?? {}),
+              [stepId]: status,
+            },
+          },
+          updatedAt: Date.now(),
+        };
+      }),
+    }));
   },
 
   switchConversationModel: (conversationId, model, provider) => {
@@ -1070,6 +1144,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           // Restore context tokens if saved, otherwise set from current settings
           contextTokens: saved.contextTokens,
           maxContextTokens: saved.maxContextTokens || currentState.maxContextTokens || 128000,
+          // Restore planning state
+          planningApproach: saved.planningApproach,
+          pendingPlan: saved.pendingPlan ?? null,
         }));
 
         // Set the loaded conversations
@@ -1168,6 +1245,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         provider: saved.provider || state.currentProvider,
         mode: saved.mode || 'code',
         maxContextTokens: saved.maxContextTokens || state.maxContextTokens || 128000,
+        // Restore planning state
+        planningApproach: saved.planningApproach,
+        pendingPlan: saved.pendingPlan ?? null,
       };
 
       // Add to conversations and activate

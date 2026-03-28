@@ -70,7 +70,7 @@ export interface SettingsSchema {
     autoAcceptEdits: boolean;
     contextCompressionThreshold: number;
     contextRecentMessagesToKeep: number;
-    maxTurns: number;
+    maxTurns: number | null;
   };
 
   // Chat Persistence
@@ -202,7 +202,7 @@ export const defaultSettings: SettingsSchema = {
     autoAcceptEdits: false,
     contextCompressionThreshold: 0.9,
     contextRecentMessagesToKeep: 6,
-    maxTurns: 200,
+    maxTurns: null,
   },
 
   chat: {

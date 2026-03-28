@@ -53,7 +53,7 @@ interface AgentConfig {
   }>;
   temperature?: number;
   maxContextTokens?: number;
-  maxTurns?: number;
+  maxTurns?: number | null;
   cwd?: string;
   thinking?: { enabled: boolean; budgetTokens: number };
 }

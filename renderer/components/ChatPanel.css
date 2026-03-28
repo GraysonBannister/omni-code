@@ -480,6 +480,48 @@
   letter-spacing: 0.5px;
 }
 
+/* Planning approach toggle (one-shot / iterative) */
+.planning-approach-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border-subtle, #3a3a3a);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-left: 4px;
+}
+
+.approach-btn {
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #888);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.approach-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover, rgba(255,255,255,0.06));
+  color: var(--color-text, #d4d4d4);
+}
+
+.approach-btn.active {
+  background: var(--color-accent, #6366f1);
+  color: #fff;
+}
+
+.approach-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Planning panel wrapper inside message list */
+.planning-panel-wrapper {
+  padding: 0 12px 8px;
+}
+
 /* File References in Input */
 .chat-input-references {
   padding: 4px 0;
@@ -963,19 +1005,3 @@
   }
 }
 
-/* Mode bar plan creation */
-.chat-input-mode-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-secondary, #2a2a2a);
-  border-top: 1px solid var(--border-color, #3e3e3e);
-  border-radius: 0 0 8px 8px;
-}
-
-.mode-bar-label {
-  font-size: 11px;
-  color: var(--text-secondary, #a0a0a0);
-  font-weight: 500;
-}
