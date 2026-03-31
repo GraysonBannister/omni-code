@@ -1,5 +1,26 @@
 import simpleGit, { type SimpleGit } from 'simple-git';
 
+export interface GitStatusStructured {
+  current: string | null;
+  tracking: string | null;
+  ahead: number;
+  behind: number;
+  staged: string[];
+  modified: string[];
+  not_added: string[];
+  conflicted: string[];
+  deleted: string[];
+  renamed: Array<{ from: string; to: string }>;
+  created: string[];
+}
+
+export interface GitLogEntry {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
 export class GitManager {
   private git: SimpleGit;
 
@@ -29,11 +50,33 @@ export class GitManager {
     return lines.join('\n');
   }
 
+  async statusStructured(): Promise<GitStatusStructured> {
+    const status = await this.git.status();
+    return {
+      current: status.current,
+      tracking: status.tracking,
+      ahead: status.ahead,
+      behind: status.behind,
+      staged: status.staged,
+      modified: status.modified,
+      not_added: status.not_added,
+      conflicted: status.conflicted,
+      deleted: status.deleted,
+      renamed: status.renamed.map(r => ({ from: r.from, to: r.to })),
+      created: status.created,
+    };
+  }
+
   async diff(staged = false): Promise<string> {
     if (staged) {
       return this.git.diff(['--staged']);
     }
     return this.git.diff();
+  }
+
+  async diffFile(filePath: string, staged = false): Promise<string> {
+    const args = staged ? ['--staged', '--', filePath] : ['--', filePath];
+    return this.git.diff(args);
   }
 
   async log(maxCount = 10, oneline = false, file?: string): Promise<string> {
@@ -46,8 +89,30 @@ export class GitManager {
     return log.all.map(c => `${c.hash.substring(0, 7)} ${c.message} (${c.author_name})`).join('\n');
   }
 
+  async logStructured(maxCount = 20): Promise<GitLogEntry[]> {
+    const log = await this.git.log({ maxCount });
+    return log.all.map(c => ({
+      hash: c.hash.substring(0, 7),
+      message: c.message,
+      author: c.author_name,
+      date: c.date,
+    }));
+  }
+
   async add(files: string[]): Promise<void> {
     await this.git.add(files);
+  }
+
+  async addAll(): Promise<void> {
+    await this.git.add(['-A']);
+  }
+
+  async unstage(files: string[]): Promise<void> {
+    await this.git.reset(['HEAD', '--', ...files]);
+  }
+
+  async discardFile(files: string[]): Promise<void> {
+    await this.git.checkout(['--', ...files]);
   }
 
   async commit(message: string): Promise<string> {
@@ -67,6 +132,15 @@ export class GitManager {
   async push(remote = 'origin', branch?: string): Promise<void> {
     const currentBranch = branch || await this.currentBranch();
     await this.git.push(remote, currentBranch, ['--set-upstream']);
+  }
+
+  async pull(remote = 'origin', branch?: string): Promise<void> {
+    const currentBranch = branch || await this.currentBranch();
+    await this.git.pull(remote, currentBranch);
+  }
+
+  async fetch(remote = 'origin'): Promise<void> {
+    await this.git.fetch(remote);
   }
 
   async diffRange(range: string): Promise<string> {
@@ -103,5 +177,9 @@ export class GitManager {
       default:
         throw new Error(`Unknown stash action: ${action}`);
     }
+  }
+
+  async init(): Promise<void> {
+    await this.git.init();
   }
 }

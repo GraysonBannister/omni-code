@@ -14,6 +14,7 @@ import {
   destroyTerminal,
   destroyAllTerminals,
 } from './terminal-manager.js';
+import { GitManager } from '../src/git/git-manager.js';
 
 // Reference to main window for sending browser events to renderer
 let mainWindowRef: BrowserWindow | null = null;
@@ -135,6 +136,7 @@ export function getConfigProviders(): Array<{ name: string; available: boolean; 
 }
 
 export function setupIpcHandlers(): void {
+  console.log('[IPC] setupIpcHandlers() called');
   // Agent handlers - now conversation-scoped for multi-tab support
   ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
     if (!agentRef) throw new Error('Agent not initialized');
@@ -1105,6 +1107,180 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // --- Git IPC Handlers ---
+  console.log('[IPC:git] Registering git handlers...');
+  const gitManagerCache = new Map<string, GitManager>();
+  function getGitManager(cwd: string): GitManager {
+    let mgr = gitManagerCache.get(cwd);
+    if (!mgr) {
+      mgr = new GitManager(cwd);
+      gitManagerCache.set(cwd, mgr);
+    }
+    return mgr;
+  }
+
+  ipcMain.handle('git:is-repo', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      const isRepo = await git.isRepo();
+      return { isRepo };
+    } catch (error) {
+      return { isRepo: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:status', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      const status = await git.statusStructured();
+      return { status };
+    } catch (error) {
+      return { status: null, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:stage', async (_: IpcMainInvokeEvent, cwd: string, files: string[]) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.add(files);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:stage-all', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.addAll();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:unstage', async (_: IpcMainInvokeEvent, cwd: string, files: string[]) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.unstage(files);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:commit', async (_: IpcMainInvokeEvent, cwd: string, message: string) => {
+    try {
+      const git = getGitManager(cwd);
+      const hash = await git.commit(message);
+      return { success: true, hash };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:push', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.push();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:pull', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.pull();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:fetch', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.fetch();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:diff-file', async (_: IpcMainInvokeEvent, cwd: string, filePath: string, staged?: boolean) => {
+    try {
+      const git = getGitManager(cwd);
+      const diff = await git.diffFile(filePath, staged ?? false);
+      return { diff };
+    } catch (error) {
+      return { diff: '', error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:discard', async (_: IpcMainInvokeEvent, cwd: string, files: string[]) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.discardFile(files);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:branch-list', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      const branches = await git.listBranches();
+      const current = await git.currentBranch();
+      return { branches, current };
+    } catch (error) {
+      return { branches: [], current: '', error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:checkout', async (_: IpcMainInvokeEvent, cwd: string, branch: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.switchBranch(branch);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:create-branch', async (_: IpcMainInvokeEvent, cwd: string, name: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.createBranch(name);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:log', async (_: IpcMainInvokeEvent, cwd: string, maxCount?: number) => {
+    try {
+      const git = getGitManager(cwd);
+      const commits = await git.logStructured(maxCount ?? 20);
+      return { commits };
+    } catch (error) {
+      return { commits: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('git:init', async (_: IpcMainInvokeEvent, cwd: string) => {
+    try {
+      const git = getGitManager(cwd);
+      await git.init();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  console.log('[IPC:git] All git handlers registered');
 }
 
 /**
@@ -1229,6 +1405,24 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('browser:screenshot-response');
 
   ipcMain.removeHandler('project:scan');
+
+  // Git cleanup
+  ipcMain.removeHandler('git:is-repo');
+  ipcMain.removeHandler('git:status');
+  ipcMain.removeHandler('git:stage');
+  ipcMain.removeHandler('git:stage-all');
+  ipcMain.removeHandler('git:unstage');
+  ipcMain.removeHandler('git:commit');
+  ipcMain.removeHandler('git:push');
+  ipcMain.removeHandler('git:pull');
+  ipcMain.removeHandler('git:fetch');
+  ipcMain.removeHandler('git:diff-file');
+  ipcMain.removeHandler('git:discard');
+  ipcMain.removeHandler('git:branch-list');
+  ipcMain.removeHandler('git:checkout');
+  ipcMain.removeHandler('git:create-branch');
+  ipcMain.removeHandler('git:log');
+  ipcMain.removeHandler('git:init');
 
   // Remote access cleanup
   ipcMain.removeHandler('remote:start');

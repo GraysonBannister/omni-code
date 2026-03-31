@@ -118,9 +118,12 @@ export interface TerminalSession {
   createdAt: number;
 }
 
+export type SidebarTab = 'files' | 'git';
+
 interface AppState {
   // UI State
   sidebarVisible: boolean;
+  activeSidebarTab: SidebarTab;
   chatVisible: boolean;
   terminalVisible: boolean;
   activePanel: 'chat' | 'terminal' | 'settings';
@@ -182,6 +185,7 @@ interface AppState {
 
   // UI Actions
   toggleSidebar: () => void;
+  setActiveSidebarTab: (tab: SidebarTab) => void;
   toggleChat: () => void;
   toggleTerminal: () => void;
   setActivePanel: (panel: 'chat' | 'terminal' | 'settings') => void;
@@ -302,6 +306,7 @@ function generateConversationTitle(firstMessage: string): string {
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial UI State
   sidebarVisible: true,
+  activeSidebarTab: 'files' as SidebarTab,
   chatVisible: true,
   terminalVisible: false,
   activePanel: 'chat',
@@ -364,6 +369,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // UI Actions
   toggleSidebar: () => set(state => ({ sidebarVisible: !state.sidebarVisible })),
+  setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab }),
   toggleChat: () => set(state => ({ chatVisible: !state.chatVisible })),
   toggleTerminal: () => set(state => ({ terminalVisible: !state.terminalVisible })),
   setActivePanel: (panel) => set({ activePanel: panel }),

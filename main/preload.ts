@@ -277,6 +277,40 @@ type PlanAPI = {
   abortExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
 };
 
+// Git API
+type GitStatusResult = {
+  current: string | null;
+  tracking: string | null;
+  ahead: number;
+  behind: number;
+  staged: string[];
+  modified: string[];
+  not_added: string[];
+  conflicted: string[];
+  deleted: string[];
+  renamed: Array<{ from: string; to: string }>;
+  created: string[];
+};
+
+type GitAPI = {
+  isRepo: (cwd: string) => Promise<{ isRepo: boolean; error?: string }>;
+  status: (cwd: string) => Promise<{ status: GitStatusResult | null; error?: string }>;
+  stage: (cwd: string, files: string[]) => Promise<{ success: boolean; error?: string }>;
+  stageAll: (cwd: string) => Promise<{ success: boolean; error?: string }>;
+  unstage: (cwd: string, files: string[]) => Promise<{ success: boolean; error?: string }>;
+  commit: (cwd: string, message: string) => Promise<{ success: boolean; hash?: string; error?: string }>;
+  push: (cwd: string) => Promise<{ success: boolean; error?: string }>;
+  pull: (cwd: string) => Promise<{ success: boolean; error?: string }>;
+  fetch: (cwd: string) => Promise<{ success: boolean; error?: string }>;
+  diffFile: (cwd: string, filePath: string, staged?: boolean) => Promise<{ diff: string; error?: string }>;
+  discard: (cwd: string, files: string[]) => Promise<{ success: boolean; error?: string }>;
+  branchList: (cwd: string) => Promise<{ branches: string[]; current: string; error?: string }>;
+  checkout: (cwd: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+  createBranch: (cwd: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  log: (cwd: string, maxCount?: number) => Promise<{ commits: Array<{ hash: string; message: string; author: string; date: string }>; error?: string }>;
+  init: (cwd: string) => Promise<{ success: boolean; error?: string }>;
+};
+
 // Remote Access API
 type RemoteServerStatus = {
   running: boolean;
@@ -317,6 +351,7 @@ type ElectronAPI = {
   remote: RemoteAPI;
   project: ProjectAPI;
   plan: PlanAPI;
+  git: GitAPI;
 };
 
 // Expose APIs via contextBridge
@@ -569,6 +604,26 @@ const api: ElectronAPI = {
     abortExecution: (conversationId) =>
       ipcRenderer.invoke('plan:abort-execution', conversationId),
   },
+
+  git: {
+    isRepo: (cwd: string) => ipcRenderer.invoke('git:is-repo', cwd),
+    status: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
+    stage: (cwd: string, files: string[]) => ipcRenderer.invoke('git:stage', cwd, files),
+    stageAll: (cwd: string) => ipcRenderer.invoke('git:stage-all', cwd),
+    unstage: (cwd: string, files: string[]) => ipcRenderer.invoke('git:unstage', cwd, files),
+    commit: (cwd: string, message: string) => ipcRenderer.invoke('git:commit', cwd, message),
+    push: (cwd: string) => ipcRenderer.invoke('git:push', cwd),
+    pull: (cwd: string) => ipcRenderer.invoke('git:pull', cwd),
+    fetch: (cwd: string) => ipcRenderer.invoke('git:fetch', cwd),
+    diffFile: (cwd: string, filePath: string, staged?: boolean) =>
+      ipcRenderer.invoke('git:diff-file', cwd, filePath, staged),
+    discard: (cwd: string, files: string[]) => ipcRenderer.invoke('git:discard', cwd, files),
+    branchList: (cwd: string) => ipcRenderer.invoke('git:branch-list', cwd),
+    checkout: (cwd: string, branch: string) => ipcRenderer.invoke('git:checkout', cwd, branch),
+    createBranch: (cwd: string, name: string) => ipcRenderer.invoke('git:create-branch', cwd, name),
+    log: (cwd: string, maxCount?: number) => ipcRenderer.invoke('git:log', cwd, maxCount),
+    init: (cwd: string) => ipcRenderer.invoke('git:init', cwd),
+  },
 };
 
 // Expose to window.electronAPI
@@ -601,6 +656,6 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI,
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI, GitAPI, GitStatusResult,
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus
 };

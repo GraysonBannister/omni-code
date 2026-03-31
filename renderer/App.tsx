@@ -1,6 +1,5 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
-import { FileExplorer } from './components/FileExplorer';
 import { CodeEditor } from './components/Editor';
 import { ChatPanel } from './components/ChatPanel';
 import { StatusBar } from './components/StatusBar';
@@ -8,6 +7,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { HeaderBar } from './components/HeaderBar';
 import { TerminalPanel } from './components/TerminalPanel';
 import { WorkspaceManager } from './components/WorkspaceManager';
+import { SidebarPanel } from './components/SidebarPanel';
 import { useAppStore, subscribeToBrowserEvents } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
@@ -423,7 +423,7 @@ export const App: React.FC = () => {
                 minSize={5}
                 className="sidebar-panel"
               >
-                <FileExplorer />
+                <SidebarPanel />
               </Panel>
               <PanelResizeHandle className="resizer resizer-horizontal" />
             </>
