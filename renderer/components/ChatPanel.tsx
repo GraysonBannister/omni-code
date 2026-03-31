@@ -1224,23 +1224,6 @@ export const ChatPanel: React.FC = () => {
     // Clear selected references
     setSelectedReferences([]);
 
-    // Add user message to active conversation with file references
-    // Always display the raw user text (without any injected planning prefixes)
-    addMessageToConversation(activeConversationId, {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: rawMessage,
-      timestamp: Date.now(),
-      fileChanges: resolvedRefs.map(r => ({
-        filePath: r.path,
-        fileName: r.name,
-        extension: r.extension || '',
-        changeType: 'added' as const,
-        additions: 0,
-        deletions: 0,
-      })),
-    });
-
     setConversationProcessing(activeConversationId, true);
 
     try {

@@ -391,6 +391,7 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     provider: 'moonshot',
     displayName: 'Kimi K2.5',
     aliases: ['kimi', 'k2.5', 'kimi-k2'],
+    fixedTemperature: 1,
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: false, extendedThinking: false,

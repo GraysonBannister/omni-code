@@ -145,6 +145,7 @@ export class AgentImpl implements Agent {
 
       const assistantContent: ContentBlock[] = [];
       let textBuffer = '';
+      let thinkingBuffer = '';
       const toolCallBuffers = new Map<string, { id: string; name: string; inputJson: string }>();
       let activeToolId: string | undefined;
       const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -162,7 +163,7 @@ export class AgentImpl implements Agent {
               break;
 
             case 'thinking':
-              // Extended thinking content — stream for display but don't add to output
+              thinkingBuffer += delta.text || '';
               break;
 
             case 'tool_use_start':
@@ -254,6 +255,7 @@ export class AgentImpl implements Agent {
           ? (assistantContent[0] as TextBlock).text
           : assistantContent,
         timestamp: Date.now(),
+        ...(thinkingBuffer ? { reasoning: thinkingBuffer } : {}),
         metadata: {
           model: this.config.model,
           provider: this.config.provider.name,

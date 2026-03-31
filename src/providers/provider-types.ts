@@ -37,6 +37,7 @@ export interface ModelInfo {
   capabilities: ModelCapabilities;
   pricing: ModelPricing;
   aliases?: string[];
+  fixedTemperature?: number;
 }
 
 export interface ProviderInitConfig {

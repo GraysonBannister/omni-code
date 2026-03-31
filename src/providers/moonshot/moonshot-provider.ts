@@ -29,10 +29,10 @@ export class MoonshotProvider extends BaseProvider {
     if (!config.apiKey) {
       throw new Error('Moonshot API key is required. Set MOONSHOT_API_KEY environment variable.');
     }
-    console.log('[MoonshotProvider] Creating OpenAI client with baseURL:', config.baseUrl ?? 'https://api.moonshot.cn/v1');
+    console.log('[MoonshotProvider] Creating OpenAI client with baseURL:', config.baseUrl ?? 'https://api.moonshot.ai/v1');
     this.client = new OpenAI({
       apiKey: config.apiKey,
-      baseURL: config.baseUrl ?? 'https://api.moonshot.cn/v1',
+      baseURL: config.baseUrl ?? 'https://api.moonshot.ai/v1',
       maxRetries: config.maxRetries ?? 3,
       timeout: config.timeout ?? 60_000,
     });
@@ -63,7 +63,7 @@ export class MoonshotProvider extends BaseProvider {
         const toolCalls = getToolUseBlocks(msg);
 
         if (toolCalls.length > 0) {
-          result.push({
+          const assistantMsg: any = {
             role: 'assistant',
             content: text || null,
             tool_calls: toolCalls.map(tc => ({
@@ -74,7 +74,11 @@ export class MoonshotProvider extends BaseProvider {
                 arguments: JSON.stringify(tc.input),
               },
             })),
-          });
+          };
+          if (msg.reasoning) {
+            assistantMsg.reasoning_content = msg.reasoning;
+          }
+          result.push(assistantMsg);
         } else {
           result.push({ role: 'assistant', content: text });
         }
@@ -161,6 +165,10 @@ export class MoonshotProvider extends BaseProvider {
             };
           }
           continue;
+        }
+
+        if ((delta as any).reasoning_content) {
+          yield { type: 'thinking', text: (delta as any).reasoning_content };
         }
 
         if (delta.content) {
@@ -258,7 +266,12 @@ export class MoonshotProvider extends BaseProvider {
       params.tools = this.formatTools(request.tools);
       console.log('[MoonshotProvider:buildParams] Added', request.tools.length, 'tools');
     }
-    if (request.temperature !== undefined) params.temperature = request.temperature;
+    const modelInfo = this.getModelInfo(request.model);
+    if (modelInfo?.fixedTemperature !== undefined) {
+      params.temperature = modelInfo.fixedTemperature;
+    } else if (request.temperature !== undefined) {
+      params.temperature = request.temperature;
+    }
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
 
