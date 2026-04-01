@@ -8,7 +8,7 @@ import { SettingInput } from './settings/SettingInput';
 import { UsageDashboard } from './UsageDashboard';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'notifications';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -27,6 +27,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'privacy', label: 'Privacy' },
   { id: 'usage', label: 'Usage' },
   { id: 'remote', label: 'Remote' },
+  { id: 'notifications', label: 'Notifications' },
 ];
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onClose, embedded = false }) => {
@@ -53,12 +54,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
 
+  // System sounds state
+  const [systemSounds, setSystemSounds] = useState<Array<{ value: string; label: string }>>([
+    { value: 'default', label: 'System Beep (Default)' },
+    { value: 'none', label: 'No Sound' },
+    { value: 'custom', label: 'Custom Sound File...' },
+  ]);
+  const [currentOS, setCurrentOS] = useState<string>('unknown');
+  const [soundsLoading, setSoundsLoading] = useState(false);
+
   // Load settings when panel opens or when embedded
   useEffect(() => {
     if ((isOpen || embedded) && !settings) {
       loadSettings();
     }
   }, [isOpen, embedded, settings, loadSettings]);
+
+  // Load system sounds when notifications tab is active
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      loadSystemSounds();
+    }
+  }, [activeTab]);
 
   // Handle keyboard shortcut to close (only in modal mode)
   useEffect(() => {
@@ -89,6 +106,35 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
     } catch (error) {
       console.error('Failed to load remote status:', error);
     }
+  };
+
+  const loadSystemSounds = async () => {
+    setSoundsLoading(true);
+    try {
+      const result = await window.electronAPI?.settings?.getSystemSounds();
+      if (result?.value) {
+        setSystemSounds(result.value.sounds);
+        setCurrentOS(result.value.os);
+      }
+    } catch (error) {
+      console.error('Failed to load system sounds:', error);
+    }
+    setSoundsLoading(false);
+  };
+
+  const handleTestSound = async () => {
+    const currentSound = currentSettings.notifications?.sound || 'default';
+    try {
+      await window.electronAPI?.settings?.playTestSound(currentSound);
+    } catch (error) {
+      console.error('Failed to play test sound:', error);
+    }
+  };
+
+  const isSystemSound = (soundId: string): boolean => {
+    if (!soundId || soundId === 'default' || soundId === 'none') return true;
+    if (soundId.startsWith('macos://') || soundId.startsWith('windows://') || soundId.startsWith('linux://')) return true;
+    return false;
   };
 
   const handleRemoteStart = async () => {
@@ -1036,6 +1082,104 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   onClick={() => handleReset('remoteAccess')}
                 >
                   Reset Remote Settings
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'notifications' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Notification Settings</h3>
+              <p className="settings-section-description">
+                Configure notification sounds for your {currentOS === 'macos' ? 'Mac' : currentOS === 'windows' ? 'Windows' : currentOS === 'linux' ? 'Linux' : ''} system.
+              </p>
+
+              <SettingToggle
+                label="Enable Notifications"
+                description="Show notification alerts when agent needs attention or completes tasks"
+                checked={currentSettings.notifications?.enabled ?? true}
+                onChange={(checked) => setSetting('notifications.enabled', checked)}
+              />
+
+              <SettingToggle
+                label="Enable Sound"
+                description="Play a sound with notifications (only when window is not focused)"
+                checked={currentSettings.notifications?.soundEnabled ?? true}
+                disabled={!(currentSettings.notifications?.enabled ?? true)}
+                onChange={(checked) => setSetting('notifications.soundEnabled', checked)}
+              />
+
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+                <div style={{ flex: 1 }}>
+                  <SettingSelect
+                    label="Notification Sound"
+                    description={soundsLoading ? 'Loading sounds...' : `Choose from ${systemSounds.length - 1} available sounds`}
+                    value={currentSettings.notifications?.sound || 'default'}
+                    disabled={!(currentSettings.notifications?.soundEnabled ?? true) || !(currentSettings.notifications?.enabled ?? true) || soundsLoading}
+                    options={systemSounds}
+                    onChange={(value) => {
+                      if (value === 'custom') {
+                        // Trigger file picker via IPC
+                        window.electronAPI?.dialogs?.selectSoundFile().then((result) => {
+                          if (result?.filePath) {
+                            setSetting('notifications.sound', result.filePath);
+                          }
+                        });
+                      } else {
+                        setSetting('notifications.sound', value);
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleTestSound}
+                  disabled={!(currentSettings.notifications?.soundEnabled ?? true) || !(currentSettings.notifications?.enabled ?? true) || (currentSettings.notifications?.sound === 'none')}
+                  style={{ marginBottom: '16px' }}
+                  title="Test the selected sound"
+                >
+                  Test Sound
+                </button>
+              </div>
+
+              {currentSettings.notifications?.sound &&
+               !isSystemSound(currentSettings.notifications?.sound) && (
+                <div className="sound-file-path" style={{ marginTop: '8px', marginBottom: '16px' }}>
+                  <code style={{ fontSize: '12px', wordBreak: 'break-all' }}>{currentSettings.notifications.sound}</code>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setSetting('notifications.sound', 'default')}
+                    style={{ marginLeft: '8px', fontSize: '12px' }}
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+              )}
+
+              <h3 className="settings-section-title" style={{ marginTop: '24px' }}>When to Play Sounds</h3>
+
+              <SettingToggle
+                label="On User Input Required"
+                description="Play sound when the agent needs your input or approval"
+                checked={currentSettings.notifications?.playOnUserInput ?? true}
+                disabled={!(currentSettings.notifications?.soundEnabled ?? true) || !(currentSettings.notifications?.enabled ?? true)}
+                onChange={(checked) => setSetting('notifications.playOnUserInput', checked)}
+              />
+
+              <SettingToggle
+                label="On Response Complete"
+                description="Play sound when the agent finishes generating a response"
+                checked={currentSettings.notifications?.playOnResponseComplete ?? true}
+                disabled={!(currentSettings.notifications?.soundEnabled ?? true) || !(currentSettings.notifications?.enabled ?? true)}
+                onChange={(checked) => setSetting('notifications.playOnResponseComplete', checked)}
+              />
+
+              <div className="settings-actions" style={{ marginTop: '24px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleReset('notifications')}
+                >
+                  Reset Notification Settings
                 </button>
               </div>
             </div>

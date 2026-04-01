@@ -4,6 +4,11 @@
 
 import { BrowserWindow, shell } from 'electron';
 import { settingsManager } from './settings.js';
+import {
+  playSystemSound,
+  isSystemSound,
+  getOperatingSystem,
+} from './system-sounds.js';
 
 // Track focus state per window
 const windowFocusState = new Map<number, boolean>();
@@ -42,13 +47,48 @@ export function isWindowFocused(windowId: number): boolean {
 
 /**
  * Play a notification sound
- * Uses shell.beep() for cross-platform compatibility
+ * Uses system sound if configured, custom sound file, or falls back to shell.beep()
+ * Only ONE sound will play - either the selected sound or a single fallback beep
+ *
+ * @param soundSetting The sound setting value (read once by the caller)
  */
-function playSound(): void {
+async function playSound(soundSetting: string): Promise<void> {
   try {
-    shell.beep();
+    // 'none' means no sound should play at all
+    if (soundSetting === 'none') {
+      return;
+    }
+
+    // For system sounds (including 'default' and OS-specific sounds)
+    if (isSystemSound(soundSetting) || !soundSetting) {
+      const played = await playSystemSound(soundSetting || 'default');
+      if (!played) {
+        // Only play fallback beep if the system sound completely failed
+        shell.beep();
+      }
+      return; // Early return - only one sound plays
+    }
+
+    // Custom sound file path (not a system sound, so it's a file path)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const soundPlay: any = await import('sound-play');
+      await soundPlay.play(soundSetting);
+      return; // Early return - custom sound played successfully
+    } catch (playError) {
+      console.error('[Notifications] Failed to play custom sound, falling back to system beep:', playError);
+      // Only play beep as fallback if custom sound failed
+      shell.beep();
+      return;
+    }
   } catch (error) {
     console.error('[Notifications] Failed to play sound:', error);
+    // Final fallback - only one beep
+    try {
+      shell.beep();
+    } catch {
+      // Ignore beep errors
+    }
   }
 }
 
@@ -60,10 +100,10 @@ function playSound(): void {
  * 3. The specific notification type is enabled
  * 4. The window is NOT currently focused
  */
-export function requestNotificationSound(
+export async function requestNotificationSound(
   window: BrowserWindow,
   type: 'user_input' | 'response_complete'
-): void {
+): Promise<void> {
   try {
     // Check if notifications are enabled
     if (!settingsManager.get('notifications.enabled')) {
@@ -85,7 +125,10 @@ export function requestNotificationSound(
 
     // Only play sound if window is not focused
     if (!window.isFocused()) {
-      playSound();
+      // Read the sound setting ONCE and pass it to playSound
+      // This ensures consistency and prevents race conditions
+      const soundSetting = settingsManager.get('notifications.sound') as string;
+      await playSound(soundSetting);
     }
   } catch (error) {
     console.error('[Notifications] Error requesting notification sound:', error);

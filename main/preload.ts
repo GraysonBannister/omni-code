@@ -165,6 +165,8 @@ type SettingsAPI = {
   getRecentFolders: () => Promise<{ value: string[]; error: string | null }>;
   addRecentWorkspace: (workspacePath: string) => Promise<{ success: boolean; error: string | null }>;
   getRecentWorkspaces: () => Promise<{ value: string[]; error: string | null }>;
+  getSystemSounds: () => Promise<{ value: { sounds: Array<{ value: string; label: string }>; os: string } | null; error: string | null }>;
+  playTestSound: (soundId: string) => Promise<{ success: boolean; error: string | null }>;
 };
 
 // Chat Storage API
@@ -236,6 +238,11 @@ type IndexingAPI = {
 // Notifications API
 type NotificationsAPI = {
   requestSound: (type: 'user_input' | 'response_complete') => Promise<void>;
+};
+
+// Dialogs API for file selection
+type DialogsAPI = {
+  selectSoundFile: () => Promise<{ filePath: string | null; error?: string }>;
 };
 
 // Terminal API
@@ -346,6 +353,7 @@ type ElectronAPI = {
   usage: UsageAPI;
   indexing: IndexingAPI;
   notifications: NotificationsAPI;
+  dialogs: DialogsAPI;
   terminal: TerminalAPI;
   browser: BrowserAPI;
   remote: RemoteAPI;
@@ -446,6 +454,8 @@ const api: ElectronAPI = {
     getRecentFolders: () => ipcRenderer.invoke('settings:getRecentFolders'),
     addRecentWorkspace: (workspacePath: string) => ipcRenderer.invoke('settings:addRecentWorkspace', workspacePath),
     getRecentWorkspaces: () => ipcRenderer.invoke('settings:getRecentWorkspaces'),
+    getSystemSounds: () => ipcRenderer.invoke('settings:getSystemSounds'),
+    playTestSound: (soundId: string) => ipcRenderer.invoke('settings:playTestSound', soundId),
   },
 
   chatStorage: {
@@ -520,6 +530,11 @@ const api: ElectronAPI = {
   notifications: {
     requestSound: (type: 'user_input' | 'response_complete') =>
       ipcRenderer.invoke('notification:request-sound', type),
+  },
+
+  dialogs: {
+    selectSoundFile: () =>
+      ipcRenderer.invoke('dialogs:select-sound-file'),
   },
 
   terminal: {

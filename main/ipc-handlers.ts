@@ -937,8 +937,25 @@ export function setupIpcHandlers(): void {
     // Get the window that sent the request
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-      requestNotificationSound(window, type);
+      await requestNotificationSound(window, type);
     }
+  });
+
+  // Dialogs handler for selecting sound files
+  ipcMain.handle('dialogs:select-sound-file', async () => {
+    const { dialog } = await import('electron');
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio Files', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'webm', 'aiff'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { filePath: result.filePaths[0], error: null };
+    }
+    return { filePath: null, error: null };
   });
 
   // Terminal handlers
@@ -1394,6 +1411,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('window:maximize');
   ipcMain.removeHandler('window:close');
   ipcMain.removeHandler('notification:request-sound');
+  ipcMain.removeHandler('dialogs:select-sound-file');
   ipcMain.removeHandler('terminal:create');
   ipcMain.removeHandler('terminal:write');
   ipcMain.removeHandler('terminal:resize');

@@ -5,6 +5,7 @@ import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
 import { ModeSelector, AIMode } from './ModeSelector';
 import { PlanningPanel, type ExecutionPlan, type PlanFile } from './PlanningPanel';
+import { InlinePlanCard } from './InlinePlanCard';
 import { UserInputCard, type UserInputRequest } from './UserInputCard';
 import { PermissionCard, type PermissionRequest } from './PermissionCard';
 import { CollapsibleToolSummary } from './CollapsibleToolSummary';
@@ -50,6 +51,10 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
     </div>
   );
 };
+
+function stripPlanBlock(text: string): string {
+  return text.replace(/<plan>[\s\S]*?<\/plan>/g, '').trim();
+}
 
 function renderTextContent(content: string, keyPrefix: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
@@ -192,7 +197,7 @@ const InlineToolResult: React.FC<{ block: Extract<ContentBlock, { type: 'tool_re
 
 const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undefined }> = ({ content }) => {
   if (typeof content === 'string') {
-    return <>{renderTextContent(content, 'string')}</>;
+    return <>{renderTextContent(stripPlanBlock(content), 'string')}</>;
   }
 
   if (!Array.isArray(content)) {
@@ -203,7 +208,7 @@ const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undef
     <>
       {content.map((block, index) => {
         if (block.type === 'text') {
-          return <React.Fragment key={`block-${index}`}>{renderTextContent(block.text, `block-${index}`)}</React.Fragment>;
+          return <React.Fragment key={`block-${index}`}>{renderTextContent(stripPlanBlock(block.text), `block-${index}`)}</React.Fragment>;
         }
 
         if (block.type === 'tool_use') {
@@ -337,9 +342,15 @@ function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
 type TimelineItem = 
   | { type: 'message'; data: Message; timestamp: number }
   | { type: 'tool-group'; data: ToolCall[]; timestamp: number }
-  | { type: 'tool-single'; data: ToolCall; timestamp: number };
+  | { type: 'tool-single'; data: ToolCall; timestamp: number }
+  | { type: 'plan-card'; data: PendingPlan; timestamp: number };
 
-function createTimeline(messages: Message[], toolCalls: ToolCall[]): TimelineItem[] {
+function createTimeline(
+  messages: Message[],
+  toolCalls: ToolCall[],
+  pendingPlan?: PendingPlan | null,
+  planSourceMessageId?: string | null,
+): TimelineItem[] {
   const timeline: TimelineItem[] = [];
   
   // Add messages to timeline
@@ -372,6 +383,43 @@ function createTimeline(messages: Message[], toolCalls: ToolCall[]): TimelineIte
   
   // Sort by timestamp
   timeline.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Splice in the plan card after its source message
+  if (pendingPlan) {
+    let idx = planSourceMessageId
+      ? timeline.findIndex(item => item.type === 'message' && item.data.id === planSourceMessageId)
+      : -1;
+
+    // Fallback: scan backwards for the last assistant message containing a <plan> block
+    if (idx < 0) {
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        const item = timeline[i];
+        if (item.type !== 'message') continue;
+        const msg = item.data as Message;
+        if (msg.role !== 'assistant') continue;
+        const text = typeof msg.content === 'string'
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? (msg.content as ContentBlock[])
+                .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+                .map(b => b.text)
+                .join('')
+            : '';
+        if (text.includes('<plan>')) {
+          idx = i;
+          break;
+        }
+      }
+    }
+
+    const insertAt = idx >= 0 ? idx + 1 : timeline.length;
+    const sourceTimestamp = idx >= 0 ? timeline[idx].timestamp : Date.now();
+    timeline.splice(insertAt, 0, {
+      type: 'plan-card',
+      data: pendingPlan,
+      timestamp: sourceTimestamp + 1,
+    });
+  }
   
   return timeline;
 }
@@ -588,6 +636,7 @@ export const ChatPanel: React.FC = () => {
   const toolCalls = activeConversation?.toolCalls || [];
   const orchestrationStatus = activeConversation?.orchestrationStatus || null;
   const pendingPlan = activeConversation?.pendingPlan ?? null;
+  const planSourceMessageId = activeConversation?.planSourceMessageId ?? null;
   const planningApproach: PlanningApproach = activeConversation?.planningApproach ?? 'one-shot';
 
   useEffect(() => {
@@ -932,7 +981,7 @@ export const ChatPanel: React.FC = () => {
             if (planMatch) {
               try {
                 const parsed: PendingPlan = JSON.parse(planMatch[1].trim());
-                useAppStore.getState().setPendingPlan(conversationId, parsed);
+                useAppStore.getState().setPendingPlan(conversationId, parsed, msg.id);
               } catch {
                 // Malformed plan JSON — ignore
               }
@@ -1791,7 +1840,7 @@ export const ChatPanel: React.FC = () => {
         )}
 
         {/* Unified timeline of messages and tool calls */}
-        {createTimeline(messages, toolCalls).map((item, index) => {
+        {createTimeline(messages, toolCalls, pendingPlan, planSourceMessageId).map((item, index) => {
           if (item.type === 'message') {
             const message = item.data;
 
@@ -1841,14 +1890,27 @@ export const ChatPanel: React.FC = () => {
                 now={now}
               />
             );
-          } else {
+          } else if (item.type === 'tool-single') {
             // Single non-SAFE tool - wrap in CollapsibleToolSummary for consistent minimized display
             const tool = item.data;
             return (
               <CollapsibleToolSummary
-                key={`tool-single-${tool.id}`}
+                key={`tool-single-${index}-${tool.id}`}
                 tools={[tool]}
                 now={now}
+              />
+            );
+          } else {
+            // plan-card — inline plan card injected after the source message
+            return (
+              <InlinePlanCard
+                key="inline-plan-card"
+                plan={convertToExecutionPlan(item.data)}
+                onApprove={handlePlanApprove}
+                onModify={handlePlanModify}
+                onReject={handlePlanReject}
+                onDismiss={handlePlanDismiss}
+                isExecuting={isProcessing && activeConversation?.mode === 'code'}
               />
             );
           }
@@ -1889,20 +1951,6 @@ export const ChatPanel: React.FC = () => {
             <UserInputCard
               request={pendingUserInput}
               onRespond={handleUserInputRespond}
-            />
-          </div>
-        )}
-
-        {/* Planning panel — shown whenever a plan exists (architect: review; code: execution tracking) */}
-        {pendingPlan && (
-          <div className="planning-panel-wrapper">
-            <PlanningPanel
-              plan={convertToExecutionPlan(pendingPlan)}
-              onApprove={handlePlanApprove}
-              onModify={handlePlanModify}
-              onReject={handlePlanReject}
-              onDismiss={handlePlanDismiss}
-              isExecuting={isProcessing && activeConversation?.mode === 'code'}
             />
           </div>
         )}
@@ -2077,13 +2125,9 @@ export const ChatPanel: React.FC = () => {
             <span className="mode-bar-label">Mode:</span>
             <ModeSelector
               value={(activeConversation?.mode as AIMode) || 'code'}
-              onChange={(mode) => {
-                setConversationMode(activeConversation?.id || '', mode);
-                // Clear any pending plan when switching away from architect
-                if (mode !== 'architect' && activeConversation?.id) {
-                  setPendingPlan(activeConversation.id, null);
-                }
-              }}
+                onChange={(mode) => {
+                  setConversationMode(activeConversation?.id || '', mode);
+                }}
               disabled={activeConversation?.isProcessing || false}
             />
             {/* Planning approach toggle — only visible in architect mode */}

@@ -151,6 +151,7 @@ export interface SettingsSchema {
   notifications: {
     enabled: boolean;
     soundEnabled: boolean;
+    sound: 'default' | 'none' | string;
     playOnUserInput: boolean;
     playOnResponseComplete: boolean;
   };
@@ -284,6 +285,7 @@ export const defaultSettings: SettingsSchema = {
   notifications: {
     enabled: true,
     soundEnabled: true,
+    sound: 'default',
     playOnUserInput: true,
     playOnResponseComplete: true,
   },
@@ -607,6 +609,47 @@ export function setupSettingsIpcHandlers(): void {
       return { value: null, error: (error as Error).message };
     }
   });
+
+  // Get system sounds for the current OS
+  ipcMain.handle('settings:getSystemSounds', async () => {
+    try {
+      const { getSoundSelectOptions, getOperatingSystem } = await import('./system-sounds.js');
+      const sounds = getSoundSelectOptions();
+      const os = getOperatingSystem();
+      return { value: { sounds, os }, error: null };
+    } catch (error) {
+      console.error('[Settings] Error getting system sounds:', error);
+      return { value: null, error: (error as Error).message };
+    }
+  });
+
+  // Play a test sound
+  ipcMain.handle('settings:playTestSound', async (_: IpcMainInvokeEvent, soundId: string) => {
+    try {
+      const { playSystemSound, isSystemSound } = await import('./system-sounds.js');
+      const { shell } = await import('electron');
+      
+      if (isSystemSound(soundId)) {
+        const played = await playSystemSound(soundId);
+        if (!played) {
+          shell.beep();
+        }
+      } else {
+        // It's a custom file path, try to play it
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const soundPlay: any = await import('sound-play');
+          await soundPlay.play(soundId);
+        } catch {
+          shell.beep();
+        }
+      }
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('[Settings] Error playing test sound:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
   
   console.log('[Settings] IPC handlers setup complete');
 }
@@ -621,4 +664,6 @@ export function cleanupSettingsIpcHandlers(): void {
   ipcMain.removeHandler('settings:getRecentFolders');
   ipcMain.removeHandler('settings:addRecentWorkspace');
   ipcMain.removeHandler('settings:getRecentWorkspaces');
+  ipcMain.removeHandler('settings:getSystemSounds');
+  ipcMain.removeHandler('settings:playTestSound');
 }

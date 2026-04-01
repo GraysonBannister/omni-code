@@ -1,0 +1,334 @@
+/* Inline plan card — sits in the chat timeline like a message bubble */
+
+.ipc-card {
+  margin: 4px 12px 8px;
+  background: var(--color-bg-secondary, #1e1e1e);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--color-text, #d4d4d4);
+  flex-shrink: 0;
+}
+
+.ipc-card.pending {
+  border-left: 3px solid #fbbf24;
+}
+
+.ipc-card.executing,
+.ipc-card.in-progress {
+  border-left: 3px solid #6366f1;
+}
+
+.ipc-card.done {
+  border-left: 3px solid #22c55e;
+  background: color-mix(in srgb, var(--color-bg-secondary, #1e1e1e) 96%, #22c55e 4%);
+}
+
+/* Header */
+.ipc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 6px;
+  gap: 8px;
+}
+
+.ipc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ipc-plan-icon {
+  width: 15px;
+  height: 15px;
+  color: #7c8cf8;
+  flex-shrink: 0;
+}
+
+.ipc-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--color-text-primary, #e2e8f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status badge */
+.ipc-status-badge {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.ipc-status-badge.pending {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.ipc-status-badge.executing,
+.ipc-status-badge.in-progress {
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.ipc-status-badge.done {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+/* Goal text */
+.ipc-goal {
+  margin: 0;
+  padding: 0 14px 8px 36px;
+  font-size: 12.5px;
+  color: var(--color-text-muted, #999);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Footer row */
+.ipc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px 10px;
+  border-top: 1px solid var(--color-border, #2a2a2a);
+}
+
+.ipc-step-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+  background: var(--color-bg-tertiary, #252526);
+  padding: 3px 9px;
+  border-radius: 4px;
+}
+
+.ipc-card.done .ipc-step-summary {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.ipc-summary-spinner {
+  width: 11px;
+  height: 11px;
+  color: #818cf8;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.ipc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #7c8cf8;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ipc-toggle:hover {
+  background: rgba(124, 140, 248, 0.1);
+  color: #a5b4fc;
+}
+
+.ipc-toggle-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Expandable step list */
+.ipc-steps {
+  border-top: 1px solid var(--color-border, #2a2a2a);
+  padding: 8px 10px;
+}
+
+.ipc-steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ipc-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  background: var(--color-bg-tertiary, #252526);
+  border-left: 2px solid transparent;
+}
+
+.ipc-step.pending {
+  border-left-color: #444;
+}
+
+.ipc-step.in_progress {
+  border-left-color: #6366f1;
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.ipc-step.completed {
+  border-left-color: #22c55e;
+  opacity: 0.75;
+}
+
+.ipc-step.failed {
+  border-left-color: #ef4444;
+}
+
+.ipc-step-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ipc-step-icon.completed {
+  color: #22c55e;
+}
+
+.ipc-step-icon.in-progress {
+  color: #6366f1;
+  animation: spin 1s linear infinite;
+}
+
+.ipc-step-icon.failed {
+  color: #ef4444;
+}
+
+.ipc-step-icon.pending {
+  color: #555;
+}
+
+.ipc-step-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ipc-step-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-primary, #e2e8f0);
+}
+
+.ipc-step.completed .ipc-step-title {
+  text-decoration: line-through;
+  color: var(--color-text-muted, #888);
+}
+
+.ipc-step-desc {
+  font-size: 11.5px;
+  color: var(--color-text-muted, #888);
+  line-height: 1.4;
+}
+
+.ipc-step-num {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #555;
+  font-weight: 600;
+  min-width: 16px;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* Action buttons */
+.ipc-actions {
+  display: flex;
+  gap: 7px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border, #2a2a2a);
+}
+
+.ipc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ipc-btn-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.ipc-btn.approve {
+  background: #22c55e;
+  color: #fff;
+}
+
+.ipc-btn.approve:hover {
+  background: #16a34a;
+}
+
+.ipc-btn.modify {
+  background: var(--color-bg-tertiary, #3a3a3a);
+  color: var(--color-text, #d4d4d4);
+  border: 1px solid var(--color-border, #555);
+}
+
+.ipc-btn.modify:hover {
+  background: var(--color-bg-hover, #444);
+}
+
+.ipc-btn.reject {
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.ipc-btn.reject:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+.ipc-btn.dismiss {
+  background: var(--color-bg-tertiary, #3a3a3a);
+  color: var(--color-text-muted, #aaa);
+  border: 1px solid var(--color-border, #444);
+}
+
+.ipc-btn.dismiss:hover {
+  background: var(--color-bg-hover, #444);
+  color: var(--color-text, #d4d4d4);
+}

@@ -108,6 +108,7 @@ export interface Conversation {
   maxContextTokens?: number; // Maximum allowed context tokens
   planningApproach?: PlanningApproach; // Planning strategy when in architect mode
   pendingPlan?: PendingPlan | null; // Plan awaiting approval in architect mode
+  planSourceMessageId?: string | null; // ID of the assistant message that produced the plan
 }
 
 // Terminal Session for multi-terminal support
@@ -225,7 +226,7 @@ interface AppState {
   loadSavedConversations: (workspacePath: string) => Promise<void>;
   setConversationMode: (conversationId: string, mode: 'code' | 'architect' | 'review' | 'security' | 'debug') => void;
   setPlanningApproach: (conversationId: string, approach: PlanningApproach) => void;
-  setPendingPlan: (conversationId: string, plan: PendingPlan | null) => void;
+  setPendingPlan: (conversationId: string, plan: PendingPlan | null, sourceMessageId?: string | null) => void;
   updatePendingPlanStepStatus: (conversationId: string, stepId: string, status: PlanStepStatus) => void;
   
   // Past Chats Actions
@@ -614,6 +615,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           mode: saved.mode,
           planningApproach: saved.planningApproach,
           pendingPlan: saved.pendingPlan ?? null,
+          planSourceMessageId: saved.planSourceMessageId ?? null,
           // Reset runtime state
           isProcessing: false,
           streamingContent: '',
@@ -849,11 +851,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  setPendingPlan: (conversationId, plan) => {
+  setPendingPlan: (conversationId, plan, sourceMessageId) => {
     set(state => ({
       conversations: state.conversations.map(c =>
         c.id === conversationId
-          ? { ...c, pendingPlan: plan, updatedAt: Date.now() }
+          ? {
+              ...c,
+              pendingPlan: plan,
+              planSourceMessageId: plan === null ? null : (sourceMessageId ?? c.planSourceMessageId),
+              updatedAt: Date.now(),
+            }
           : c
       ),
     }));
@@ -1153,6 +1160,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           // Restore planning state
           planningApproach: saved.planningApproach,
           pendingPlan: saved.pendingPlan ?? null,
+          planSourceMessageId: saved.planSourceMessageId ?? null,
         }));
 
         // Set the loaded conversations
@@ -1254,6 +1262,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Restore planning state
         planningApproach: saved.planningApproach,
         pendingPlan: saved.pendingPlan ?? null,
+        planSourceMessageId: saved.planSourceMessageId ?? null,
       };
 
       // Add to conversations and activate
