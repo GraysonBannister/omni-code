@@ -29,6 +29,14 @@ export class GroqProvider extends BaseProvider {
 
   formatMessages(messages: UnifiedMessage[]): any[] {
     const result: any[] = [];
+
+    const knownToolCallIds = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === 'assistant') {
+        for (const tc of getToolUseBlocks(msg)) { if (tc.id) knownToolCallIds.add(tc.id); }
+      }
+    }
+
     for (const msg of messages) {
       if (msg.role === 'system') { result.push({ role: 'system', content: getTextContent(msg) }); continue; }
       if (msg.role === 'assistant') {
@@ -45,6 +53,7 @@ export class GroqProvider extends BaseProvider {
       const toolResults = getToolResultBlocks(msg);
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
+          if (!tr.toolUseId || !knownToolCallIds.has(tr.toolUseId)) continue;
           result.push({ role: 'tool', tool_call_id: tr.toolUseId, content: getToolResultText(tr) });
         }
       } else { result.push({ role: 'user', content: getTextContent(msg) }); }

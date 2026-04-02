@@ -165,6 +165,14 @@ export interface SettingsSchema {
     allowedOrigins: string[];
     rateLimitRequests: number;
     rateLimitWindowMs: number;
+    proxyEnabled: boolean;
+    proxyAllowedPorts: number[];
+  };
+
+  // ADB / Device Management
+  adb: {
+    enabled: boolean;
+    path: string;
   };
 }
 
@@ -298,6 +306,13 @@ export const defaultSettings: SettingsSchema = {
     allowedOrigins: [],
     rateLimitRequests: 100,
     rateLimitWindowMs: 15 * 60 * 1000,  // 15 minutes
+    proxyEnabled: true,
+    proxyAllowedPorts: [],
+  },
+
+  adb: {
+    enabled: true,
+    path: 'adb',
   },
 };
 

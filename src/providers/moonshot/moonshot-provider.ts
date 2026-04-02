@@ -52,6 +52,17 @@ export class MoonshotProvider extends BaseProvider {
   formatMessages(messages: UnifiedMessage[]): OpenAI.ChatCompletionMessageParam[] {
     const result: OpenAI.ChatCompletionMessageParam[] = [];
 
+    // Collect all valid tool_call IDs from assistant messages first so we can
+    // strip orphaned tool results that would cause Moonshot to reject the request.
+    const knownToolCallIds = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === 'assistant') {
+        for (const tc of getToolUseBlocks(msg)) {
+          if (tc.id) knownToolCallIds.add(tc.id);
+        }
+      }
+    }
+
     for (const msg of messages) {
       if (msg.role === 'system') {
         result.push({ role: 'system', content: getTextContent(msg) });
@@ -88,6 +99,7 @@ export class MoonshotProvider extends BaseProvider {
       const toolResults = getToolResultBlocks(msg);
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
+          if (!tr.toolUseId || !knownToolCallIds.has(tr.toolUseId)) continue;
           result.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,

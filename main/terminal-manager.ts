@@ -21,9 +21,14 @@ function ensureSpawnHelperExecutable(): void {
 
 ensureSpawnHelperExecutable();
 
+// Cap the replay buffer at 64 KB to avoid sending stale megabytes to new SSE clients
+const OUTPUT_BUFFER_LIMIT = 64 * 1024;
+
 interface TerminalSession {
   id: string;
   pty: pty.IPty;
+  outputCallbacks: Set<(data: string) => void>;
+  outputBuffer: string;
 }
 
 const sessions = new Map<string, TerminalSession>();
@@ -66,6 +71,17 @@ export function createTerminal(
     if (!window.isDestroyed()) {
       window.webContents.send('terminal:data', { id, data });
     }
+    const session = sessions.get(id);
+    if (session) {
+      // Append to replay buffer, trimming oldest data if over the cap
+      session.outputBuffer += data;
+      if (session.outputBuffer.length > OUTPUT_BUFFER_LIMIT) {
+        session.outputBuffer = session.outputBuffer.slice(session.outputBuffer.length - OUTPUT_BUFFER_LIMIT);
+      }
+      for (const cb of session.outputCallbacks) {
+        cb(data);
+      }
+    }
   });
 
   ptyProcess.onExit(() => {
@@ -75,7 +91,7 @@ export function createTerminal(
     }
   });
 
-  sessions.set(id, { id, pty: ptyProcess });
+  sessions.set(id, { id, pty: ptyProcess, outputCallbacks: new Set(), outputBuffer: '' });
 }
 
 export function writeToTerminal(id: string, data: string): void {
@@ -108,4 +124,17 @@ export function destroyAllTerminals(): void {
   for (const id of sessions.keys()) {
     destroyTerminal(id);
   }
+}
+
+export function registerTerminalCallback(id: string, cb: (data: string) => void): void {
+  sessions.get(id)?.outputCallbacks.add(cb);
+}
+
+export function unregisterTerminalCallback(id: string, cb: (data: string) => void): void {
+  sessions.get(id)?.outputCallbacks.delete(cb);
+}
+
+/** Returns all PTY output produced so far for a terminal (for replaying to late SSE clients). */
+export function getTerminalBuffer(id: string): string {
+  return sessions.get(id)?.outputBuffer ?? '';
 }

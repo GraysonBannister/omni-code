@@ -102,6 +102,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
       const status = await window.electronAPI?.remote?.status();
       if (status) {
         setRemoteStatus(status);
+
+        // Auto-generate QR code if server is running and we don't have one yet
+        if (status.running && !qrCodeDataUrl) {
+          try {
+            const qrResult = await window.electronAPI?.remote?.generateQR();
+            if (qrResult?.success && qrResult.qrCodeDataUrl) {
+              setQrCodeDataUrl(qrResult.qrCodeDataUrl);
+            }
+          } catch (qrError) {
+            console.error('Failed to auto-generate QR code:', qrError);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to load remote status:', error);
@@ -139,6 +151,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
   const handleRemoteStart = async () => {
     setRemoteLoading(true);
+    setQrCodeDataUrl(null);
     try {
       const result = await window.electronAPI?.remote?.start();
       if (result?.success) {
@@ -149,6 +162,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
           port: settings?.remoteAccess?.port || 3000,
           connections: { totalConversations: 0, totalConnections: 0, conversations: [] },
         });
+
+        // Auto-generate QR code with the new URL
+        try {
+          const qrResult = await window.electronAPI?.remote?.generateQR();
+          if (qrResult?.success && qrResult.qrCodeDataUrl) {
+            setQrCodeDataUrl(qrResult.qrCodeDataUrl);
+          }
+        } catch (qrError) {
+          console.error('Failed to auto-generate QR code:', qrError);
+        }
       }
     } catch (error) {
       console.error('Failed to start remote server:', error);
@@ -168,6 +191,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
           port: settings?.remoteAccess?.port || 3000,
           connections: { totalConversations: 0, totalConnections: 0, conversations: [] },
         });
+        setQrCodeDataUrl(null);
       }
     } catch (error) {
       console.error('Failed to stop remote server:', error);

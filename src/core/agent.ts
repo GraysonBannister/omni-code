@@ -7,7 +7,7 @@ import type {
   StreamDelta,
   TextBlock,
 } from './message-types.js';
-import { getTextContent } from './message-types.js';
+import { getTextContent, getToolUseBlocks, getToolResultBlocks } from './message-types.js';
 import type { ToolRunner } from '../tools/tool-runner.js';
 import type { CostTracker, CostTrackerConfig } from './cost-tracker.js';
 import type { TokenUsage } from '../providers/provider-types.js';
@@ -373,8 +373,48 @@ export class AgentImpl implements Agent {
     if (this._messages.length <= minMessagesBeforeCompress) return;
 
     const firstMsg = this._messages[0];
-    const recentMessages = this._messages.slice(-recentMessagesToKeep);
-    const oldMessages = this._messages.slice(1, -recentMessagesToKeep);
+
+    // Find a safe cut point that preserves tool_call / tool_result pairing.
+    // Strict APIs (Moonshot/Kimi, xAI) reject messages where a role:"tool"
+    // message references a tool_call_id not present in any preceding assistant.
+    let keepFrom = this._messages.length - recentMessagesToKeep;
+    if (keepFrom < 1) keepFrom = 1;
+
+    // Walk backwards to ensure keepFrom doesn't land on an orphaned tool_result
+    while (keepFrom > 1) {
+      const candidate = this._messages[keepFrom];
+      if (candidate.role === 'user' && getToolResultBlocks(candidate).length > 0) {
+        keepFrom--;
+      } else {
+        break;
+      }
+    }
+
+    // Extra safety: verify every tool_result in the retained window has a matching
+    // tool_call. If not, keep backing up to include the missing assistant message.
+    while (keepFrom > 1) {
+      const retained = this._messages.slice(keepFrom);
+      const toolCallIds = new Set<string>();
+      for (const msg of retained) {
+        if (msg.role === 'assistant') {
+          for (const tc of getToolUseBlocks(msg)) { toolCallIds.add(tc.id); }
+        }
+      }
+      let orphanFound = false;
+      for (const msg of retained) {
+        if (msg.role === 'user') {
+          for (const tr of getToolResultBlocks(msg)) {
+            if (!toolCallIds.has(tr.toolUseId)) { orphanFound = true; break; }
+          }
+        }
+        if (orphanFound) break;
+      }
+      if (!orphanFound) break;
+      keepFrom--;
+    }
+
+    const recentMessages = this._messages.slice(keepFrom);
+    const oldMessages = this._messages.slice(1, keepFrom);
     const removedCount = oldMessages.length;
 
     let summaryText = `[Context compressed: ${removedCount} messages removed. Keeping recent context.]`;

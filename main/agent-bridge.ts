@@ -554,14 +554,22 @@ export class AgentBridge {
           }
         }
 
-        // Emit event with conversation ID
-        this.emitEvent(conversationId, agentEvent);
-
-        // Handle error
+        // Normalize error events so the message is always serializable
         if (agentEvent.type === 'error') {
+          const rawErr = (agentEvent as any).error;
+          const message = rawErr?.message
+            || rawErr?.error?.message
+            || (typeof rawErr === 'string' ? rawErr : JSON.stringify(rawErr));
+          const status = rawErr?.status;
+          this.emitEvent(conversationId, {
+            type: 'error',
+            error: { message, ...(status != null ? { status } : {}) },
+          } as AgentEvent);
           state.isRunning = false;
           state.currentAssistantMessageId = undefined;
           state.pendingFileChanges.clear();
+        } else {
+          this.emitEvent(conversationId, agentEvent);
         }
       }
     } catch (error) {
