@@ -597,7 +597,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:getChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
     try {
       const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
-      const changes = fileHistoryManager.getMessageChangesWithStats(conversationId, messageId);
+      const changes = await fileHistoryManager.getMessageChangesWithStats(conversationId, messageId);
       return { changes };
     } catch (error) {
       return { changes: [], error: (error as Error).message };
@@ -607,7 +607,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:hasChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
     try {
       const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
-      const hasChanges = fileHistoryManager.hasChanges(conversationId, messageId);
+      const hasChanges = await fileHistoryManager.hasChanges(conversationId, messageId);
       return { hasChanges };
     } catch (error) {
       return { hasChanges: false, error: (error as Error).message };
@@ -617,7 +617,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:getAllChanges', async (_: IpcMainInvokeEvent, conversationId: string) => {
     try {
       const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
-      const changes = fileHistoryManager.getAllConversationChanges(conversationId);
+      const changes = await fileHistoryManager.getAllConversationChanges(conversationId);
       return { changes };
     } catch (error) {
       return { changes: [], error: (error as Error).message };
@@ -628,7 +628,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:getDiff', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, filePath: string) => {
     try {
       const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
-      const changes = fileHistoryManager.getMessageChanges(conversationId, messageId);
+      const changes = await fileHistoryManager.getMessageChanges(conversationId, messageId);
       const change = changes.find(c => c.filePath === filePath);
 
       if (!change) {

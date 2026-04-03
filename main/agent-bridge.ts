@@ -280,6 +280,14 @@ export class AgentBridge {
     }
 
     this.conversations.delete(conversationId);
+
+    // Free file history snapshots for this conversation
+    if (this.workspacePath) {
+      getFileHistoryManager(this.workspacePath).clearConversation(conversationId).catch(err => {
+        console.error(`[AgentBridge] Failed to clear file history for ${conversationId}:`, err);
+      });
+    }
+
     console.log(`[AgentBridge] Closed conversation: ${conversationId}`);
     return true;
   }
@@ -526,7 +534,7 @@ export class AgentBridge {
                   );
                 }
 
-                const changes = fileHistoryManager.getMessageChanges(
+                const changes = await fileHistoryManager.getMessageChanges(
                   conversationId,
                   state.currentAssistantMessageId
                 );

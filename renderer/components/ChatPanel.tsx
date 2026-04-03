@@ -504,6 +504,12 @@ export const ChatPanel: React.FC = () => {
   const projectPickerRef = useRef<HTMLDivElement>(null);
   const userInputCardRef = useRef<HTMLDivElement>(null);
 
+  // Clear stale file change data when switching conversations
+  useEffect(() => {
+    setMessageFileChanges(new Map());
+    setConversationFileChanges([]);
+  }, [activeConversationId]);
+
   // Scroll to UserInputCard when it appears
   useEffect(() => {
     if (pendingUserInput && userInputCardRef.current) {

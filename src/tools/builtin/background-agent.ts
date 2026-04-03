@@ -11,8 +11,19 @@ interface BackgroundTask {
   completedAt?: number;
 }
 
-// Module-level task tracking (persists for session lifetime)
+const MAX_TASKS = 50;
+const TASK_TTL_MS = 10 * 60 * 1000; // auto-evict completed tasks after 10 minutes
+
 const backgroundTasks = new Map<string, BackgroundTask>();
+
+function evictOldestCompleted(): void {
+  for (const [id, t] of backgroundTasks) {
+    if (t.status !== 'running') {
+      backgroundTasks.delete(id);
+      return;
+    }
+  }
+}
 
 export class BackgroundAgentTool implements Tool {
   readonly name = 'BackgroundAgent';
@@ -60,6 +71,10 @@ export class BackgroundAgentTool implements Tool {
           return { content: 'Background agents require sub-agent spawning capability.', isError: true };
         }
 
+        if (backgroundTasks.size >= MAX_TASKS) {
+          evictOldestCompleted();
+        }
+
         const task: BackgroundTask = {
           id: taskId,
           task: taskDesc,
@@ -68,15 +83,16 @@ export class BackgroundAgentTool implements Tool {
         };
         backgroundTasks.set(taskId, task);
 
-        // Fire and forget — the promise runs in the background
         context.spawnSubAgent(taskDesc, false).then(result => {
           task.status = 'done';
           task.result = result;
           task.completedAt = Date.now();
+          setTimeout(() => backgroundTasks.delete(taskId), TASK_TTL_MS);
         }).catch(err => {
           task.status = 'error';
           task.error = (err as Error).message;
           task.completedAt = Date.now();
+          setTimeout(() => backgroundTasks.delete(taskId), TASK_TTL_MS);
         });
 
         return {

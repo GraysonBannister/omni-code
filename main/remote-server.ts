@@ -9,7 +9,7 @@ import * as ngrok from '@ngrok/ngrok';
 import { settingsManager } from './settings.js';
 import { agentBridge } from './agent-bridge.js';
 import type { UnifiedMessage } from './agent-bridge.js';
-import { validateApiKey, getCorsOptions, ensureApiKey, getApiKey } from './remote-auth.js';
+import { validateApiKey, validateRequestSignature, getCorsOptions, ensureApiKey, getApiKey } from './remote-auth.js';
 import {
   initializeEventEmitter,
   cleanupEventEmitter,
@@ -29,8 +29,9 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import * as http from 'node:http';
-import { exec, spawn } from 'node:child_process';
+import { exec, spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import * as os from 'node:os';
 import { getWorkingDirectory } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getConfigModels, getConfigProviders } from './ipc-handlers.js';
@@ -40,6 +41,13 @@ import simpleGit from 'simple-git';
 import { GitManager } from '../src/git/git-manager.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// ADB input validation regexes — used to prevent shell injection
+const DEVICE_ID_RE = /^[a-zA-Z0-9._:+-]{1,64}$/;
+const IP_RE = /^[a-zA-Z0-9._-]{1,253}$/;
+const PKG_RE = /^[a-zA-Z0-9._]{1,255}$/;
+const ACTIVITY_RE = /^[a-zA-Z0-9._$/]{1,255}$/;
 
 /**
  * Resolve the working directory for a request.
@@ -59,9 +67,54 @@ function resolveWorkingDirectory(req: Request): string {
   return getSharedWorkspaceManager().getActiveWorkingDirectory() ?? getWorkingDirectory();
 }
 
+/**
+ * Resolve a file path and assert it lives inside an allowed workspace directory.
+ * Throws an error with .status = 403 if the path escapes the sandbox.
+ */
+function resolveAndSandbox(inputPath: string, fallbackCwd: string): string {
+  const resolved = path.resolve(
+    path.isAbsolute(inputPath) ? inputPath : path.join(fallbackCwd, inputPath)
+  );
+  const allowedBases = getSharedWorkspaceManager()
+    .getSharedWorkspaces()
+    .flatMap(ws => ws.folders.map(f => path.resolve(f.path)));
+  const allowed = allowedBases.some(
+    base => resolved === base || resolved.startsWith(base + path.sep)
+  );
+  if (!allowed) {
+    const err = new Error('Access denied: path is outside allowed workspace directories');
+    (err as Error & { status: number }).status = 403;
+    throw err;
+  }
+  return resolved;
+}
+
+/**
+ * Assert that a directory path is within the user's home directory.
+ * Throws an error with .status = 403 if not.
+ */
+function assertWithinHomeDir(dirPath: string): void {
+  const resolved = path.resolve(dirPath);
+  const home = os.homedir();
+  if (!resolved.startsWith(home + path.sep) && resolved !== home) {
+    const err = new Error('Folder path must be within the user home directory');
+    (err as Error & { status: number }).status = 403;
+    throw err;
+  }
+}
+
+/**
+ * Send an error response, respecting a .status property set by security helpers.
+ */
+function sendRouteError(res: Response, error: unknown): void {
+  const err = error as Error & { status?: number };
+  const status = err.status ?? 500;
+  res.status(status).json({ error: err.message || 'Internal server error' });
+}
+
 // Server state
 let app: express.Express | null = null;
-let server: ReturnType<typeof app.listen> | null = null;
+let server: ReturnType<express.Express['listen']> | null = null;
 let ngrokListener: ngrok.Listener | null = null;
 let isRunning = false;
 let publicUrl: string | null = null;
@@ -172,7 +225,7 @@ export async function initializeRemoteServer(): Promise<{
         resolve();
       });
 
-      server.on('error', (error) => {
+      server.on('error', (error: Error) => {
         reject(error);
       });
     });
@@ -340,6 +393,27 @@ function setupMiddleware(app: express.Express): void {
   app.use(limiter);
 }
 
+// Per-operation rate limiters for sensitive write/destructive endpoints
+export const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Write rate limit exceeded. Please slow down.' });
+  },
+}) as RequestHandler;
+
+export const destructiveLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Rate limit exceeded for destructive operations.' });
+  },
+}) as RequestHandler;
+
 /**
  * Setup all Express routes
  */
@@ -356,6 +430,7 @@ function setupRoutes(app: express.Express): void {
 
   // Apply auth middleware to all /api routes except status
   app.use('/api', validateApiKey as RequestHandler);
+  app.use('/api', validateRequestSignature as RequestHandler);
 
   // Config routes
   setupConfigRoutes(app);
@@ -488,6 +563,106 @@ function setupWorkspaceRoutes(app: express.Express): void {
       }
       res.json({ success: true, workspaceId });
     } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Create a new multi-folder workspace
+  app.post('/api/workspaces', async (req, res) => {
+    console.log('[POST /api/workspaces] Request body:', JSON.stringify(req.body));
+    try {
+      const { name, folders } = req.body as { name?: string; folders?: string[] };
+      if (!name || !name.trim()) {
+        console.warn('[POST /api/workspaces] Missing workspace name');
+        res.status(400).json({ error: 'Missing workspace name' });
+        return;
+      }
+      if (!folders || !Array.isArray(folders) || folders.length === 0) {
+        console.warn('[POST /api/workspaces] No folders provided');
+        res.status(400).json({ error: 'At least one folder path is required' });
+        return;
+      }
+      // Validate each folder path is within the user home directory before creating
+      for (const folderPath of folders) {
+        try {
+          assertWithinHomeDir(folderPath.trim());
+        } catch (guardErr) {
+          console.warn(`[POST /api/workspaces] Path rejected: ${folderPath.trim()}`);
+          sendRouteError(res, guardErr);
+          return;
+        }
+      }
+      // Ensure every folder exists on the server, creating it if needed
+      for (const folderPath of folders) {
+        console.log(`[POST /api/workspaces] Ensuring folder exists: ${folderPath.trim()}`);
+        await fs.mkdir(folderPath.trim(), { recursive: true });
+        console.log(`[POST /api/workspaces] Folder ready: ${folderPath.trim()}`);
+      }
+      console.log(`[POST /api/workspaces] Creating workspace "${name.trim()}" with ${folders.length} folder(s)`);
+      const workspace = await getSharedWorkspaceManager().createWorkspaceFromFolders(name.trim(), folders);
+      if (!workspace) {
+        console.error('[POST /api/workspaces] createWorkspaceFromFolders returned null');
+        res.status(500).json({ error: 'Failed to create workspace' });
+        return;
+      }
+      console.log(`[POST /api/workspaces] Created workspace: sharedId=${workspace.sharedId}, name=${workspace.name}`);
+      res.status(201).json({ success: true, workspace });
+    } catch (error) {
+      console.error('[POST /api/workspaces] Error:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Create a new single-folder project (standalone, no workspace file)
+  app.post('/api/projects', async (req, res) => {
+    console.log('[POST /api/projects] Request body:', JSON.stringify(req.body));
+    try {
+      const { folderPath, name } = req.body as { folderPath?: string; name?: string };
+      if (!folderPath || !folderPath.trim()) {
+        console.warn('[POST /api/projects] Missing folderPath');
+        res.status(400).json({ error: 'Missing folderPath' });
+        return;
+      }
+      // Validate that the project path stays within the user home directory
+      try {
+        assertWithinHomeDir(folderPath.trim());
+      } catch (guardErr) {
+        console.warn(`[POST /api/projects] Path rejected: ${folderPath.trim()}`);
+        sendRouteError(res, guardErr);
+        return;
+      }
+      // Ensure the folder exists on the server, creating it if needed
+      console.log(`[POST /api/projects] Ensuring folder exists: ${folderPath.trim()}`);
+      await fs.mkdir(folderPath.trim(), { recursive: true });
+      console.log(`[POST /api/projects] Folder ready: ${folderPath.trim()}`);
+      const workspace = await getSharedWorkspaceManager().addFolder(folderPath.trim(), name?.trim());
+      if (!workspace) {
+        console.error(`[POST /api/projects] addFolder returned null for path: ${folderPath.trim()}`);
+        res.status(500).json({ error: 'Failed to create project' });
+        return;
+      }
+      console.log(`[POST /api/projects] Created project: sharedId=${workspace.sharedId}, name=${workspace.name}`);
+      res.status(201).json({ success: true, workspace });
+    } catch (error) {
+      console.error('[POST /api/projects] Error:', error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Remove a workspace from the shared list
+  app.delete('/api/workspaces/:workspaceId', async (req, res) => {
+    console.log(`[DELETE /api/workspaces] workspaceId=${req.params.workspaceId}`);
+    try {
+      const removed = await getSharedWorkspaceManager().removeWorkspace(req.params.workspaceId);
+      if (!removed) {
+        console.warn(`[DELETE /api/workspaces] Not found: ${req.params.workspaceId}`);
+        res.status(404).json({ error: 'Workspace not found' });
+        return;
+      }
+      console.log(`[DELETE /api/workspaces] Removed: ${req.params.workspaceId}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[DELETE /api/workspaces] Error:', error);
       res.status(500).json({ error: (error as Error).message });
     }
   });
@@ -802,17 +977,17 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
       const content = await fs.readFile(resolvedPath, 'utf-8');
 
       res.json({ content, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
   // Write file
-  app.post('/api/files/write', async (req, res) => {
+  app.post('/api/files/write', writeLimiter, async (req, res) => {
     try {
       const { path: filePath, content } = req.body;
 
@@ -821,7 +996,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
 
       // Ensure directory exists
       await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
@@ -838,12 +1013,12 @@ function setupFileRoutes(app: express.Express): void {
 
       res.json({ success: true, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
   // Edit file (search and replace)
-  app.post('/api/files/edit', async (req, res) => {
+  app.post('/api/files/edit', writeLimiter, async (req, res) => {
     try {
       const { path: filePath, oldString, newString } = req.body;
 
@@ -852,7 +1027,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
       const content = await fs.readFile(resolvedPath, 'utf-8');
 
       if (!content.includes(oldString)) {
@@ -865,7 +1040,7 @@ function setupFileRoutes(app: express.Express): void {
 
       res.json({ success: true, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -874,7 +1049,7 @@ function setupFileRoutes(app: express.Express): void {
     try {
       const cwd = resolveWorkingDirectory(req);
       const dirPath = (req.query.path as string) || cwd;
-      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(cwd, dirPath);
+      const resolvedPath = resolveAndSandbox(dirPath, cwd);
 
       const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
 
@@ -888,7 +1063,7 @@ function setupFileRoutes(app: express.Express): void {
 
       res.json({ files, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -902,7 +1077,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
 
       const stat = await fs.stat(resolvedPath);
       if (!stat.isFile()) {
@@ -937,7 +1112,7 @@ function setupFileRoutes(app: express.Express): void {
         }
       });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -951,17 +1126,17 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(resolveWorkingDirectory(req), dirPath);
+      const resolvedPath = resolveAndSandbox(dirPath, resolveWorkingDirectory(req));
       await fs.mkdir(resolvedPath, { recursive: true });
 
       res.json({ success: true, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
   // Delete file or directory
-  app.post('/api/files/delete', async (req, res) => {
+  app.post('/api/files/delete', destructiveLimiter, async (req, res) => {
     try {
       const { path: filePath } = req.body;
 
@@ -970,7 +1145,7 @@ function setupFileRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
       const stat = await fs.stat(resolvedPath);
 
       if (stat.isDirectory()) {
@@ -981,7 +1156,7 @@ function setupFileRoutes(app: express.Express): void {
 
       res.json({ success: true, path: resolvedPath });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -1081,7 +1256,7 @@ function setupTerminalRoutes(app: express.Express): void {
   });
 
   // Write to terminal
-  app.post('/api/terminal/write', async (req, res) => {
+  app.post('/api/terminal/write', writeLimiter, async (req, res) => {
     try {
       const { id, data } = req.body;
 
@@ -1464,6 +1639,13 @@ function setupProxyRoutes(app: express.Express): void {
         return;
       }
 
+      // Deny-by-default: port must have been explicitly registered via /api/proxy/register
+      if (!registeredProxyPorts.has(targetPort)) {
+        res.status(403).json({ error: `Port ${targetPort} is not registered for proxying` });
+        return;
+      }
+
+      // If an allowlist is configured, the port must also appear there
       const allowedPorts = settingsManager.get('remoteAccess.proxyAllowedPorts') as number[];
       if (allowedPorts.length > 0 && !allowedPorts.includes(targetPort)) {
         res.status(403).json({ error: `Port ${targetPort} is not in the allowed proxy ports list` });
@@ -1595,7 +1777,7 @@ function setupAdbRoutes(app: express.Express): void {
   }
 
   // Install APK on device
-  app.post('/api/adb/install', async (req, res) => {
+  app.post('/api/adb/install', destructiveLimiter, async (req, res) => {
     try {
       if (!isAdbEnabled()) {
         res.status(403).json({ error: 'ADB is disabled in settings' });
@@ -1609,7 +1791,12 @@ function setupAdbRoutes(app: express.Express): void {
         return;
       }
 
-      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(resolveWorkingDirectory(req), filePath);
+      if (deviceId && !DEVICE_ID_RE.test(deviceId)) {
+        res.status(400).json({ error: 'Invalid deviceId format' });
+        return;
+      }
+
+      const resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
 
       try {
         await fs.access(resolvedPath);
@@ -1622,13 +1809,15 @@ function setupAdbRoutes(app: express.Express): void {
       const packageName = await extractApkPackageName(resolvedPath);
 
       const adb = getAdbPath();
-      const deviceFlag = deviceId ? `-s ${deviceId}` : '';
-      const { stdout, stderr } = await execAsync(`${adb} ${deviceFlag} install -r "${resolvedPath}"`, { timeout: 120000 });
+      const installArgs = deviceId
+        ? ['-s', deviceId, 'install', '-r', resolvedPath]
+        : ['install', '-r', resolvedPath];
+      const { stdout, stderr } = await execFileAsync(adb, installArgs, { timeout: 120000 });
 
       const success = stdout.includes('Success') || stdout.includes('success');
       res.json({ success, stdout: stdout.trim(), stderr: stderr.trim(), packageName });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -1647,21 +1836,40 @@ function setupAdbRoutes(app: express.Express): void {
         return;
       }
 
-      const adb = getAdbPath();
-      const deviceFlag = deviceId ? `-s ${deviceId}` : '';
-      const component = activityName ? `${packageName}/${activityName}` : packageName;
-
-      let cmd: string;
-      if (activityName) {
-        cmd = `${adb} ${deviceFlag} shell am start -n ${component}`;
-      } else {
-        cmd = `${adb} ${deviceFlag} shell monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`;
+      if (!PKG_RE.test(packageName)) {
+        res.status(400).json({ error: 'Invalid packageName format' });
+        return;
       }
 
-      const { stdout, stderr } = await execAsync(cmd);
+      if (activityName && !ACTIVITY_RE.test(activityName)) {
+        res.status(400).json({ error: 'Invalid activityName format' });
+        return;
+      }
+
+      if (deviceId && !DEVICE_ID_RE.test(deviceId)) {
+        res.status(400).json({ error: 'Invalid deviceId format' });
+        return;
+      }
+
+      const adb = getAdbPath();
+
+      let launchArgs: string[];
+      if (activityName) {
+        launchArgs = [
+          ...(deviceId ? ['-s', deviceId] : []),
+          'shell', 'am', 'start', '-n', `${packageName}/${activityName}`,
+        ];
+      } else {
+        launchArgs = [
+          ...(deviceId ? ['-s', deviceId] : []),
+          'shell', 'monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1',
+        ];
+      }
+
+      const { stdout, stderr } = await execFileAsync(adb, launchArgs);
       res.json({ success: true, stdout: stdout.trim(), stderr: stderr.trim() });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -1680,16 +1888,41 @@ function setupAdbRoutes(app: express.Express): void {
         return;
       }
 
+      if (!IP_RE.test(String(ip))) {
+        res.status(400).json({ error: 'Invalid ip format' });
+        return;
+      }
+
+      const portNum = parseInt(String(pairingPort), 10);
+      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        res.status(400).json({ error: 'Invalid port (must be 1–65535)' });
+        return;
+      }
+
       const adb = getAdbPath();
-      const { stdout, stderr } = await execAsync(
-        `echo "${pairingCode}" | ${adb} pair ${ip}:${pairingPort}`,
-        { timeout: 30000 },
+
+      // Use spawn + stdin pipe to avoid shell injection (no execAsync with shell string)
+      const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>(
+        (resolve, reject) => {
+          const proc = spawn(adb, ['pair', `${ip}:${portNum}`]);
+          let out = '';
+          let err = '';
+          proc.stdout.on('data', (d: Buffer) => { out += d.toString(); });
+          proc.stderr.on('data', (d: Buffer) => { err += d.toString(); });
+          proc.on('close', () => resolve({ stdout: out, stderr: err }));
+          proc.on('error', reject);
+          // Write pairing code to stdin then close
+          proc.stdin.write(String(pairingCode) + '\n');
+          proc.stdin.end();
+          // Kill if it takes too long
+          setTimeout(() => proc.kill(), 30000);
+        }
       );
 
       const success = stdout.toLowerCase().includes('successfully paired');
       res.json({ success, stdout: stdout.trim(), stderr: stderr.trim() });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      sendRouteError(res, error);
     }
   });
 
@@ -1865,7 +2098,7 @@ function setupIosRoutes(app: express.Express): void {
   });
 
   // Install IPA on a connected iOS device
-  app.post('/api/ios/install', async (req, res) => {
+  app.post('/api/ios/install', destructiveLimiter, async (req, res) => {
     console.log('[IosInstall] Request received:', req.body);
 
     if (!isIosSupported()) {
@@ -1879,9 +2112,13 @@ function setupIosRoutes(app: express.Express): void {
       return;
     }
 
-    const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(resolveWorkingDirectory(req), filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = resolveAndSandbox(filePath, resolveWorkingDirectory(req));
+    } catch (sandboxErr) {
+      sendRouteError(res, sandboxErr);
+      return;
+    }
 
     try {
       await fs.access(resolvedPath);

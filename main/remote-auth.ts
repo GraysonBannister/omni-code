@@ -93,6 +93,46 @@ export function validateIp(req: Request, res: Response, next: NextFunction): voi
   next();
 }
 
+/**
+ * HMAC request signature middleware.
+ * Clients must send:
+ *   X-Timestamp: <Unix ms timestamp>
+ *   X-Signature: HMAC-SHA256(apiKey, "METHOD\nPATH_WITH_QUERY\nTIMESTAMP") as hex
+ *
+ * Requests with a timestamp older than 5 minutes are rejected, preventing replays.
+ */
+export function validateRequestSignature(req: Request, res: Response, next: NextFunction): void {
+  const timestamp = req.headers['x-timestamp'] as string | undefined;
+  const signature = req.headers['x-signature'] as string | undefined;
+
+  if (!timestamp || !signature) {
+    res.status(401).json({ error: 'Missing X-Timestamp or X-Signature headers.' });
+    return;
+  }
+
+  const ts = parseInt(timestamp, 10);
+  if (isNaN(ts) || Math.abs(Date.now() - ts) > 5 * 60 * 1000) {
+    res.status(401).json({ error: 'Request timestamp is expired or invalid.' });
+    return;
+  }
+
+  const apiKey = settingsManager.get('remoteAccess.apiKey') as string | null;
+  if (!apiKey) {
+    res.status(500).json({ error: 'Server not properly configured.' });
+    return;
+  }
+
+  const signingString = `${req.method}\n${req.originalUrl}\n${timestamp}`;
+  const expected = crypto.createHmac('sha256', apiKey).update(signingString).digest('hex');
+
+  if (!timingSafeEqual(signature, expected)) {
+    res.status(401).json({ error: 'Invalid request signature.' });
+    return;
+  }
+
+  next();
+}
+
 // Timing-safe string comparison to prevent timing attacks
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {

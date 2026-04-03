@@ -710,7 +710,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       await window.electronAPI.indexing.start(state.projectPath);
-      // Start polling for updates
+      const existing = get().indexingPollInterval;
+      if (existing) clearInterval(existing);
       get().setIndexingPollInterval(window.setInterval(() => {
         get().refreshIndexingState();
       }, 1000));
@@ -741,7 +742,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       await window.electronAPI.indexing.reindex(state.projectPath);
-      // Start polling for updates
+      const existing = get().indexingPollInterval;
+      if (existing) clearInterval(existing);
       get().setIndexingPollInterval(window.setInterval(() => {
         get().refreshIndexingState();
       }, 1000));

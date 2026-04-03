@@ -326,12 +326,20 @@ export class SharedWorkspaceManager {
         throw new Error('Path is not a directory');
       }
 
-      // Check if already shared
+      // Check if already shared — if so, update name if a new one was provided
       const existing = this.sharedWorkspaces.find(ws =>
         ws.isSingleFolder && ws.filePath === folderPath
       );
       if (existing) {
-        console.log(`[SharedWorkspaceManager] Folder already shared: ${folderPath}`);
+        if (name && name.trim() && name.trim() !== existing.name) {
+          const newName = name.trim();
+          existing.name = newName;
+          existing.folders[0].name = newName;
+          await this.saveToSettings();
+          console.log(`[SharedWorkspaceManager] Updated folder name: ${existing.name} -> ${newName}`);
+        } else {
+          console.log(`[SharedWorkspaceManager] Folder already shared: ${folderPath}`);
+        }
         return existing;
       }
 
@@ -365,6 +373,35 @@ export class SharedWorkspaceManager {
       return sharedWorkspace;
     } catch (error) {
       console.error('[SharedWorkspaceManager] Failed to add folder:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a new multi-folder workspace, persist it to a file, and add it to the shared list.
+   */
+  async createWorkspaceFromFolders(name: string, folderPaths: string[]): Promise<SharedWorkspace | null> {
+    try {
+      const createResult = await this.workspaceStorage.createWorkspace({ name, folders: folderPaths });
+      if (!createResult.success || !createResult.workspace) {
+        console.error('[SharedWorkspaceManager] Failed to create workspace:', createResult.error);
+        return null;
+      }
+
+      const workspace = createResult.workspace;
+      const storageDir = await this.workspaceStorage.getWorkspaceStoragePath(workspace.id);
+      const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filePath = path.join(storageDir, `${safeName}.omnicode-workspace`);
+
+      const saveResult = await this.workspaceStorage.saveWorkspaceToFile(workspace, filePath);
+      if (!saveResult.success) {
+        console.error('[SharedWorkspaceManager] Failed to save workspace file:', saveResult.error);
+        return null;
+      }
+
+      return await this.addWorkspaceFile(filePath);
+    } catch (error) {
+      console.error('[SharedWorkspaceManager] createWorkspaceFromFolders failed:', error);
       return null;
     }
   }

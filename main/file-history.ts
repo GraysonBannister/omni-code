@@ -103,9 +103,12 @@ export interface MessageSnapshot {
   timestamp: number;
 }
 
+const MAX_INMEMORY_SNAPSHOTS = 50;
+
 /**
  * FileHistoryManager tracks file changes per message for rollback support
  * Stores snapshots in memory and on disk in .omnicode/backups/
+ * Evicts old snapshots from memory after persisting to disk to bound heap usage.
  */
 export class FileHistoryManager {
   private snapshots = new Map<string, MessageSnapshot>(); // key: `${conversationId}/${messageId}`
@@ -227,19 +230,20 @@ export class FileHistoryManager {
   }
 
   /**
-   * Get all file changes for a specific message
+   * Get all file changes for a specific message.
+   * Loads from disk if the snapshot was evicted from memory.
    */
-  getMessageChanges(conversationId: string, messageId: string): FileChange[] {
+  async getMessageChanges(conversationId: string, messageId: string): Promise<FileChange[]> {
     const key = `${conversationId}/${messageId}`;
-    const snapshot = this.snapshots.get(key);
+    const snapshot = await this.ensureSnapshotLoaded(key);
     return snapshot?.changes.filter(change => change.afterContent !== undefined) || [];
   }
 
   /**
    * Check if a message has any file changes
    */
-  hasChanges(conversationId: string, messageId: string): boolean {
-    const changes = this.getMessageChanges(conversationId, messageId);
+  async hasChanges(conversationId: string, messageId: string): Promise<boolean> {
+    const changes = await this.getMessageChanges(conversationId, messageId);
     return changes.length > 0;
   }
 
@@ -257,13 +261,15 @@ export class FileHistoryManager {
   }
 
   /**
-   * Get aggregated file changes for an entire conversation
-   * Groups by file path showing the final state of each file with line statistics
+   * Get aggregated file changes for an entire conversation.
+   * Loads evicted snapshots from disk as needed.
    */
-  getAllConversationChanges(conversationId: string): FileChangeSummary[] {
+  async getAllConversationChanges(conversationId: string): Promise<FileChangeSummary[]> {
+    // Reload any evicted snapshots for this conversation from disk
+    await this.ensureConversationLoaded(conversationId);
+
     const fileMap = new Map<string, FileChangeSummary & { lastBeforeContent: string; lastAfterContent: string }>();
 
-    // Collect all changes across all messages
     for (const [key, snapshot] of this.snapshots.entries()) {
       if (snapshot.conversationId !== conversationId) continue;
 
@@ -336,11 +342,12 @@ export class FileHistoryManager {
   }
 
   /**
-   * Get file changes for a specific message with line statistics
+   * Get file changes for a specific message with line statistics.
+   * Loads from disk if the snapshot was evicted from memory.
    */
-  getMessageChangesWithStats(conversationId: string, messageId: string): FileChangeSummary[] {
+  async getMessageChangesWithStats(conversationId: string, messageId: string): Promise<FileChangeSummary[]> {
     const key = `${conversationId}/${messageId}`;
-    const snapshot = this.snapshots.get(key);
+    const snapshot = await this.ensureSnapshotLoaded(key);
 
     if (!snapshot) {
       return [];
@@ -386,9 +393,8 @@ export class FileHistoryManager {
     const restoredFiles: string[] = [];
     const failedFiles: string[] = [];
 
-    // Find the target snapshot
     const targetKey = `${conversationId}/${messageId}`;
-    const targetSnapshot = this.snapshots.get(targetKey);
+    const targetSnapshot = await this.ensureSnapshotLoaded(targetKey);
 
     if (!targetSnapshot) {
       console.warn(`[FileHistoryManager] No snapshot found for message ${messageId}`);
@@ -471,7 +477,7 @@ export class FileHistoryManager {
   }
 
   /**
-   * Persist a snapshot to disk for safety
+   * Persist a snapshot to disk for safety, then evict old entries from memory.
    */
   private async persistSnapshot(snapshot: MessageSnapshot): Promise<void> {
     const snapshotDir = join(this.backupDir, snapshot.conversationId, snapshot.messageId);
@@ -480,7 +486,6 @@ export class FileHistoryManager {
       await fs.mkdir(snapshotDir, { recursive: true });
 
       for (const change of snapshot.changes) {
-        // Sanitize file path for use as filename
         const safeFileName = change.filePath.replace(/[/\\]/g, '_');
         const backupPath = join(snapshotDir, `${safeFileName}.json`);
 
@@ -488,6 +493,88 @@ export class FileHistoryManager {
       }
     } catch (error) {
       console.error('[FileHistoryManager] Failed to persist snapshot:', error);
+      return; // Don't evict if persist failed
+    }
+
+    this.evictOldSnapshots();
+  }
+
+  /**
+   * Remove the oldest snapshots from memory when exceeding the cap.
+   * Evicted snapshots are safe to remove because they were already persisted to disk.
+   */
+  private evictOldSnapshots(): void {
+    if (this.snapshots.size <= MAX_INMEMORY_SNAPSHOTS) return;
+
+    const entries = Array.from(this.snapshots.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+    const toEvict = entries.length - MAX_INMEMORY_SNAPSHOTS;
+    for (let i = 0; i < toEvict; i++) {
+      this.snapshots.delete(entries[i][0]);
+    }
+  }
+
+  /**
+   * Load a single snapshot from disk into memory if it isn't already present.
+   */
+  private async ensureSnapshotLoaded(key: string): Promise<MessageSnapshot | undefined> {
+    const existing = this.snapshots.get(key);
+    if (existing) return existing;
+
+    const [conversationId, messageId] = key.split('/');
+    if (!conversationId || !messageId) return undefined;
+
+    const messageDir = join(this.backupDir, conversationId, messageId);
+    try {
+      const stat = await fs.stat(messageDir);
+      if (!stat.isDirectory()) return undefined;
+
+      const files = await fs.readdir(messageDir);
+      const changes: FileChange[] = [];
+
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const filePath = join(messageDir, file);
+        try {
+          const content = await fs.readFile(filePath, 'utf8');
+          changes.push(JSON.parse(content) as FileChange);
+        } catch {
+          // Skip unreadable files
+        }
+      }
+
+      if (changes.length > 0) {
+        const snapshot: MessageSnapshot = {
+          messageId,
+          conversationId,
+          changes,
+          timestamp: changes[0]?.timestamp || Date.now(),
+        };
+        this.snapshots.set(key, snapshot);
+        return snapshot;
+      }
+    } catch {
+      // Directory doesn't exist on disk
+    }
+    return undefined;
+  }
+
+  /**
+   * Ensure all snapshots for a conversation are loaded into memory.
+   * Re-reads any that were evicted since initial load.
+   */
+  private async ensureConversationLoaded(conversationId: string): Promise<void> {
+    const conversationBackupDir = join(this.backupDir, conversationId);
+    try {
+      const messageDirs = await fs.readdir(conversationBackupDir);
+      for (const messageId of messageDirs) {
+        const key = `${conversationId}/${messageId}`;
+        if (this.snapshots.has(key)) continue;
+        await this.ensureSnapshotLoaded(key);
+      }
+    } catch {
+      // Directory doesn't exist
     }
   }
 
