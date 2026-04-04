@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders } from './core-integration.js';
+import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
@@ -200,6 +200,16 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('agent:set-permission-mode', (_: IpcMainInvokeEvent, autoRunMode: string) => {
     setPermissionMode(autoRunMode);
+  });
+
+  ipcMain.handle('agent:set-change-review-enabled', (_: IpcMainInvokeEvent, enabled: boolean) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    agentRef.setChangeReviewEnabled(enabled);
+  });
+
+  ipcMain.handle('changes:respond', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.respondToChangeReview(conversationId, messageId, toolCallId, decision);
   });
 
   // Tools metadata handler
@@ -684,7 +694,7 @@ export function setupIpcHandlers(): void {
 
   // Working directory handler
   ipcMain.handle('config:set-cwd', async (_: IpcMainInvokeEvent, cwd: string) => {
-    setWorkingDirectory(cwd);
+    await setWorkingDirectory(cwd);
     
     // Add the opened folder as a shared workspace so it appears in the Flutter app
     const sharedManager = getSharedWorkspaceManager();
@@ -1341,6 +1351,87 @@ export function setMainWindowForBrowser(window: BrowserWindow): void {
   mainWindowRef = window;
 }
 
+// ─── Rules IPC Handlers ──────────────────────────────────────────────────────
+
+export function setupRulesAndSkillsIpcHandlers(): void {
+  ipcMain.handle('rules:list', async () => {
+    try {
+      return { rules: rulesManager.getAllRules(), error: null };
+    } catch (error) {
+      return { rules: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('rules:save', async (_: IpcMainInvokeEvent, id: string, fullContent: string) => {
+    try {
+      await rulesManager.saveRuleFile(id, fullContent);
+      refreshSystemPrompt();
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('rules:delete', async (_: IpcMainInvokeEvent, id: string) => {
+    try {
+      await rulesManager.deleteRule(id);
+      refreshSystemPrompt();
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('rules:toggle', async (_: IpcMainInvokeEvent, id: string, enabled: boolean) => {
+    try {
+      await rulesManager.toggleRule(id, enabled);
+      refreshSystemPrompt();
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // ─── Skills IPC Handlers ────────────────────────────────────────────────────
+
+  ipcMain.handle('skills:list', async () => {
+    try {
+      return { skills: skillsManager.getAllSkills(), error: null };
+    } catch (error) {
+      return { skills: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('skills:get', async (_: IpcMainInvokeEvent, id: string) => {
+    try {
+      const skill = skillsManager.getSkill(id);
+      return { skill: skill || null, error: skill ? null : 'Skill not found' };
+    } catch (error) {
+      return { skill: null, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('skills:save', async (_: IpcMainInvokeEvent, id: string, content: string) => {
+    try {
+      await skillsManager.saveSkill(id, content);
+      refreshSystemPrompt();
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('skills:delete', async (_: IpcMainInvokeEvent, id: string) => {
+    try {
+      await skillsManager.deleteSkill(id);
+      refreshSystemPrompt();
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+}
+
 export function cleanupIpcHandlers(): void {
   // Clean up all terminal sessions
   destroyAllTerminals();
@@ -1365,6 +1456,8 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('agent:respond-user-input');
   ipcMain.removeHandler('agent:set-mode');
   ipcMain.removeHandler('agent:set-permission-mode');
+  ipcMain.removeHandler('agent:set-change-review-enabled');
+  ipcMain.removeHandler('changes:respond');
   ipcMain.removeHandler('tools:get-metadata');
   ipcMain.removeHandler('chat:save');
   ipcMain.removeHandler('chat:load');
@@ -1448,4 +1541,14 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('remote:status');
   ipcMain.removeHandler('remote:regenerate-api-key');
   ipcMain.removeHandler('remote:generate-qr');
+
+  // Rules/Skills cleanup
+  ipcMain.removeHandler('rules:list');
+  ipcMain.removeHandler('rules:save');
+  ipcMain.removeHandler('rules:delete');
+  ipcMain.removeHandler('rules:toggle');
+  ipcMain.removeHandler('skills:list');
+  ipcMain.removeHandler('skills:get');
+  ipcMain.removeHandler('skills:save');
+  ipcMain.removeHandler('skills:delete');
 }

@@ -22,6 +22,8 @@ import { setToolsRef, setConfigRef, setAgentRef } from './ipc-handlers.js';
 import { getUsageStorage } from './usage-storage.js';
 import type { UsageRecord } from '../src/core/usage-types.js';
 import { settingsManager, type SettingsSchema } from './settings.js';
+import { rulesManager } from './rules-manager.js';
+import { skillsManager } from './skills-manager.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
@@ -45,8 +47,11 @@ export function setPermissionMode(autoRunMode: string): void {
   }
 }
 
-// Build system prompt with current working directory
+// Build system prompt with current working directory and active rules/skills
 function buildSystemPrompt(cwd: string): string {
+  const rulesSection = rulesManager.buildRulesPrompt();
+  const skillsSection = skillsManager.buildSkillsPrompt();
+
   return `You are omni-code, a powerful AI coding assistant running in the Electron GUI.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
 
@@ -86,12 +91,18 @@ Do NOT hand off to the user after writing files. Run the project, observe the re
 ## Working Directory
 The user's current working directory is: ${cwd}
 Always use this working directory for file operations and searches unless specifically asked to work elsewhere.
-`;
+${rulesSection}${skillsSection}`;
 }
 
-export function setWorkingDirectory(cwd: string): void {
+export async function setWorkingDirectory(cwd: string): Promise<void> {
   currentWorkingDirectory = cwd;
   console.log('Working directory updated to:', cwd);
+
+  // Load rules and skills for the new workspace path
+  await Promise.all([
+    rulesManager.loadRules(cwd),
+    skillsManager.loadSkills(cwd),
+  ]);
 
   const newSystemPrompt = buildSystemPrompt(cwd);
   agentBridge.updateWorkspaceContext(cwd, newSystemPrompt);
@@ -105,6 +116,16 @@ export function setWorkingDirectory(cwd: string): void {
     console.log('Agent updated with new working directory:', cwd);
   }
 }
+
+export function refreshSystemPrompt(): void {
+  const newSystemPrompt = buildSystemPrompt(currentWorkingDirectory);
+  agentBridge.updateWorkspaceContext(currentWorkingDirectory, newSystemPrompt);
+  if (agentInstance) {
+    agentInstance.updateConfig({ systemPrompt: newSystemPrompt });
+  }
+}
+
+export { rulesManager, skillsManager };
 
 export function getWorkingDirectory(): string {
   return currentWorkingDirectory;

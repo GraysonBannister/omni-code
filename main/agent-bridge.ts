@@ -1,6 +1,8 @@
 // Agent Bridge - Wraps the omni-code Agent for Electron IPC
 import { BrowserWindow } from 'electron';
 import { getFileHistoryManager } from './file-history.js';
+import { getChangeReviewManager, type PendingToolCallChange } from './change-review-manager.js';
+import { getSettingsManager } from './settings.js';
 
 // Import types from the core
 // Note: These will be resolved at runtime by the built dist-electron files
@@ -20,6 +22,9 @@ type AgentEvent =
   | { type: 'orchestration_task_end'; taskId: string; success: boolean; durationMs: number }
   | { type: 'orchestration_complete'; summary: string }
   | { type: 'file_change'; conversationId: string; messageId: string; toolCallId: string; fileChanges: Array<{ filePath: string; changeType: string; hasBeforeContent: boolean; hasAfterContent: boolean }> }
+  | { type: 'change_preview'; conversationId: string; message: { id: string }; toolId: string; filePath: string; fileName: string; toolName: string; changeType: 'added' | 'modified' | 'deleted'; startLine: number; endLine: number; lineCount: number; diffContent: string; beforeSnippet: string; afterSnippet: string; additions: number; deletions: number; status: 'pending' }
+  | { type: 'change_accepted'; toolId: string; filePath: string }
+  | { type: 'change_rejected'; toolId: string; filePath: string }
   | { type: 'user_input_request'; requestId: string; prompt: string; terminalCommand?: string; waitForInput: boolean; placeholder?: string }
   | { type: 'user_input_responded'; requestId: string; response: string }
   | { type: 'user_input_cancelled'; requestId: string }
@@ -173,9 +178,88 @@ export class AgentBridge {
   // Workspace path for file history
   private workspacePath: string = '';
 
+  // Change review mode enabled (default: true)
+  private changeReviewEnabled: boolean = true;
+
   // Initialize the bridge with agent factory
   initialize(agentFactory: AgentFactory): void {
     this.agentFactory = agentFactory;
+    // Load change review settings from settings manager
+    this.initializeChangeReviewFromSettings().catch(err => {
+      console.error('[AgentBridge] Failed to initialize change review settings:', err);
+    });
+  }
+
+  /**
+   * Enable or disable change review mode
+   */
+  setChangeReviewEnabled(enabled: boolean): void {
+    this.changeReviewEnabled = enabled;
+    console.log(`[AgentBridge] Change review mode ${enabled ? 'enabled' : 'disabled'}`);
+    // Sync to settings
+    getSettingsManager().then(manager => {
+      manager.set('changeReview.enabled', enabled);
+    }).catch(err => console.error('[AgentBridge] Failed to save change review setting:', err));
+  }
+
+  /**
+   * Check if change review mode is enabled
+   */
+  isChangeReviewEnabled(): boolean {
+    return this.changeReviewEnabled;
+  }
+
+  /**
+   * Get change review setting from settings manager
+   */
+  async getChangeReviewSetting(): Promise<{ enabled: boolean; mode: 'all' | 'dangerous' }> {
+    try {
+      const manager = await getSettingsManager();
+      return {
+        enabled: manager.get('changeReview.enabled') ?? true,
+        mode: manager.get('changeReview.mode') ?? 'all',
+      };
+    } catch (error) {
+      console.error('[AgentBridge] Failed to get change review setting:', error);
+      return { enabled: true, mode: 'all' };
+    }
+  }
+
+  /**
+   * Set change review mode (all or dangerous only)
+   */
+  async setChangeReviewMode(mode: 'all' | 'dangerous'): Promise<void> {
+    try {
+      const manager = await getSettingsManager();
+      manager.set('changeReview.mode', mode);
+      console.log(`[AgentBridge] Change review mode set to: ${mode}`);
+    } catch (error) {
+      console.error('[AgentBridge] Failed to set change review mode:', error);
+    }
+  }
+
+  /**
+   * Initialize change review settings from settings manager
+   */
+  async initializeChangeReviewFromSettings(): Promise<void> {
+    try {
+      const manager = await getSettingsManager();
+      const enabled = manager.get('changeReview.enabled');
+      if (typeof enabled === 'boolean') {
+        this.changeReviewEnabled = enabled;
+        console.log(`[AgentBridge] Loaded change review setting: ${enabled ? 'enabled' : 'disabled'}`);
+      }
+
+      // Watch for setting changes
+      manager.onChange((key: string, value: unknown) => {
+        if (key === 'changeReview.enabled' && typeof value === 'boolean') {
+          this.changeReviewEnabled = value;
+          console.log(`[AgentBridge] Change review setting updated: ${value ? 'enabled' : 'disabled'}`);
+        }
+      });
+    } catch (error) {
+      console.error('[AgentBridge] Failed to initialize change review from settings:', error);
+    }
   }
 
   // Set the workspace path for file history tracking
@@ -518,10 +602,15 @@ export class AgentBridge {
         if (agentEvent.type === 'tool_call_end') {
           const { toolName, toolId, result } = agentEvent;
 
+          console.log(`[ChangeReview] tool_call_end: toolName=${toolName}, toolId=${toolId}, changeReviewEnabled=${this.changeReviewEnabled}, workingDir=${!!workingDir}, messageId=${state.currentAssistantMessageId}`);
+
           if (FILE_MODIFYING_TOOLS.includes(toolName) && workingDir && state.currentAssistantMessageId) {
             try {
               const filePaths = state.pendingFileChanges.get(toolId) || [];
               const fileHistoryManager = getFileHistoryManager(workingDir);
+              const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+              console.log(`[ChangeReview] Processing tool_call_end for ${toolName}, filePaths=${JSON.stringify(filePaths)}, isError=${result.isError}`);
 
               if (!result.isError) {
                 // Capture after state for each file only when the tool succeeded.
@@ -539,6 +628,8 @@ export class AgentBridge {
                   state.currentAssistantMessageId
                 );
 
+                console.log(`[ChangeReview] getMessageChanges returned ${changes.length} change(s) for messageId=${state.currentAssistantMessageId}`);
+
                 if (changes.length > 0) {
                   this.emit('file_change', {
                     conversationId,
@@ -551,13 +642,93 @@ export class AgentBridge {
                       hasAfterContent: !!c.afterContent,
                     })),
                   });
+
+                  // If change review mode is enabled, emit change_preview events
+                  if (this.changeReviewEnabled) {
+                    console.log(`[ChangeReview] Change review enabled, processing ${changes.length} change(s) for preview`);
+                    // Only emit previews for the CURRENT tool call, not all changes in the message
+                    const currentToolChanges = changes.filter(c => c.toolCallId === toolId);
+                    console.log(`[ChangeReview] Current tool (${toolId}) has ${currentToolChanges.length} change(s)`);
+
+                    for (const change of currentToolChanges) {
+                      const preview = await fileHistoryManager.getChangePreview(
+                        conversationId,
+                        state.currentAssistantMessageId,
+                        change.toolCallId
+                      );
+
+                      console.log(`[ChangeReview] getChangePreview for toolCallId=${change.toolCallId}: ${preview ? `found (${preview.filePath}, +${preview.additions}/-${preview.deletions})` : 'null'}`);
+
+                      if (preview) {
+                        // Stage the change for review
+                        const pendingChange: PendingToolCallChange = {
+                          toolCallId: preview.toolCallId,
+                          messageId: preview.messageId,
+                          conversationId: conversationId,
+                          filePath: preview.filePath,
+                          fileName: preview.fileName,
+                          toolName: preview.toolName,
+                          changeType: preview.changeType,
+                          startLine: preview.startLine,
+                          endLine: preview.endLine,
+                          lineCount: preview.lineCount,
+                          beforeContent: change.beforeContent,
+                          afterContent: change.afterContent || '',
+                          diffContent: preview.diffContent,
+                          beforeSnippet: preview.beforeSnippet,
+                          afterSnippet: preview.afterSnippet,
+                          additions: preview.additions,
+                          deletions: preview.deletions,
+                          status: 'pending',
+                          timestamp: preview.timestamp,
+                        };
+                        changeReviewManager.stageToolCallChange(pendingChange);
+
+                        // Emit change_preview event with field names matching the Flutter frontend:
+                        // - toolId (not toolCallId) for AgentEvent.toolId
+                        // - message: { id: ... } (not messageId) for AgentEvent.message['id']
+                        console.log(`[ChangeReview] Emitting change_preview for ${preview.filePath} (toolId=${change.toolCallId}, messageId=${state.currentAssistantMessageId})`);
+                        this.emitEvent(conversationId, {
+                          type: 'change_preview',
+                          conversationId,
+                          message: { id: state.currentAssistantMessageId },
+                          toolId: change.toolCallId,
+                          filePath: preview.filePath,
+                          fileName: preview.fileName,
+                          toolName: preview.toolName,
+                          changeType: preview.changeType,
+                          startLine: preview.startLine,
+                          endLine: preview.endLine,
+                          lineCount: preview.lineCount,
+                          diffContent: preview.diffContent,
+                          beforeSnippet: preview.beforeSnippet,
+                          afterSnippet: preview.afterSnippet,
+                          additions: preview.additions,
+                          deletions: preview.deletions,
+                          status: 'pending',
+                        });
+                      }
+                    }
+                  } else {
+                    console.log(`[ChangeReview] Change review disabled, skipping preview emission`);
+                  }
+                } else {
+                  console.log(`[ChangeReview] No changes found, skipping preview emission`);
                 }
+              } else {
+                console.log(`[ChangeReview] Tool returned error, skipping change capture`);
               }
             } catch (error) {
               console.error('[AgentBridge] Failed to capture after-change state:', error);
             } finally {
               // Clear pending changes for this tool even if bookkeeping fails.
               state.pendingFileChanges.delete(toolId);
+            }
+          } else {
+            if (!FILE_MODIFYING_TOOLS.includes(toolName)) {
+              // Not a file-modifying tool, no logging needed
+            } else {
+              console.log(`[ChangeReview] Skipping change review: workingDir=${!!workingDir}, messageId=${state.currentAssistantMessageId}`);
             }
           }
         }
@@ -870,6 +1041,164 @@ export class AgentBridge {
       return;
     }
     state.agent.clearMessages();
+
+    // Clear change review state
+    if (this.workspacePath) {
+      const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+      const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+      changeReviewManager.clearConversation(conversationId);
+    }
+  }
+
+  /**
+   * Respond to a pending change review request
+   */
+  async respondToChangeReview(
+    conversationId: string,
+    messageId: string,
+    toolCallId: string,
+    decision: 'accept' | 'reject'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.workspacePath) {
+      return { success: false, error: 'No workspace path set' };
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    if (decision === 'accept') {
+      const result = await changeReviewManager.acceptToolCallChange(conversationId, toolCallId);
+      if (result.success) {
+        const pendingChange = changeReviewManager.getPendingChange(conversationId, toolCallId);
+        this.emitEvent(conversationId, {
+          type: 'change_accepted',
+          toolId: toolCallId,
+          filePath: pendingChange?.filePath || '',
+        });
+      }
+      return result;
+    } else {
+      const result = await changeReviewManager.rejectToolCallChange(conversationId, messageId, toolCallId);
+      if (result.success) {
+        const pendingChange = changeReviewManager.getPendingChange(conversationId, toolCallId);
+        this.emitEvent(conversationId, {
+          type: 'change_rejected',
+          toolId: toolCallId,
+          filePath: pendingChange?.filePath || '',
+        });
+      }
+      return result;
+    }
+  }
+
+  /**
+   * Accept all pending changes for a conversation
+   */
+  async acceptAllChanges(conversationId: string): Promise<{
+    success: boolean;
+    accepted: string[];
+    failed: Array<{ toolCallId: string; error: string }>;
+  }> {
+    if (!this.workspacePath) {
+      return { success: false, accepted: [], failed: [{ toolCallId: 'all', error: 'No workspace path set' }] };
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    const result = await changeReviewManager.acceptAllChanges(conversationId);
+
+    // Emit events for each accepted change
+    if (result.accepted.length > 0) {
+      for (const toolCallId of result.accepted) {
+        const pendingChange = changeReviewManager.getPendingChange(conversationId, toolCallId);
+        this.emitEvent(conversationId, {
+          type: 'change_accepted',
+          toolId: toolCallId,
+          filePath: pendingChange?.filePath || '',
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Reject all pending changes for a conversation
+   */
+  async rejectAllChanges(conversationId: string, messageId: string): Promise<{
+    success: boolean;
+    rejected: string[];
+    failed: Array<{ toolCallId: string; error: string }>;
+  }> {
+    if (!this.workspacePath) {
+      return { success: false, rejected: [], failed: [{ toolCallId: 'all', error: 'No workspace path set' }] };
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    const result = await changeReviewManager.rejectAllChanges(conversationId, messageId);
+
+    // Emit events for each rejected change
+    if (result.rejected.length > 0) {
+      for (const toolCallId of result.rejected) {
+        const pendingChange = changeReviewManager.getPendingChange(conversationId, toolCallId);
+        this.emitEvent(conversationId, {
+          type: 'change_rejected',
+          toolId: toolCallId,
+          filePath: pendingChange?.filePath || '',
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get pending changes for a conversation
+   */
+  getPendingChanges(conversationId: string): PendingToolCallChange[] {
+    if (!this.workspacePath) {
+      return [];
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    return changeReviewManager.getPendingChanges(conversationId);
+  }
+
+  /**
+   * Get change summary for a conversation
+   */
+  getChangeSummary(conversationId: string): {
+    totalPending: number;
+    totalAccepted: number;
+    totalRejected: number;
+  } {
+    if (!this.workspacePath) {
+      return { totalPending: 0, totalAccepted: 0, totalRejected: 0 };
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    return changeReviewManager.getChangeSummary(conversationId);
+  }
+
+  /**
+   * Check if there are pending changes for a conversation
+   */
+  hasPendingChanges(conversationId: string): boolean {
+    if (!this.workspacePath) {
+      return false;
+    }
+
+    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const changeReviewManager = getChangeReviewManager(fileHistoryManager);
+
+    return changeReviewManager.hasPendingChanges(conversationId);
   }
 
   /**

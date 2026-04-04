@@ -54,6 +54,10 @@ export const OmniCodeConfigSchema = z.object({
     budgetTokens: z.number().min(1024).max(128000).default(10000),
   }).default({ enabled: false, budgetTokens: 10000 }),
   autoLintFix: z.boolean().default(false),
+  changeReview: z.object({
+    enabled: z.boolean().default(true),
+    mode: z.enum(['all', 'dangerous']).default('all'),
+  }).default({ enabled: true, mode: 'all' }),
   modelRouting: z.object({
     enabled: z.boolean().default(false),
     simpleModel: z.string().optional(),

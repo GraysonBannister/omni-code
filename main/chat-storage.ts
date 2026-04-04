@@ -24,6 +24,7 @@ interface SerializedConversation {
   mode?: string; // AI operating mode (code, architect, review, etc.)
   planningApproach?: string; // Planning strategy: 'one-shot' | 'iterative'
   pendingPlan?: unknown; // Plan awaiting user approval in architect mode
+  pendingChangePreviews?: Array<[string, ChangePreviewData[]]>; // Map as array for JSON serialization
 }
 
 /**
@@ -51,6 +52,12 @@ export class ChatStorage {
       await fs.mkdir(chatsDir, { recursive: true });
 
       // Serialize conversation (exclude runtime state)
+      // Convert pendingChangePreviews Map to array for JSON serialization
+      const pendingPreviews = (conversation as any).pendingChangePreviews;
+      const serializedPreviews = pendingPreviews instanceof Map
+        ? Array.from(pendingPreviews.entries())
+        : pendingPreviews;
+
       const serialized: SerializedConversation = {
         version: STORAGE_VERSION,
         id: conversation.id,
@@ -67,6 +74,7 @@ export class ChatStorage {
         mode: conversation.mode,
         planningApproach: (conversation as any).planningApproach,
         pendingPlan: (conversation as any).pendingPlan ?? undefined,
+        pendingChangePreviews: serializedPreviews,
       };
 
       // Write to temp file first, then rename for atomic operation
@@ -118,6 +126,11 @@ export class ChatStorage {
           // Handle version migration if needed
           const migrated = this.migrateIfNeeded(serialized);
 
+          // Restore pendingChangePreviews as Map if it exists
+          const pendingChangePreviews = migrated.pendingChangePreviews
+            ? new Map(migrated.pendingChangePreviews)
+            : new Map();
+
           const loadedConv = {
             id: migrated.id,
             title: migrated.title,
@@ -132,6 +145,7 @@ export class ChatStorage {
             mode: migrated.mode,
             planningApproach: migrated.planningApproach,
             pendingPlan: migrated.pendingPlan ?? null,
+            pendingChangePreviews,
             // Reset runtime state
             isProcessing: false,
             streamingContent: '',

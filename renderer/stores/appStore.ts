@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ContentBlock, MessageMetadata } from '../../src/core/message-types.js';
 import type { Workspace, WorkspaceSummary, CreateWorkspaceOptions } from '../../src/types/workspace.js';
+import type { ChangePreviewData } from '../types/changeReview';
 
 // Indexing State Types
 export type IndexingStatus = 'idle' | 'indexing' | 'complete' | 'error' | 'paused';
@@ -109,6 +110,7 @@ export interface Conversation {
   planningApproach?: PlanningApproach; // Planning strategy when in architect mode
   pendingPlan?: PendingPlan | null; // Plan awaiting approval in architect mode
   planSourceMessageId?: string | null; // ID of the assistant message that produced the plan
+  pendingChangePreviews?: Map<string, ChangePreviewData[]>; // Pending change review previews keyed by message ID
 }
 
 // Terminal Session for multi-terminal support
@@ -172,6 +174,18 @@ interface AppState {
   fileHistoryPopupVisible: boolean;
   fileHistoryPopupPinned: boolean;
 
+  // Pending Change Review State (keyed by absolute filePath)
+  pendingFilePreviews: Map<string, ChangePreviewData>;
+  setFilePendingPreview: (filePath: string, preview: ChangePreviewData) => void;
+  clearFilePendingPreview: (filePath: string) => void;
+  clearAllFilePendingPreviews: () => void;
+
+  // Reviewed tool call IDs — updated immediately when the user accepts/rejects
+  // from either the editor or the chat panel, so both surfaces stay in sync.
+  reviewedToolCallIds: Map<string, 'accepted' | 'rejected'>;
+  markToolCallReviewed: (toolCallId: string, status: 'accepted' | 'rejected') => void;
+  clearReviewedToolCallIds: () => void;
+
   // Indexing State
   indexingState: IndexingState;
   indexingPollInterval: number | null;
@@ -228,7 +242,8 @@ interface AppState {
   setPlanningApproach: (conversationId: string, approach: PlanningApproach) => void;
   setPendingPlan: (conversationId: string, plan: PendingPlan | null, sourceMessageId?: string | null) => void;
   updatePendingPlanStepStatus: (conversationId: string, stepId: string, status: PlanStepStatus) => void;
-  
+  setPendingChangePreviews: (conversationId: string, previews: Map<string, ChangePreviewData[]>) => void;
+
   // Past Chats Actions
   listSavedConversations: () => Promise<void>;
   openPastChat: (conversationId: string) => Promise<boolean>;
@@ -346,6 +361,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Initial File History Popup State
   fileHistoryPopupVisible: false,
   fileHistoryPopupPinned: false,
+
+  // Initial Pending Change Review State
+  pendingFilePreviews: new Map(),
+  reviewedToolCallIds: new Map(),
 
   // Initial Indexing State
   indexingState: {
@@ -703,6 +722,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleFileHistoryPopup: () => set(state => ({ fileHistoryPopupVisible: !state.fileHistoryPopupVisible })),
   pinFileHistoryPopup: (pinned) => set({ fileHistoryPopupPinned: pinned }),
 
+  // Pending Change Review Actions
+  setFilePendingPreview: (filePath, preview) => set(state => {
+    const next = new Map(state.pendingFilePreviews);
+    next.set(filePath, preview);
+    return { pendingFilePreviews: next };
+  }),
+  clearFilePendingPreview: (filePath) => set(state => {
+    const next = new Map(state.pendingFilePreviews);
+    next.delete(filePath);
+    return { pendingFilePreviews: next };
+  }),
+  clearAllFilePendingPreviews: () => set({ pendingFilePreviews: new Map() }),
+
+  // Reviewed Tool Call Actions
+  markToolCallReviewed: (toolCallId, status) => set(state => {
+    const next = new Map(state.reviewedToolCallIds);
+    next.set(toolCallId, status);
+    return { reviewedToolCallIds: next };
+  }),
+  clearReviewedToolCallIds: () => set({ reviewedToolCallIds: new Map() }),
+
   // Indexing Actions
   startIndexing: async () => {
     const state = get();
@@ -884,6 +924,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           updatedAt: Date.now(),
         };
       }),
+    }));
+  },
+
+  setPendingChangePreviews: (conversationId, previews) => {
+    set(state => ({
+      conversations: state.conversations.map(c =>
+        c.id === conversationId
+          ? { ...c, pendingChangePreviews: previews, updatedAt: Date.now(), isDirty: true }
+          : c
+      ),
     }));
   },
 

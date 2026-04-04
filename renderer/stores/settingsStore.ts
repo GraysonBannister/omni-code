@@ -112,6 +112,11 @@ export interface SettingsSchema {
     rateLimitRequests: number;
     rateLimitWindowMs: number;
   };
+
+  changeReview: {
+    enabled: boolean;
+    mode: 'all' | 'dangerous';
+  };
 }
 
 // Settings State
@@ -259,6 +264,11 @@ export const defaultSettings: SettingsSchema = {
     allowedOrigins: [],
     rateLimitRequests: 100,
     rateLimitWindowMs: 15 * 60 * 1000,
+  },
+
+  changeReview: {
+    enabled: true,
+    mode: 'all',
   },
 };
 

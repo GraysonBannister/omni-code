@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, File as FileIcon, Circle, Settings, Globe } from 'lucide-react';
+import { X, File as FileIcon, Circle, Settings, Globe, Check, XCircle } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { SettingsPanel } from './Settings';
 import { BrowserPanel } from './BrowserPanel';
@@ -8,6 +8,68 @@ import './Editor.css';
 
 // TypeScript type for the Monaco editor
 import type { editor } from 'monaco-editor';
+
+/**
+ * Parse a unified diff string and return:
+ * - addedLines: 1-based line numbers in the "after" file that were added
+ * - deletedTexts: text content of lines that were removed (for ghost widgets)
+ * - deletedAfterLine: the 1-based line number in the "after" file after which each deletion sits
+ */
+function parseDiff(diffContent: string): {
+  addedLines: number[];
+  deletedBlocks: { afterLine: number; lines: string[] }[];
+} {
+  const addedLines: number[] = [];
+  const deletedBlocks: { afterLine: number; lines: string[] }[] = [];
+
+  let afterLineNum = 0;
+  let currentDeletedBlock: { afterLine: number; lines: string[] } | null = null;
+
+  for (const raw of diffContent.split('\n')) {
+    // Hunk header: @@ -a,b +c,d @@
+    const hunkMatch = raw.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+    if (hunkMatch) {
+      afterLineNum = parseInt(hunkMatch[1], 10) - 1; // will be incremented on first context/add line
+      if (currentDeletedBlock) {
+        deletedBlocks.push(currentDeletedBlock);
+        currentDeletedBlock = null;
+      }
+      continue;
+    }
+
+    if (raw.startsWith('---') || raw.startsWith('+++')) continue;
+    if (raw.startsWith('diff ') || raw.startsWith('index ') || raw.startsWith('new file') || raw.startsWith('deleted file')) continue;
+
+    if (raw.startsWith('+')) {
+      afterLineNum++;
+      addedLines.push(afterLineNum);
+      if (currentDeletedBlock) {
+        deletedBlocks.push(currentDeletedBlock);
+        currentDeletedBlock = null;
+      }
+    } else if (raw.startsWith('-')) {
+      const lineText = raw.slice(1);
+      if (!currentDeletedBlock) {
+        currentDeletedBlock = { afterLine: afterLineNum, lines: [lineText] };
+      } else {
+        currentDeletedBlock.lines.push(lineText);
+      }
+    } else {
+      // Context line
+      afterLineNum++;
+      if (currentDeletedBlock) {
+        deletedBlocks.push(currentDeletedBlock);
+        currentDeletedBlock = null;
+      }
+    }
+  }
+
+  if (currentDeletedBlock) {
+    deletedBlocks.push(currentDeletedBlock);
+  }
+
+  return { addedLines, deletedBlocks };
+}
 
 export const CodeEditor: React.FC = () => {
   const {
@@ -18,11 +80,57 @@ export const CodeEditor: React.FC = () => {
     updateFileContent,
     saveFile,
     theme,
+    pendingFilePreviews,
+    clearFilePendingPreview,
+    markToolCallReviewed,
   } = useAppStore();
 
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
+  const decorationCollectionRef = useRef<editor.IEditorDecorationsCollection | null>(null);
+  const viewZoneIdsRef = useRef<string[]>([]);
 
   const activeFile = openFiles.find(f => f.path === activeFilePath);
+  const pendingPreview = activeFilePath ? pendingFilePreviews.get(activeFilePath) : undefined;
+
+  // Inject diff highlight CSS into document.head at mount time so Monaco's
+  // style system can pick it up regardless of when Vite's CSS bundle loads.
+  useEffect(() => {
+    if (document.getElementById('editor-diff-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'editor-diff-styles';
+    style.textContent = `
+      .monaco-editor .editor-diff-added-inline {
+        background: rgba(46, 160, 67, 0.3) !important;
+      }
+      .monaco-editor .editor-diff-added {
+        background: rgba(46, 160, 67, 0.15) !important;
+      }
+      .monaco-editor .editor-diff-added-margin {
+        background: rgba(46, 160, 67, 0.5) !important;
+        border-left: 3px solid #3fb950 !important;
+        width: 3px !important;
+      }
+      .editor-diff-deleted-zone {
+        font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+        font-size: 13px;
+        line-height: 19px;
+        background: rgba(248, 81, 73, 0.1);
+        border-left: 3px solid #f85149;
+        padding-left: 4px;
+        box-sizing: border-box;
+        overflow: hidden;
+        white-space: pre;
+      }
+      .editor-diff-deleted-line {
+        color: rgba(248, 81, 73, 0.9);
+        text-decoration: line-through;
+        text-decoration-color: rgba(248, 81, 73, 0.5);
+        padding-left: 18px;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => { document.getElementById('editor-diff-styles')?.remove(); };
+  }, []);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -68,6 +176,110 @@ export const CodeEditor: React.FC = () => {
       }
     );
   }, [activeFilePath, saveFile]);
+
+  // Apply / clear diff decorations whenever active file or pending preview changes
+  useEffect(() => {
+    if (!editorInstance) return;
+
+    const clearDecorations = () => {
+      decorationCollectionRef.current?.clear();
+      decorationCollectionRef.current = null;
+
+      // Remove old view zones
+      editorInstance.changeViewZones(accessor => {
+        for (const id of viewZoneIdsRef.current) {
+          accessor.removeZone(id);
+        }
+        viewZoneIdsRef.current = [];
+      });
+    };
+
+    if (!pendingPreview) {
+      clearDecorations();
+      return;
+    }
+
+    const { addedLines, deletedBlocks } = parseDiff(pendingPreview.diffContent);
+
+    // --- Line decorations for additions ---
+    const decorations: editor.IModelDeltaDecoration[] = addedLines.map(lineNum => ({
+      range: { startLineNumber: lineNum, startColumn: 1, endLineNumber: lineNum, endColumn: 1 },
+      options: {
+        isWholeLine: true,
+        // className: background in the .view-overlays layer (may be behind text in some themes)
+        className: 'editor-diff-added',
+        // inlineClassName: applied to <span> elements inside .view-lines — always visible
+        inlineClassName: 'editor-diff-added-inline',
+        overviewRuler: {
+          color: '#3fb950',
+          position: 4, // OverviewRulerLane.Right
+        },
+        minimap: {
+          color: '#3fb950',
+          position: 1,
+        },
+        marginClassName: 'editor-diff-added-margin',
+      },
+    }));
+
+    clearDecorations();
+    decorationCollectionRef.current = editorInstance.createDecorationsCollection(decorations);
+
+    // --- View zones (ghost lines) for deletions ---
+    editorInstance.changeViewZones(accessor => {
+      for (const block of deletedBlocks) {
+        const domNode = document.createElement('div');
+        domNode.className = 'editor-diff-deleted-zone';
+        for (const line of block.lines) {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'editor-diff-deleted-line';
+          lineEl.textContent = line || '\u00a0';
+          domNode.appendChild(lineEl);
+        }
+        const id = accessor.addZone({
+          afterLineNumber: block.afterLine,
+          heightInLines: block.lines.length,
+          domNode,
+        });
+        viewZoneIdsRef.current.push(id);
+      }
+    });
+  // activeFile?.content is included so decorations are re-applied after the
+  // Monaco model is updated (e.g. file-watcher re-read after the AI writes the file).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorInstance, activeFilePath, pendingPreview, activeFile?.content]);
+
+  const handleAcceptChange = useCallback(async () => {
+    if (!pendingPreview || !activeFilePath) return;
+    // Update the shared store immediately so the chat panel reflects the new
+    // status without waiting for the backend event round-trip.
+    markToolCallReviewed(pendingPreview.toolCallId, 'accepted');
+    clearFilePendingPreview(activeFilePath);
+    try {
+      await (window as any).electronAPI!.agent.respondToChangeReview(
+        pendingPreview.messageId,
+        pendingPreview.toolCallId,
+        'accept'
+      );
+    } catch (error) {
+      console.error('[Editor] Failed to accept change:', error);
+    }
+  }, [pendingPreview, activeFilePath, clearFilePendingPreview, markToolCallReviewed]);
+
+  const handleRejectChange = useCallback(async () => {
+    if (!pendingPreview || !activeFilePath) return;
+    markToolCallReviewed(pendingPreview.toolCallId, 'rejected');
+    clearFilePendingPreview(activeFilePath);
+    try {
+      await (window as any).electronAPI!.agent.respondToChangeReview(
+        pendingPreview.messageId,
+        pendingPreview.toolCallId,
+        'reject'
+      );
+    } catch (error) {
+      console.error('[Editor] Failed to reject change:', error);
+    }
+  }, [pendingPreview, activeFilePath, clearFilePendingPreview, markToolCallReviewed]);
 
   const getLanguage = (filePath: string): string => {
     const ext = filePath.split('.').pop()?.toLowerCase();
@@ -132,6 +344,9 @@ export const CodeEditor: React.FC = () => {
                file.path.split('/').pop()}
             </span>
             {file.isDirty && <Circle size={6} className="editor-tab-dirty" />}
+            {file.path === activeFilePath && pendingFilePreviews.get(file.path) && (
+              <span className="editor-tab-pending-review" title="Pending change review" />
+            )}
             <button
               className="editor-tab-close"
               onClick={(e) => {
@@ -192,10 +407,28 @@ export const CodeEditor: React.FC = () => {
       {/* Editor Status */}
       {activeFile && activeFile.type !== 'settings' && (
         <div className="editor-status">
-          <span>{getLanguage(activeFile.path).toUpperCase()}</span>
-          <span>{activeFile.isDirty ? 'Modified' : 'Saved'}</span>
-          <span>{activeFile.content.split('\n').length} lines</span>
-          <span>{activeFile.content.length} chars</span>
+          {pendingPreview ? (
+            <div className="editor-diff-review-bar">
+              <span className="editor-diff-review-label">
+                Pending changes: +{pendingPreview.additions} -{pendingPreview.deletions} in {pendingPreview.fileName}
+              </span>
+              <button className="editor-diff-reject" onClick={handleRejectChange} title="Reject changes">
+                <XCircle size={13} />
+                Reject
+              </button>
+              <button className="editor-diff-accept" onClick={handleAcceptChange} title="Accept changes">
+                <Check size={13} />
+                Accept
+              </button>
+            </div>
+          ) : (
+            <>
+              <span>{getLanguage(activeFile.path).toUpperCase()}</span>
+              <span>{activeFile.isDirty ? 'Modified' : 'Saved'}</span>
+              <span>{activeFile.content.split('\n').length} lines</span>
+              <span>{activeFile.content.length} chars</span>
+            </>
+          )}
         </div>
       )}
     </div>

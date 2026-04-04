@@ -934,6 +934,132 @@ function setupAgentRoutes(app: express.Express): void {
     }
   });
 
+  // Enable/disable change review mode
+  app.post('/api/agent/set-change-review', async (req, res) => {
+    try {
+      const { enabled } = req.body;
+
+      if (enabled === undefined) {
+        res.status(400).json({ error: 'Missing enabled parameter' });
+        return;
+      }
+
+      agentBridge.setChangeReviewEnabled(enabled);
+      res.json({ success: true, enabled });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get change review status
+  app.get('/api/agent/change-review-status', async (_req, res) => {
+    try {
+      const settings = await agentBridge.getChangeReviewSetting();
+      res.json({
+        enabled: settings.enabled,
+        mode: settings.mode,
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Set change review mode
+  app.post('/api/agent/set-change-review/mode', async (req, res) => {
+    try {
+      const { mode } = req.body;
+
+      if (!mode || !['all', 'dangerous'].includes(mode)) {
+        res.status(400).json({ error: 'Invalid mode. Must be "all" or "dangerous"' });
+        return;
+      }
+
+      await agentBridge.setChangeReviewMode(mode as 'all' | 'dangerous');
+      res.json({ success: true, mode });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get pending changes for a conversation
+  app.get('/api/changes/pending', async (req, res) => {
+    try {
+      const conversationId = req.query.conversationId as string;
+
+      if (!conversationId) {
+        res.status(400).json({ error: 'Missing conversationId query parameter' });
+        return;
+      }
+
+      const pendingChanges = agentBridge.getPendingChanges(conversationId);
+      const summary = agentBridge.getChangeSummary(conversationId);
+
+      res.json({
+        conversationId,
+        pendingChanges,
+        summary,
+      });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Respond to a change review request
+  app.post('/api/changes/respond', async (req, res) => {
+    try {
+      const { conversationId, messageId, toolCallId, decision } = req.body;
+
+      if (!conversationId || !messageId || !toolCallId || !decision) {
+        res.status(400).json({ error: 'Missing conversationId, messageId, toolCallId, or decision' });
+        return;
+      }
+
+      if (decision !== 'accept' && decision !== 'reject') {
+        res.status(400).json({ error: 'Invalid decision. Must be "accept" or "reject"' });
+        return;
+      }
+
+      const result = await agentBridge.respondToChangeReview(conversationId, messageId, toolCallId, decision);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Accept all pending changes
+  app.post('/api/changes/accept-all', async (req, res) => {
+    try {
+      const { conversationId } = req.body;
+
+      if (!conversationId) {
+        res.status(400).json({ error: 'Missing conversationId' });
+        return;
+      }
+
+      const result = await agentBridge.acceptAllChanges(conversationId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Reject all pending changes
+  app.post('/api/changes/reject-all', async (req, res) => {
+    try {
+      const { conversationId, messageId } = req.body;
+
+      if (!conversationId || !messageId) {
+        res.status(400).json({ error: 'Missing conversationId or messageId' });
+        return;
+      }
+
+      const result = await agentBridge.rejectAllChanges(conversationId, messageId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // Truncate messages to a specific index
   app.post('/api/agent/truncate-messages', async (req, res) => {
     try {

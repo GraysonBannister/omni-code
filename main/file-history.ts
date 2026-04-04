@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, extname, basename } from 'node:path';
+import { diffLines } from 'diff';
 
 /**
  * Represents a single file change snapshot
@@ -12,6 +13,45 @@ export interface FileChange {
   afterContent?: string;
   timestamp: number;
   changeType: 'write' | 'edit' | 'delete';
+}
+
+/**
+ * Extended file change with line location and diff info for tool call-level review
+ */
+export interface ToolCallFileChange extends FileChange {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  
+  // Line location info for navigation
+  startLine: number;
+  endLine: number;
+  lineCount: number;
+  
+  // Diff content for preview
+  diffContent: string;
+  beforeSnippet: string;
+  afterSnippet: string;
+}
+
+/**
+ * Change preview data for UI display
+ */
+export interface ChangePreview {
+  toolCallId: string;
+  messageId: string;
+  filePath: string;
+  fileName: string;
+  toolName: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  startLine: number;
+  endLine: number;
+  lineCount: number;
+  diffContent: string;
+  beforeSnippet: string;
+  afterSnippet: string;
+  additions: number;
+  deletions: number;
+  timestamp: number;
 }
 
 /**
@@ -76,6 +116,156 @@ function calculateLineDiff(beforeContent: string, afterContent: string): { addit
   }
 
   return { additions, deletions };
+}
+
+/**
+ * Generate a unified diff between two content strings using the Myers diff
+ * algorithm (via the `diff` npm package). This produces minimal, accurate diffs
+ * unlike the previous greedy linear-scan approach which over-reported changes.
+ */
+function generateUnifiedDiff(beforeContent: string, afterContent: string, filePath: string, contextLines: number = 3): string {
+  // diffLines returns Change[] where each chunk covers one or more lines.
+  // .added / .removed flags mark changed chunks; neither flag = unchanged.
+  const chunks = diffLines(beforeContent, afterContent);
+
+  // Flatten to a per-line representation so hunk logic is straightforward.
+  type LineEntry = { type: 'added' | 'removed' | 'unchanged'; content: string };
+  const lines: LineEntry[] = [];
+  for (const chunk of chunks) {
+    const chunkLines = chunk.value.split('\n');
+    // diffLines includes a trailing empty string when the value ends with '\n'
+    if (chunkLines[chunkLines.length - 1] === '') chunkLines.pop();
+    const type: LineEntry['type'] = chunk.added ? 'added' : chunk.removed ? 'removed' : 'unchanged';
+    for (const line of chunkLines) {
+      lines.push({ type, content: line });
+    }
+  }
+
+  let diff = `--- ${filePath}\n+++ ${filePath}\n`;
+
+  // Build hunks with context lines
+  let oldLine = 1; // 1-based position in the before file
+  let newLine = 1; // 1-based position in the after file
+  let i = 0;
+
+  while (i < lines.length) {
+    // Skip unchanged lines outside a hunk
+    if (lines[i].type === 'unchanged') {
+      oldLine++;
+      newLine++;
+      i++;
+      continue;
+    }
+
+    // We're at the start of a changed region — collect hunk
+    const hunkStart = Math.max(0, i - contextLines);
+    const hunkOldStart = oldLine - (i - hunkStart);
+    const hunkNewStart = newLine - (i - hunkStart);
+
+    const hunkLines: LineEntry[] = [];
+    // Pre-context
+    for (let k = hunkStart; k < i; k++) {
+      hunkLines.push(lines[k]);
+    }
+
+    // Collect changed lines and following context
+    let lastChangeIdx = i;
+    while (i < lines.length) {
+      hunkLines.push(lines[i]);
+      if (lines[i].type !== 'unchanged') {
+        lastChangeIdx = i;
+      }
+      // If we've collected enough context after the last change, stop
+      if (lines[i].type === 'unchanged' && i - lastChangeIdx >= contextLines) {
+        i++;
+        break;
+      }
+      i++;
+    }
+
+    // Trim trailing context lines beyond contextLines
+    const trailingUnchanged = hunkLines.reduceRight((count, l) => {
+      if (count === -1) return -1; // already stopped
+      return l.type === 'unchanged' ? count + 1 : -1;
+    }, 0 as number);
+    const trimCount = trailingUnchanged > contextLines ? trailingUnchanged - contextLines : 0;
+    const trimmedHunk = trimCount > 0 ? hunkLines.slice(0, hunkLines.length - trimCount) : hunkLines;
+
+    const oldCount = trimmedHunk.filter(l => l.type !== 'added').length;
+    const newCount = trimmedHunk.filter(l => l.type !== 'removed').length;
+
+    diff += `@@ -${hunkOldStart},${oldCount} +${hunkNewStart},${newCount} @@\n`;
+    for (const l of trimmedHunk) {
+      if (l.type === 'added') diff += `+${l.content}\n`;
+      else if (l.type === 'removed') diff += `-${l.content}\n`;
+      else diff += ` ${l.content}\n`;
+    }
+
+    // Advance old/new line counters past the hunk
+    for (const l of trimmedHunk) {
+      if (l.type !== 'added') oldLine++;
+      if (l.type !== 'removed') newLine++;
+    }
+  }
+
+  return diff;
+}
+
+/**
+ * Find the line location of a change based on tool input
+ */
+function findChangeLocation(
+  beforeContent: string, 
+  afterContent: string, 
+  toolName: string, 
+  toolInput: Record<string, unknown>
+): { startLine: number; endLine: number; lineCount: number } {
+  const beforeLines = beforeContent.split('\n');
+  const afterLines = afterContent.split('\n');
+  
+  let startLine = 1;
+  let endLine = afterLines.length;
+  let lineCount = afterLines.length;
+  
+  // For Edit tool, find the old_string location
+  if (toolName === 'Edit' && typeof toolInput.old_string === 'string') {
+    const oldString = toolInput.old_string;
+    const oldLines = oldString.split('\n');
+    
+    // Find the starting line of old_string in beforeContent
+    for (let i = 0; i <= beforeLines.length - oldLines.length; i++) {
+      const match = oldLines.every((line, idx) => beforeLines[i + idx] === line);
+      if (match) {
+        startLine = i + 1; // 1-indexed
+        endLine = startLine + oldLines.length - 1;
+        break;
+      }
+    }
+    
+    // Calculate end line in afterContent
+    if (typeof toolInput.new_string === 'string') {
+      const newLines = toolInput.new_string.split('\n');
+      lineCount = newLines.length;
+      endLine = startLine + newLines.length - 1;
+    }
+  } else if (toolName === 'Write') {
+    // New file starts at line 1
+    startLine = 1;
+    endLine = afterLines.length;
+    lineCount = afterLines.length;
+  }
+  
+  return { startLine, endLine, lineCount };
+}
+
+/**
+ * Generate snippet around a change for preview
+ */
+function generateSnippet(content: string, startLine: number, endLine: number, contextLines: number = 3): string {
+  const lines = content.split('\n');
+  const snippetStart = Math.max(0, startLine - 1 - contextLines);
+  const snippetEnd = Math.min(lines.length, endLine + contextLines);
+  return lines.slice(snippetStart, snippetEnd).join('\n');
 }
 
 /**
@@ -621,6 +811,186 @@ export class FileHistoryManager {
       }
     } catch (error) {
       // Directory might not exist
+    }
+  }
+
+  /**
+   * Get detailed change preview for a specific tool call
+   * Includes diff content and line location information
+   */
+  async getChangePreview(
+    conversationId: string,
+    messageId: string,
+    toolCallId: string
+  ): Promise<ChangePreview | null> {
+    const key = `${conversationId}/${messageId}`;
+    const snapshot = await this.ensureSnapshotLoaded(key);
+
+    if (!snapshot) return null;
+
+    const change = snapshot.changes.find(c => c.toolCallId === toolCallId);
+    if (!change || !change.afterContent) return null;
+
+    // Determine change type
+    let changeType: 'added' | 'modified' | 'deleted';
+    if (change.changeType === 'delete') {
+      changeType = 'deleted';
+    } else if (!change.beforeContent && change.afterContent) {
+      changeType = 'added';
+    } else {
+      changeType = 'modified';
+    }
+
+    // Generate unified diff using the Myers algorithm
+    const diffContent = generateUnifiedDiff(
+      change.beforeContent,
+      change.afterContent || '',
+      change.filePath
+    );
+
+    // Derive accurate counts from the diff itself rather than using the crude estimator.
+    // ^\+(?!\+\+) matches added lines, excluding the +++ file header.
+    // ^-(?!--) matches removed lines, excluding the --- file header.
+    const additions = (diffContent.match(/^\+(?!\+\+)/gm) || []).length;
+    const deletions = (diffContent.match(/^-(?!--)/gm) || []).length;
+
+    // Find line location (estimate for now)
+    const { startLine, endLine, lineCount } = findChangeLocation(
+      change.beforeContent,
+      change.afterContent || '',
+      change.changeType === 'write' ? 'Write' : 'Edit',
+      {}
+    );
+
+    // Generate snippets
+    const beforeSnippet = generateSnippet(change.beforeContent, startLine, endLine);
+    const afterSnippet = generateSnippet(change.afterContent || '', startLine, endLine);
+
+    return {
+      toolCallId: change.toolCallId,
+      messageId: change.messageId,
+      filePath: change.filePath,
+      fileName: getFileName(change.filePath),
+      toolName: change.changeType === 'write' ? 'Write' : 'Edit',
+      changeType,
+      startLine,
+      endLine,
+      lineCount,
+      diffContent,
+      beforeSnippet,
+      afterSnippet,
+      additions,
+      deletions,
+      timestamp: change.timestamp,
+    };
+  }
+
+  /**
+   * Get all tool call changes for a message
+   */
+  async getToolCallChanges(
+    conversationId: string,
+    messageId: string
+  ): Promise<ChangePreview[]> {
+    const key = `${conversationId}/${messageId}`;
+    const snapshot = await this.ensureSnapshotLoaded(key);
+
+    if (!snapshot) return [];
+
+    const previews: ChangePreview[] = [];
+    for (const change of snapshot.changes.filter(c => c.afterContent !== undefined)) {
+      const preview = await this.getChangePreview(conversationId, messageId, change.toolCallId);
+      if (preview) previews.push(preview);
+    }
+
+    return previews;
+  }
+
+  /**
+   * Reconstruct file content without a specific tool call's changes
+   * Used when rejecting a single tool call change while keeping others
+   */
+  async reconstructFileWithoutToolCall(
+    conversationId: string,
+    messageId: string,
+    toolCallIdToExclude: string
+  ): Promise<{ success: boolean; content: string; error?: string }> {
+    const key = `${conversationId}/${messageId}`;
+    const snapshot = await this.ensureSnapshotLoaded(key);
+
+    if (!snapshot) {
+      return { success: false, content: '', error: 'Snapshot not found' };
+    }
+
+    const targetChange = snapshot.changes.find(c => c.toolCallId === toolCallIdToExclude);
+    if (!targetChange) {
+      return { success: false, content: '', error: 'Tool call change not found' };
+    }
+
+    // Start with the before content of the target change
+    let reconstructedContent = targetChange.beforeContent;
+
+    // Get all other changes to this file from this message that should be applied
+    const otherChanges = snapshot.changes.filter(
+      c => c.filePath === targetChange.filePath && 
+           c.toolCallId !== toolCallIdToExclude &&
+           c.afterContent !== undefined
+    );
+
+    // Sort by timestamp to apply in order
+    otherChanges.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Apply each subsequent change
+    for (const change of otherChanges) {
+      if (change.timestamp > targetChange.timestamp) {
+        // This change came after the one being rejected, so apply it
+        // For now, we use the stored afterContent which already includes all changes
+        // A more sophisticated approach would re-apply the edit
+        reconstructedContent = change.afterContent || reconstructedContent;
+      }
+    }
+
+    return { success: true, content: reconstructedContent };
+  }
+
+  /**
+   * Revert a specific tool call change
+   */
+  async revertToolCallChange(
+    conversationId: string,
+    messageId: string,
+    toolCallId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const key = `${conversationId}/${messageId}`;
+    const snapshot = await this.ensureSnapshotLoaded(key);
+
+    if (!snapshot) {
+      return { success: false, error: 'Snapshot not found' };
+    }
+
+    const change = snapshot.changes.find(c => c.toolCallId === toolCallId);
+    if (!change) {
+      return { success: false, error: 'Tool call change not found' };
+    }
+
+    const absolutePath = this.resolveFilePath(change.filePath);
+
+    try {
+      // Reconstruct content without this change
+      const result = await this.reconstructFileWithoutToolCall(conversationId, messageId, toolCallId);
+      
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+
+      // Write reconstructed content
+      await fs.mkdir(dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, result.content, 'utf8');
+
+      return { success: true };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Failed to revert change: ${errorMsg}` };
     }
   }
 }

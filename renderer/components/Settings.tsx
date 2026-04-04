@@ -6,9 +6,11 @@ import { SettingToggle } from './settings/SettingToggle';
 import { SettingSelect } from './settings/SettingSelect';
 import { SettingInput } from './settings/SettingInput';
 import { UsageDashboard } from './UsageDashboard';
+import { RulesPanel } from './RulesPanel';
+import { SkillsPanel } from './SkillsPanel';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'notifications';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'notifications' | 'rulesSkills';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -24,6 +26,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'files', label: 'Files' },
   { id: 'indexing', label: 'Indexing' },
+  { id: 'rulesSkills', label: 'Rules & Skills' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'usage', label: 'Usage' },
   { id: 'remote', label: 'Remote' },
@@ -571,6 +574,43 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 step={5}
                 onChange={(value) => setSetting('chat.maxSavedChatsPerWorkspace', parseInt(value))}
               />
+
+              <h3 className="settings-section-title" style={{ marginTop: '24px' }}>Change Review</h3>
+
+              <SettingToggle
+                label="Enable Change Review"
+                description="Review file changes before applying them (per-tool-call accept/reject)"
+                checked={currentSettings.changeReview?.enabled ?? true}
+                onChange={(checked) => {
+                  setSetting('changeReview.enabled', checked);
+                  // Also sync to agent bridge
+                  window.electronAPI?.agent?.setChangeReviewEnabled?.(checked);
+                }}
+              />
+
+              <SettingSelect
+                label="Review Mode"
+                description={currentSettings.changeReview?.mode === 'all'
+                  ? 'Review every file change made by the AI'
+                  : 'Only review Write and MultiFileEdit operations (skip single-file edits)'}
+                value={currentSettings.changeReview?.mode ?? 'all'}
+                disabled={!(currentSettings.changeReview?.enabled ?? true)}
+                options={[
+                  { value: 'all', label: 'All Changes - Review every file modification' },
+                  { value: 'dangerous', label: 'Dangerous Only - Only review Write/MultiFileEdit' },
+                ]}
+                onChange={(value) => setSetting('changeReview.mode', value)}
+              />
+
+              <div className="settings-info-box" style={{ marginTop: '16px' }}>
+                <strong>How Change Review works:</strong>
+                <ul>
+                  <li>When enabled, each tool call that modifies files will show a preview in chat</li>
+                  <li>Click a preview to open the file and see the changes inline</li>
+                  <li>Accept or reject each change block directly in the file editor</li>
+                  <li>Changes remain pending until you accept or reject them</li>
+                </ul>
+              </div>
             </div>
           )}
 
@@ -876,6 +916,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   <li>Indexing happens in the background and won&apos;t slow down your work</li>
                 </ul>
               </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'rulesSkills' && (
+            <div className="settings-section">
+              <div style={{ marginBottom: 24 }}>
+                <RulesPanel />
+              </div>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '8px 0 24px' }} />
+              <SkillsPanel />
             </div>
           )}
 

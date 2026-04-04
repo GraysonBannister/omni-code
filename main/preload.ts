@@ -39,6 +39,8 @@ type AgentAPI = {
   respondPermission: (toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => Promise<{ success: boolean }>;
   respondUserInput: (requestId: string, response: string, cancelled: boolean) => Promise<{ success: boolean }>;
   setPermissionMode: (autoRunMode: string) => Promise<void>;
+  setChangeReviewEnabled: (enabled: boolean) => Promise<void>;
+  respondToChangeReview: (conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') => Promise<{ success: boolean }>;
 };
 
 // File change tracking interface for backup/restore
@@ -284,6 +286,44 @@ type PlanAPI = {
   abortExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
 };
 
+// Rules API
+type RuleData = {
+  id: string;
+  filePath: string;
+  frontmatter: {
+    description?: string;
+    globs?: string | string[];
+    alwaysApply?: boolean;
+  };
+  content: string;
+  enabled: boolean;
+};
+
+type RulesAPI = {
+  list: () => Promise<{ rules: RuleData[]; error: string | null }>;
+  save: (id: string, fullContent: string) => Promise<{ success: boolean; error: string | null }>;
+  delete: (id: string) => Promise<{ success: boolean; error: string | null }>;
+  toggle: (id: string, enabled: boolean) => Promise<{ success: boolean; error: string | null }>;
+};
+
+// Skills API
+type SkillData = {
+  id: string;
+  dirPath: string;
+  filePath: string;
+  name: string;
+  description: string;
+  content: string;
+  enabled: boolean;
+};
+
+type SkillsAPI = {
+  list: () => Promise<{ skills: SkillData[]; error: string | null }>;
+  get: (id: string) => Promise<{ skill: SkillData | null; error: string | null }>;
+  save: (id: string, content: string) => Promise<{ success: boolean; error: string | null }>;
+  delete: (id: string) => Promise<{ success: boolean; error: string | null }>;
+};
+
 // Git API
 type GitStatusResult = {
   current: string | null;
@@ -360,6 +400,8 @@ type ElectronAPI = {
   project: ProjectAPI;
   plan: PlanAPI;
   git: GitAPI;
+  rules: RulesAPI;
+  skills: SkillsAPI;
 };
 
 // Expose APIs via contextBridge
@@ -382,6 +424,9 @@ const api: ElectronAPI = {
     respondPermission: (toolId, decision) => ipcRenderer.invoke('agent:respond-permission', toolId, decision),
     respondUserInput: (requestId, response, cancelled) => ipcRenderer.invoke('agent:respond-user-input', requestId, response, cancelled),
     setPermissionMode: (autoRunMode) => ipcRenderer.invoke('agent:set-permission-mode', autoRunMode),
+    setChangeReviewEnabled: (enabled: boolean) => ipcRenderer.invoke('agent:set-change-review-enabled', enabled),
+    respondToChangeReview: (conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') =>
+      ipcRenderer.invoke('changes:respond', conversationId, messageId, toolCallId, decision),
     onEvent: (callback: (event: ConversationAgentEvent) => void) => {
       const handler = (_: IpcRendererEvent, event: ConversationAgentEvent) => callback(event);
       ipcRenderer.on('agent:event', handler);
@@ -620,6 +665,20 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('plan:abort-execution', conversationId),
   },
 
+  rules: {
+    list: () => ipcRenderer.invoke('rules:list'),
+    save: (id: string, fullContent: string) => ipcRenderer.invoke('rules:save', id, fullContent),
+    delete: (id: string) => ipcRenderer.invoke('rules:delete', id),
+    toggle: (id: string, enabled: boolean) => ipcRenderer.invoke('rules:toggle', id, enabled),
+  },
+
+  skills: {
+    list: () => ipcRenderer.invoke('skills:list'),
+    get: (id: string) => ipcRenderer.invoke('skills:get', id),
+    save: (id: string, content: string) => ipcRenderer.invoke('skills:save', id, content),
+    delete: (id: string) => ipcRenderer.invoke('skills:delete', id),
+  },
+
   git: {
     isRepo: (cwd: string) => ipcRenderer.invoke('git:is-repo', cwd),
     status: (cwd: string) => ipcRenderer.invoke('git:status', cwd),
@@ -672,5 +731,6 @@ declare global {
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
   SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI, GitAPI, GitStatusResult,
-  IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus
+  IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
+  RulesAPI, SkillsAPI, RuleData, SkillData,
 };

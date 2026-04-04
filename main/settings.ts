@@ -174,6 +174,12 @@ export interface SettingsSchema {
     enabled: boolean;
     path: string;
   };
+
+  // Change Review
+  changeReview: {
+    enabled: boolean;
+    mode: 'all' | 'dangerous';
+  };
 }
 
 // Default Settings
@@ -313,6 +319,11 @@ export const defaultSettings: SettingsSchema = {
   adb: {
     enabled: true,
     path: 'adb',
+  },
+
+  changeReview: {
+    enabled: true,
+    mode: 'all',
   },
 };
 

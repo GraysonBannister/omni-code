@@ -1,0 +1,34 @@
+---
+description: omni-code project conventions
+alwaysApply: true
+---
+
+# omni-code Project Conventions
+
+## TypeScript
+- Use strict TypeScript throughout — avoid `any` except where genuinely necessary
+- Always add `.js` extension on imports in main-process files (Electron ESM requirement)
+- Use `type` imports for type-only references
+- Prefer `interface` for object shapes, `type` for unions/intersections
+
+## Electron Architecture
+- Main process code lives in `main/` — no DOM APIs here
+- Renderer process code lives in `renderer/` — no Node.js APIs here
+- All cross-process communication goes through `main/preload.ts` via `contextBridge`
+- IPC handlers follow the `namespace:action` pattern (e.g. `rules:list`, `agent:send-message`)
+
+## React / Renderer
+- Use Zustand stores (`renderer/stores/`) for shared state
+- Use functional components with hooks only
+- CSS classes use kebab-case; follow the existing `settings-*`, `rule-*` naming patterns
+- Import CSS directly into the component file that uses it
+
+## File Naming
+- Main-process files: `kebab-case.ts` in `main/`
+- Renderer components: `PascalCase.tsx` in `renderer/components/`
+- Stores: `camelCaseStore.ts` in `renderer/stores/`
+
+## Agent / Core
+- Tool names in `src/tools/builtin/` use PascalCase class names
+- New IPC handlers must be registered in both `setupIpcHandlers()` (or a sibling setup fn) and `cleanupIpcHandlers()`
+- System prompt additions are injected in `main/core-integration.ts:buildSystemPrompt()`

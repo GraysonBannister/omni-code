@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -11,6 +11,7 @@ import { PermissionCard, type PermissionRequest } from './PermissionCard';
 import { CollapsibleToolSummary } from './CollapsibleToolSummary';
 import { useAppStore, type ToolCall, type PendingPlan, type PlanningApproach, type PlanStepStatus } from '../stores/appStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
+import type { ChangePreviewData } from '../types/changeReview';
 import './ChatPanel.css';
 
 interface ImageAttachment {
@@ -230,6 +231,78 @@ const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undef
         return null;
       })}
     </>
+  );
+};
+
+const DiffPreviewCard: React.FC<{
+  preview: ChangePreviewData;
+  onAccept: () => void;
+  onReject: () => void;
+  onOpenFile?: (filePath: string, lineNumber: number) => void;
+}> = ({ preview, onAccept, onReject, onOpenFile }) => {
+  const isPending = preview.status === 'pending';
+  const [isExpanded, setIsExpanded] = useState(false);
+  const allLines = preview.diffContent.split('\n');
+  const diffLines = isExpanded ? allLines : allLines.slice(0, 8);
+  const hasMore = allLines.length > 8;
+
+  return (
+    <div className={`diff-preview-card diff-preview-${preview.status} ${isExpanded ? 'diff-preview-expanded' : ''}`}>
+      <div className="diff-preview-header">
+        <span
+          className="diff-preview-filename clickable"
+          onClick={() => onOpenFile?.(preview.filePath, preview.startLine)}
+          title="Click to open file"
+        >
+          {preview.fileName}:{preview.startLine}
+        </span>
+        <span className="diff-preview-stats">
+          {preview.additions > 0 && <span className="diff-stat-add">+{preview.additions}</span>}
+          {preview.deletions > 0 && <span className="diff-stat-del">-{preview.deletions}</span>}
+        </span>
+        {!isPending && (
+          <span className={`diff-preview-status diff-status-${preview.status}`}>
+            {preview.status === 'accepted' ? '✓ Accepted' : '✗ Rejected'}
+          </span>
+        )}
+        {hasMore && (
+          <button
+            className="diff-preview-expand-btn"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title={isExpanded ? "Collapse" : "Expand"}
+          >
+            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        )}
+      </div>
+      <div className="diff-preview-snippet">
+        {diffLines.map((line, i) => (
+          <div
+            key={i}
+            className={`diff-line ${
+              line.startsWith('+') && !line.startsWith('+++')
+                ? 'diff-add'
+                : line.startsWith('-') && !line.startsWith('---')
+                ? 'diff-del'
+                : ''
+            }`}
+          >
+            {line || '\u00a0'}
+          </div>
+        ))}
+        {!isExpanded && hasMore && (
+          <div className="diff-line diff-more-indicator">
+            ... {allLines.length - 8} more lines
+          </div>
+        )}
+      </div>
+      {isPending && (
+        <div className="diff-preview-actions">
+          <button className="btn-reject-change" onClick={onReject}>Reject</button>
+          <button className="btn-accept-change" onClick={onAccept}>Accept</button>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -469,6 +542,7 @@ export const ChatPanel: React.FC = () => {
     files,
     openFolder,
     openRecentWorkspace,
+    reviewedToolCallIds,
   } = useAppStore();
 
   const [inputValue, setInputValue] = useState('');
@@ -479,6 +553,10 @@ export const ChatPanel: React.FC = () => {
   const [discoveredProjects, setDiscoveredProjects] = useState<string[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [messageFileChanges, setMessageFileChanges] = useState<Map<string, FileChange[]>>(new Map());
+  const [messageChangePreviews, setMessageChangePreviews] = useState<Map<string, ChangePreviewData[]>>(new Map());
+  // Buffer for change previews received before the final assistant message is committed.
+  // Flushed into messageChangePreviews when turn_complete with stopReason=end_turn arrives.
+  const pendingChangePreviewsRef = useRef<ChangePreviewData[]>([]);
   const [conversationFileChanges, setConversationFileChanges] = useState<FileChange[]>([]);
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
@@ -505,10 +583,35 @@ export const ChatPanel: React.FC = () => {
   const userInputCardRef = useRef<HTMLDivElement>(null);
 
   // Clear stale file change data when switching conversations
+  // Restore pending change previews from saved conversation if they exist
   useEffect(() => {
     setMessageFileChanges(new Map());
     setConversationFileChanges([]);
+    useAppStore.getState().clearAllFilePendingPreviews();
+    useAppStore.getState().clearReviewedToolCallIds();
+
+    // Restore pending change previews from the conversation if available
+    if (activeConversationId) {
+      const conversation = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
+      const savedPreviews = conversation?.pendingChangePreviews;
+      if (savedPreviews && savedPreviews.size > 0) {
+        setMessageChangePreviews(new Map(savedPreviews));
+        console.log(`[ChangeReview] Restored ${savedPreviews.size} message(s) with pending previews`);
+      } else {
+        setMessageChangePreviews(new Map());
+      }
+    } else {
+      setMessageChangePreviews(new Map());
+    }
+    pendingChangePreviewsRef.current = [];
   }, [activeConversationId]);
+
+  // Persist messageChangePreviews to conversation when they change
+  useEffect(() => {
+    if (activeConversationId) {
+      useAppStore.getState().setPendingChangePreviews(activeConversationId, messageChangePreviews);
+    }
+  }, [activeConversationId, messageChangePreviews]);
 
   // Scroll to UserInputCard when it appears
   useEffect(() => {
@@ -576,6 +679,31 @@ export const ChatPanel: React.FC = () => {
       console.error('Failed to load conversation file changes:', error);
     }
   }, [activeConversationId]);
+
+  // Accept a specific tool call change
+  const handleAcceptChange = useCallback(async (convId: string, messageId: string, toolCallId: string) => {
+    if (!window.electronAPI) return;
+    // Immediately update shared store so the editor status bar also clears.
+    useAppStore.getState().markToolCallReviewed(toolCallId, 'accepted');
+    try {
+      console.log(`[ChangeReview] Accepting change: toolCallId=${toolCallId}`);
+      await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'accept');
+    } catch (err) {
+      console.error('[ChangeReview] Failed to accept change:', err);
+    }
+  }, []);
+
+  // Reject a specific tool call change
+  const handleRejectChange = useCallback(async (convId: string, messageId: string, toolCallId: string) => {
+    if (!window.electronAPI) return;
+    useAppStore.getState().markToolCallReviewed(toolCallId, 'rejected');
+    try {
+      console.log(`[ChangeReview] Rejecting change: toolCallId=${toolCallId}`);
+      await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'reject');
+    } catch (err) {
+      console.error('[ChangeReview] Failed to reject change:', err);
+    }
+  }, []);
 
   // Handle file review from the file history panel
   const handleReviewFile = useCallback((filePath: string, messageId?: string) => {
@@ -912,6 +1040,7 @@ export const ChatPanel: React.FC = () => {
 
   // Setup agent event listener with conversation routing
   useEffect(() => {
+    console.log('[ChangeReview DEBUG] Setting up agent event listener');
     const unsubscribe = window.electronAPI!.agent.onEvent((event: unknown) => {
       const agentEvent = event as {
         conversationId: string;
@@ -994,13 +1123,39 @@ export const ChatPanel: React.FC = () => {
             }
           }
 
-          if ((msg.metadata as Record<string, unknown> | undefined)?.stopReason !== 'tool_use') {
+          const stopReason = (msg.metadata as Record<string, unknown> | undefined)?.stopReason;
+          if (stopReason !== 'tool_use') {
             setConversationProcessing(conversationId, false);
             // Immediately persist the completed response so it survives a quit
             // before the 3-second auto-save debounce fires.
             useAppStore.getState().saveConversation(conversationId).catch(console.error);
             // Request notification sound for completed response
             window.electronAPI!.notifications.requestSound('response_complete').catch(console.error);
+
+            // Flush any buffered change previews into messageChangePreviews keyed
+            // under this final assistant message ID (the one actually rendered in the timeline).
+            if (pendingChangePreviewsRef.current.length > 0) {
+              const buffered = pendingChangePreviewsRef.current;
+              pendingChangePreviewsRef.current = [];
+              console.log(`[ChangeReview DEBUG] Flushing ${buffered.length} buffered preview(s) to messageId=${msg.id}`);
+              setMessageChangePreviews(prev => {
+                const next = new Map(prev);
+                const existing = next.get(msg.id) || [];
+                const merged = [...existing];
+                for (const preview of buffered) {
+                  if (!merged.some(p => p.toolCallId === preview.toolCallId)) {
+                    merged.push(preview);
+                  }
+                }
+                next.set(msg.id, merged);
+                return next;
+              });
+              // Also register each preview in the app store so the editor can
+              // show inline diff decorations for the changed files.
+              for (const preview of buffered) {
+                useAppStore.getState().setFilePendingPreview(preview.filePath, preview);
+              }
+            }
           }
           break;
         }
@@ -1171,6 +1326,72 @@ export const ChatPanel: React.FC = () => {
           }
           break;
 
+        case 'change_preview': {
+          const msgId = (agentEvent as any).message?.id as string | undefined;
+          const toolId = (agentEvent as any).toolId as string | undefined;
+          console.log(`[ChangeReview] change_preview received: file=${(agentEvent as any).filePath}, toolId=${toolId}, messageId=${msgId}`);
+          if (toolId) {
+            const preview: ChangePreviewData = {
+              toolCallId: toolId,
+              messageId: msgId || '', // Keep original messageId for API calls (accept/reject)
+              filePath: (agentEvent as any).filePath || '',
+              fileName: (agentEvent as any).fileName || '',
+              toolName: (agentEvent as any).toolName || '',
+              changeType: (agentEvent as any).changeType || 'modified',
+              startLine: (agentEvent as any).startLine || 0,
+              endLine: (agentEvent as any).endLine || 0,
+              diffContent: (agentEvent as any).diffContent || '',
+              additions: (agentEvent as any).additions || 0,
+              deletions: (agentEvent as any).deletions || 0,
+              status: 'pending',
+            };
+            // Buffer the preview — it will be flushed into messageChangePreviews once
+            // the final turn_complete (stopReason=end_turn) arrives and we know the
+            // real assistant message ID that appears in the rendered timeline.
+            const alreadyBuffered = pendingChangePreviewsRef.current.some(p => p.toolCallId === toolId);
+            if (!alreadyBuffered) {
+              pendingChangePreviewsRef.current = [...pendingChangePreviewsRef.current, preview];
+              console.log(`[ChangeReview DEBUG] Buffered preview: toolId=${toolId}, buffer size=${pendingChangePreviewsRef.current.length}`);
+            } else {
+              console.log(`[ChangeReview DEBUG] Duplicate preview skipped in buffer: toolId=${toolId}`);
+            }
+          } else {
+            console.warn('[ChangeReview] change_preview missing toolId — event dropped', agentEvent);
+          }
+          break;
+        }
+
+        case 'change_accepted':
+        case 'change_rejected': {
+          const changedToolId = (agentEvent as any).toolId as string | undefined;
+          const newStatus = agentEvent.type === 'change_accepted' ? 'accepted' : 'rejected';
+          console.log(`[ChangeReview] ${agentEvent.type} received: toolId=${changedToolId}`);
+          if (changedToolId) {
+            // Collect affectedFilePath inside the updater then call the Zustand
+            // store action OUTSIDE the updater. Calling store.set() inside a
+            // React state updater triggers "Cannot update a component while
+            // rendering a different component".
+            let affectedFilePath: string | undefined;
+            setMessageChangePreviews(prev => {
+              const next = new Map(prev);
+              for (const [mid, previews] of next.entries()) {
+                next.set(mid, previews.map(p => {
+                  if (p.toolCallId === changedToolId) {
+                    affectedFilePath = p.filePath;
+                    return { ...p, status: newStatus };
+                  }
+                  return p;
+                }));
+              }
+              return next;
+            });
+            if (affectedFilePath) {
+              useAppStore.getState().clearFilePendingPreview(affectedFilePath);
+            }
+          }
+          break;
+        }
+
         case 'cost_update':
           if (agentEvent.totalCost !== undefined) {
             setCost(
@@ -1234,7 +1455,10 @@ export const ChatPanel: React.FC = () => {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log('[ChangeReview DEBUG] Cleaning up agent event listener');
+      unsubscribe();
+    };
   }, [addMessageToConversation, appendConversationStreaming, setConversationStreaming, setConversationProcessing, setCost, addToolCallToConversation, updateToolCallInConversation, setConversationOrchestrationStatus, loadConversationFileChanges]);
 
   const handleSend = useCallback(async () => {
@@ -1565,6 +1789,10 @@ export const ChatPanel: React.FC = () => {
     try {
       await window.electronAPI!.agent.clearConversation(activeConversationId);
       clearConversationMessages(activeConversationId);
+      setMessageChangePreviews(new Map());
+      pendingChangePreviewsRef.current = [];
+      useAppStore.getState().clearAllFilePendingPreviews();
+      useAppStore.getState().clearReviewedToolCallIds();
     } catch (error) {
       console.error('Failed to clear conversation:', error);
     }
@@ -1884,6 +2112,27 @@ export const ChatPanel: React.FC = () => {
                       fileChanges={messageFileChanges.get(message.id) || []}
                       onRollback={handleRollback}
                     />
+                  </div>
+                )}
+                {message.role === 'assistant' && (messageChangePreviews.get(message.id) || []).length > 0 && (
+                  <div className="change-review-previews">
+                    {(messageChangePreviews.get(message.id) || []).map((preview) => {
+                      // Override the status with the shared store value so that
+                      // accepting/rejecting from the editor is immediately reflected here.
+                      const effectiveStatus = reviewedToolCallIds.get(preview.toolCallId) ?? preview.status;
+                      return (
+                        <DiffPreviewCard
+                          key={preview.toolCallId}
+                          preview={{ ...preview, status: effectiveStatus }}
+                          onAccept={() => handleAcceptChange(activeConversationId!, preview.messageId, preview.toolCallId)}
+                          onReject={() => handleRejectChange(activeConversationId!, preview.messageId, preview.toolCallId)}
+                          onOpenFile={(filePath, lineNumber) => {
+                            useAppStore.getState().openFile(filePath);
+                            // Note: scrolling to line would require additional editor integration
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </div>
