@@ -430,7 +430,7 @@
   width: 100%;
   min-height: 44px;
   max-height: 200px;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-sm) 80px var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--chat-input-bg);
@@ -456,10 +456,20 @@
   cursor: not-allowed;
 }
 
-.chat-input-actions {
+/* Input wrapper for positioning buttons inside */
+.chat-input-wrapper {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
+  align-items: flex-end;
+}
+
+.chat-input-actions {
+  position: absolute;
+  bottom: var(--spacing-xs);
+  right: var(--spacing-xs);
+  display: flex;
+  gap: var(--spacing-xs);
+  z-index: 10;
 }
 
 /* Mode Selector Bar - below input */

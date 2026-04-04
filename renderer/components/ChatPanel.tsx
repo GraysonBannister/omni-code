@@ -2331,47 +2331,49 @@ export const ChatPanel: React.FC = () => {
           </div>
         )}
 
-        <textarea
-          ref={inputRef}
-          className="chat-input"
-          value={inputValue}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder={isProcessing ? 'Processing...' : 'Type a message... Use @ to reference files'}
-          disabled={isProcessing || !activeConversation}
-          rows={1}
-        />
-        <div className="chat-input-actions">
-          {/* Image upload button */}
-          {!isProcessing && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={!activeConversation}
-              title="Attach image"
-              type="button"
-            >
-              <ImagePlus size={16} />
-            </button>
-          )}
-          {isProcessing ? (
-            <button
-              className="btn btn-primary"
-              onClick={handleAbort}
-              title="Stop"
-            >
-              <Square size={16} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary"
-              onClick={handleSend}
-              disabled={(!inputValue.trim() && attachedImages.length === 0) || !activeConversation}
-              title="Send (Enter)"
-            >
-              <Send size={16} />
-            </button>
-          )}
+        <div className="chat-input-wrapper">
+          <textarea
+            ref={inputRef}
+            className="chat-input"
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder={isProcessing ? 'Processing...' : 'Type a message... Use @ to reference files'}
+            disabled={isProcessing || !activeConversation}
+            rows={1}
+          />
+          <div className="chat-input-actions">
+            {/* Image upload button */}
+            {!isProcessing && (
+              <button
+                className="btn btn-ghost"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={!activeConversation}
+                title="Attach image"
+                type="button"
+              >
+                <ImagePlus size={16} />
+              </button>
+            )}
+            {isProcessing ? (
+              <button
+                className="btn btn-primary"
+                onClick={handleAbort}
+                title="Stop"
+              >
+                <Square size={16} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                onClick={handleSend}
+                disabled={(!inputValue.trim() && attachedImages.length === 0) || !activeConversation}
+                title="Send (Enter)"
+              >
+                <Send size={16} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mode Selector - compact popup below input */}
