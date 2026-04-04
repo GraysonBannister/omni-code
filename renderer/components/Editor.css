@@ -250,3 +250,64 @@
   color: #f85149;
   border-color: #f85149;
 }
+
+/* ── View Mode Toggle for HTML files ───────────────────────────────────────── */
+
+.editor-view-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.editor-view-toggle-group {
+  display: flex;
+  align-items: center;
+  background: var(--color-bg-tertiary, #2d2d2d);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.editor-view-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.editor-view-toggle-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.editor-view-toggle-btn.active {
+  background: var(--color-accent, #007acc);
+  color: white;
+}
+
+.editor-view-toggle-btn svg {
+  flex-shrink: 0;
+}
+
+/* Split view specific adjustments */
+.editor-content .resizable-split-pane {
+  height: 100%;
+  width: 100%;
+}
+
+.editor-content .resizable-split-pane .split-pane-primary,
+.editor-content .resizable-split-pane .split-pane-secondary {
+  min-height: 0;
+}

@@ -60,6 +60,11 @@ export interface OpenFile {
   isLoading?: boolean;
   type?: 'file' | 'settings' | 'browser';
   url?: string; // For browser tabs
+  viewMode?: 'code' | 'preview' | 'split'; // For HTML files - toggle between code, preview, and split
+  splitConfig?: {
+    ratio: number; // 0.0 to 1.0, default 0.5
+    orientation: 'horizontal' | 'vertical'; // horizontal = left/right, vertical = top/bottom
+  };
 }
 
 // Planning mode types
@@ -283,6 +288,9 @@ interface AppState {
   openFolder: () => Promise<void>;
   createFolder: () => Promise<void>;
   openRecentWorkspace: (path: string) => Promise<void>;
+  setFileViewMode: (path: string, mode: 'code' | 'preview' | 'split') => void;
+  setSplitRatio: (path: string, ratio: number) => void;
+  setSplitOrientation: (path: string, orientation: 'horizontal' | 'vertical') => void;
 
   // Workspace Actions (NEW - multi-project support)
   setCurrentWorkspace: (workspace: Workspace | null) => void;
@@ -1607,7 +1615,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('Failed to save file:', error);
     }
   },
-  
+
+  setFileViewMode: (path, mode) => set(state => ({
+    openFiles: state.openFiles.map(f =>
+      f.path === path
+        ? { ...f, viewMode: mode, splitConfig: f.splitConfig || { ratio: 0.5, orientation: 'horizontal' } }
+        : f
+    ),
+  })),
+
+  setSplitRatio: (path, ratio) => set(state => ({
+    openFiles: state.openFiles.map(f =>
+      f.path === path
+        ? { ...f, splitConfig: { ...f.splitConfig, ratio: Math.max(0.1, Math.min(0.9, ratio)) } }
+        : f
+    ),
+  })),
+
+  setSplitOrientation: (path, orientation) => set(state => ({
+    openFiles: state.openFiles.map(f =>
+      f.path === path
+        ? { ...f, splitConfig: { ...f.splitConfig, orientation } }
+        : f
+    ),
+  })),
+
   setProjectPath: (path) => set({ projectPath: path }),
   
   setFiles: (files) => set({ files }),

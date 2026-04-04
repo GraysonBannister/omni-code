@@ -1,0 +1,188 @@
+.html-preview-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--editor-bg, #1e1e1e);
+}
+
+/* Toolbar */
+.html-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary, #252526);
+  border-bottom: 1px solid var(--color-border, #3c3c3c);
+  gap: 16px;
+}
+
+.html-preview-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.html-preview-icon {
+  color: var(--color-accent, #007acc);
+}
+
+.html-preview-label {
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-secondary, #9cdcfe);
+  font-weight: 500;
+}
+
+.html-preview-toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.html-preview-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #3c3c3c);
+  background: var(--color-bg-tertiary, #2d2d2d);
+  color: var(--color-text-secondary, #cccccc);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.html-preview-zoom-btn:hover {
+  background: var(--color-bg-hover, #3c3c3c);
+  border-color: var(--color-accent, #007acc);
+}
+
+.html-preview-zoom-value {
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-secondary, #cccccc);
+  min-width: 40px;
+  text-align: center;
+}
+
+.html-preview-zoom-reset {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #3c3c3c);
+  background: transparent;
+  color: var(--color-text-secondary, #cccccc);
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.html-preview-zoom-reset:hover {
+  background: var(--color-bg-hover, #3c3c3c);
+  color: var(--color-text-primary, #ffffff);
+}
+
+.html-preview-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.html-preview-refresh-btn,
+.html-preview-external-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #3c3c3c);
+  background: var(--color-bg-tertiary, #2d2d2d);
+  color: var(--color-text-secondary, #cccccc);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.html-preview-refresh-btn:hover,
+.html-preview-external-btn:hover {
+  background: var(--color-bg-hover, #3c3c3c);
+  border-color: var(--color-accent, #007acc);
+  color: var(--color-text-primary, #ffffff);
+}
+
+.html-preview-refresh-btn.loading {
+  opacity: 0.7;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+/* Preview Container */
+.html-preview-container {
+  flex: 1;
+  overflow: auto;
+  background: white;
+  position: relative;
+}
+
+.html-preview-wrapper {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  transition: transform 0.15s ease;
+}
+
+.html-preview-iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  border: none;
+  background: white;
+  display: block;
+}
+
+/* Light theme adjustments */
+:root[data-theme="light"] .html-preview-panel {
+  --editor-bg: #ffffff;
+  --color-bg-secondary: #f3f3f3;
+  --color-border: #e0e0e0;
+  --color-bg-tertiary: #ffffff;
+  --color-bg-hover: #e8e8e8;
+  --color-text-secondary: #616161;
+  --color-text-primary: #000000;
+  --color-accent: #0078d4;
+}
+
+/* Embedded mode - minimal toolbar for split view */
+.html-preview-panel.embedded {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.html-preview-toolbar.embedded-toolbar {
+  padding: 4px 8px;
+  min-height: 28px;
+  background: var(--color-bg-tertiary, #2d2d2d);
+  border-bottom: 1px solid var(--color-border, #3c3c3c);
+}
+
+.html-preview-toolbar.embedded-toolbar .html-preview-label {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary, #cccccc);
+}
+
+.html-preview-toolbar.embedded-toolbar .html-preview-refresh-btn,
+.html-preview-toolbar.embedded-toolbar .html-preview-external-btn {
+  width: 22px;
+  height: 22px;
+}

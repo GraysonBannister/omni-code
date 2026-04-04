@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, File as FileIcon, Circle, Settings, Globe, Check, XCircle } from 'lucide-react';
+import { X, File as FileIcon, Circle, Settings, Globe, Check, XCircle, Code, Eye, Columns } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { SettingsPanel } from './Settings';
 import { BrowserPanel } from './BrowserPanel';
+import { HtmlPreviewPanel } from './HtmlPreviewPanel';
+import { ResizableSplitPane } from './ResizableSplitPane';
 import './Editor.css';
 
 // TypeScript type for the Monaco editor
@@ -71,6 +73,12 @@ function parseDiff(diffContent: string): {
   return { addedLines, deletedBlocks };
 }
 
+// Check if a file is HTML based on extension
+const isHtmlFile = (filePath: string): boolean => {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  return ext === 'html' || ext === 'htm';
+};
+
 export const CodeEditor: React.FC = () => {
   const {
     openFiles,
@@ -83,6 +91,9 @@ export const CodeEditor: React.FC = () => {
     pendingFilePreviews,
     clearFilePendingPreview,
     markToolCallReviewed,
+    setFileViewMode,
+    setSplitRatio,
+    setSplitOrientation,
   } = useAppStore();
 
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
@@ -360,6 +371,38 @@ export const CodeEditor: React.FC = () => {
         ))}
       </div>
 
+      {/* HTML View Mode Toggle - Only shown for HTML files */}
+      {activeFile && activeFile.type !== 'settings' && activeFile.type !== 'browser' && isHtmlFile(activeFile.path) && (
+        <div className="editor-view-toggle">
+          <div className="editor-view-toggle-group">
+            <button
+              className={`editor-view-toggle-btn ${!activeFile.viewMode || activeFile.viewMode === 'code' ? 'active' : ''}`}
+              onClick={() => setFileViewMode(activeFile.path, 'code')}
+              title="Code view"
+            >
+              <Code size={14} />
+              <span>Code</span>
+            </button>
+            <button
+              className={`editor-view-toggle-btn ${activeFile.viewMode === 'preview' ? 'active' : ''}`}
+              onClick={() => setFileViewMode(activeFile.path, 'preview')}
+              title="Preview view"
+            >
+              <Eye size={14} />
+              <span>Preview</span>
+            </button>
+            <button
+              className={`editor-view-toggle-btn ${activeFile.viewMode === 'split' ? 'active' : ''}`}
+              onClick={() => setFileViewMode(activeFile.path, 'split')}
+              title="Split view"
+            >
+              <Columns size={14} />
+              <span>Split</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Editor Area */}
       <div className="editor-content">
         {activeFile ? (
@@ -369,6 +412,50 @@ export const CodeEditor: React.FC = () => {
             <SettingsPanel embedded />
           ) : activeFile.type === 'browser' ? (
             <BrowserPanel url={activeFile.url || activeFile.path} />
+          ) : isHtmlFile(activeFile.path) && activeFile.viewMode === 'preview' ? (
+            <HtmlPreviewPanel content={activeFile.content} filePath={activeFile.path} />
+          ) : isHtmlFile(activeFile.path) && activeFile.viewMode === 'split' ? (
+            <ResizableSplitPane
+              primaryPane={
+                <Editor
+                  height="100%"
+                  language={getLanguage(activeFile.path)}
+                  value={activeFile.content}
+                  theme={theme === 'dark' ? 'vs-dark' : 'light'}
+                  onChange={handleEditorChange}
+                  onMount={handleEditorMount}
+                  options={{
+                    minimap: { enabled: true },
+                    fontSize: 14,
+                    fontFamily: 'SF Mono, Monaco, Inconsolata, "Fira Code", monospace',
+                    lineNumbers: 'on',
+                    roundedSelection: false,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 2,
+                    insertSpaces: true,
+                    wordWrap: 'on',
+                    folding: true,
+                    renderWhitespace: 'selection',
+                    smoothScrolling: true,
+                    cursorBlinking: 'smooth',
+                    formatOnPaste: true,
+                    formatOnType: true,
+                  }}
+                />
+              }
+              secondaryPane={
+                <HtmlPreviewPanel
+                  content={activeFile.content}
+                  filePath={activeFile.path}
+                  embedded
+                />
+              }
+              ratio={activeFile.splitConfig?.ratio ?? 0.5}
+              orientation={activeFile.splitConfig?.orientation ?? 'horizontal'}
+              onRatioChange={(ratio) => setSplitRatio(activeFile.path, ratio)}
+              onOrientationChange={(orientation) => setSplitOrientation(activeFile.path, orientation)}
+            />
           ) : (
             <Editor
               height="100%"
