@@ -59,14 +59,34 @@ export const DEFAULT_INDEXING_EXCLUDE_PATTERNS = [
 ];
 
 export const INDEXING_SUPPORTED_EXTENSIONS = [
+  // TypeScript/JavaScript
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  // Python
   '.py', '.pyi', '.pyw',
-  '.java', '.kt',
+  // Java/Kotlin
+  '.java', '.kt', '.kts',
+  // Go/Rust
   '.go', '.rs',
-  '.rb', '.php',
+  // Ruby/PHP
+  '.rb', '.erb', '.php',
+  // Swift
   '.swift',
-  '.c', '.cpp', '.h', '.hpp',
-  '.cs', '.fs',
+  // C/C++/C#
+  '.c', '.cpp', '.h', '.hpp', '.cs', '.fs',
+  // JVM Languages
+  '.scala', '.sc', '.groovy', '.gvy',
+  // Scripting
+  '.lua', '.pl', '.pm', '.r', '.R', '.rmd', '.ps1', '.psm1', '.psd1',
+  // Functional
+  '.hs', '.lhs', '.clj', '.cljs', '.erl', '.hrl', '.ex', '.exs', '.ml', '.mli',
+  // Scientific
+  '.jl',
+  // Systems/Embedded
+  '.zig', '.nim', '.nims', '.cr',
+  // Data/Schema
+  '.graphql', '.gql', '.proto',
+  // Config/Infrastructure
+  '.tf', '.tfvars', '.hcl',
 ];
 
 // Plan/Architecture Constants

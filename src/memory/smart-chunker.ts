@@ -54,31 +54,136 @@ const LANGUAGE_PATTERNS: Record<string, RegExp[]> = {
     // Import statements
     /(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_.]*)/g,
   ],
+  // Scala patterns
+  scala: [
+    // Class/trait/object definitions
+    /(?:class|trait|object|case class|case object)\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    // Method/function definitions
+    /def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
+    // Val/Var declarations
+    /(?:val|var|lazy val)\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    // Type definitions
+    /type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+    // Import statements
+    /import\s+([a-zA-Z_.]+)/g,
+  ],
+  // Groovy patterns
+  groovy: [
+    // Class definitions
+    /class\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:extends|implements|\{)/g,
+    // Method/closure definitions
+    /def\s+([A-Za-z_][A-Za-z0-9_]*)\s*[\(\{]/g,
+    // Function definitions
+    /(?:void|String|int|boolean|def)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
+    // Import statements
+    /import\s+([a-zA-Z_.]+)/g,
+  ],
+  // Lua patterns
+  lua: [
+    // Function declarations (local and global)
+    /(?:local\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    // Local function declarations with table prefix
+    /(?:local\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g,
+    // Variable assignments with function values
+    /(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*function/g,
+    // Module require statements
+    /(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*require/g,
+  ],
+  // Perl patterns
+  perl: [
+    // Subroutine definitions
+    /sub\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/g,
+    // Package declarations
+    /package\s+([A-Za-z_][A-Za-z0-9_]*);/g,
+    // Use statements
+    /use\s+([A-Za-z_][A-Za-z0-9_:]*)/g,
+    // My/our variable declarations
+    /(?:my|our)\s+\$?([A-Za-z_][A-Za-z0-9_]*)/g,
+  ],
+  // R patterns
+  r: [
+    // Function definitions
+    /([A-Za-z_][A-Za-z0-9_]*)\s*<-\s*function/g,
+    // Variable assignments
+    /([A-Za-z_][A-Za-z0-9_]*)\s*<-\s*[^<-]/g,
+    // Library imports
+    /(?:library|require)\s*\(\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*\)/g,
+    // Source statements
+    /source\s*\(/g,
+  ],
 };
 
 // Extensions to language mapping
 const EXT_TO_LANGUAGE: Record<string, string> = {
+  // TypeScript/JavaScript
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.js': 'typescript',
   '.jsx': 'typescript',
   '.mjs': 'typescript',
   '.cjs': 'typescript',
+  // Python
   '.py': 'python',
   '.pyi': 'python',
   '.pyw': 'python',
+  // Ruby/PHP
   '.rb': 'ruby',
+  '.erb': 'ruby',
+  '.php': 'php',
+  // Systems languages
   '.go': 'go',
   '.rs': 'rust',
   '.java': 'java',
   '.kt': 'kotlin',
+  '.kts': 'kotlin',
   '.swift': 'swift',
   '.cpp': 'cpp',
   '.c': 'c',
   '.h': 'c',
   '.hpp': 'cpp',
   '.cs': 'csharp',
-  '.php': 'php',
+  '.fs': 'fsharp',
+  // JVM Languages
+  '.scala': 'scala',
+  '.sc': 'scala',
+  '.groovy': 'groovy',
+  '.gvy': 'groovy',
+  // Scripting
+  '.lua': 'lua',
+  '.pl': 'perl',
+  '.pm': 'perl',
+  '.r': 'r',
+  '.R': 'r',
+  '.rmd': 'r',
+  '.ps1': 'powershell',
+  '.psm1': 'powershell',
+  '.psd1': 'powershell',
+  // Functional
+  '.hs': 'haskell',
+  '.lhs': 'haskell',
+  '.clj': 'clojure',
+  '.cljs': 'clojure',
+  '.erl': 'erlang',
+  '.hrl': 'erlang',
+  '.ex': 'elixir',
+  '.exs': 'elixir',
+  '.ml': 'ocaml',
+  '.mli': 'ocaml',
+  // Scientific
+  '.jl': 'julia',
+  // Systems/Embedded
+  '.zig': 'zig',
+  '.nim': 'nim',
+  '.nims': 'nim',
+  '.cr': 'crystal',
+  // Data/Schema
+  '.graphql': 'graphql',
+  '.gql': 'graphql',
+  '.proto': 'protobuf',
+  // Config/Infrastructure
+  '.tf': 'hcl',
+  '.tfvars': 'hcl',
+  '.hcl': 'hcl',
 };
 
 export class SmartChunker {
@@ -104,7 +209,8 @@ export class SmartChunker {
       }
 
       // Use semantic chunking for supported languages
-      if (language === 'typescript' || language === 'python') {
+      const semanticLanguages = ['typescript', 'python', 'scala', 'groovy', 'lua', 'perl', 'r'];
+      if (semanticLanguages.includes(language)) {
         const chunks = this.extractSemanticChunks(relPath, content, language, stats.mtimeMs);
         if (chunks.length > 0) {
           return chunks;
