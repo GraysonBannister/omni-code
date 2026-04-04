@@ -244,6 +244,22 @@ export function setupIpcHandlers(): void {
     return chatStorageRef.listConversations(workspacePath);
   });
 
+  // Helper function to get MIME type from file extension
+  const getMimeType = (filePath: string): string => {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.webp': 'image/webp',
+      '.bmp': 'image/bmp',
+      '.ico': 'image/x-icon',
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  };
+
   // File handlers
   ipcMain.handle('file:read', async (_: IpcMainInvokeEvent, filePath: string) => {
     try {
@@ -253,6 +269,20 @@ export function setupIpcHandlers(): void {
       return { content };
     } catch (error) {
       return { content: '', error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:readBinary', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      // Resolve relative paths using the current working directory
+      const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
+      const buffer = await fs.readFile(resolvedPath);
+      const base64 = buffer.toString('base64');
+      const mimeType = getMimeType(resolvedPath);
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return { dataUrl, size: buffer.length };
+    } catch (error) {
+      return { dataUrl: '', size: 0, error: (error as Error).message };
     }
   });
 
@@ -1464,6 +1494,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('chat:delete');
   ipcMain.removeHandler('chat:list');
   ipcMain.removeHandler('file:read');
+  ipcMain.removeHandler('file:readBinary');
   ipcMain.removeHandler('file:write');
   ipcMain.removeHandler('file:edit');
   ipcMain.removeHandler('file:list');

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, DollarSign, Activity, ChevronUp, ChevronDown, Code, Building2, Eye, Shield, Bug, TerminalSquare, Briefcase, Folder } from 'lucide-react';
+import React from 'react';
+import { DollarSign, Activity, Code, Building2, Eye, Shield, Bug, TerminalSquare, Briefcase, Folder } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { IndexingStatus } from './IndexingStatus';
 import './StatusBar.css';
@@ -22,15 +22,11 @@ const modeLabels = {
 
 export const StatusBar: React.FC = () => {
   const {
-    currentModel,
     currentProvider,
-    availableModels,
-    availableProviders,
     isProcessing,
     totalCost,
     inputTokens,
     outputTokens,
-    setModel,
     activeConversationId,
     conversations,
     terminalVisible,
@@ -44,25 +40,6 @@ export const StatusBar: React.FC = () => {
   const activeConversation = conversations.find(c => c.id === activeConversationId);
   const currentMode = activeConversation?.mode || 'code';
   const ModeIcon = modeIcons[currentMode as keyof typeof modeIcons] || Code;
-
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-
-  const handleModelSwitch = useCallback(async (modelId: string, providerName: string) => {
-    // Update the global default model for new conversations
-    setModel(modelId, providerName);
-    setModelDropdownOpen(false);
-  }, [setModel]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => setModelDropdownOpen(false);
-    if (modelDropdownOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [modelDropdownOpen]);
-
-  const currentModelInfo = availableModels.find(m => m.id === currentModel);
 
   return (
     <div className="status-bar">
@@ -105,49 +82,6 @@ export const StatusBar: React.FC = () => {
           </div>
         )}
         <IndexingStatus />
-      </div>
-
-      {/* Center - Default Model selector */}
-      <div className="status-bar-section center">
-        <div
-          className="status-item model-selector"
-          onClick={(e) => {
-            e.stopPropagation();
-            setModelDropdownOpen(!modelDropdownOpen);
-          }}
-          title="Default model for new conversations. Each conversation can use a different model."
-        >
-          <Cpu size={14} />
-          <span className="model-label">Default:</span>
-          <span>{currentModelInfo?.name || currentModel}</span>
-          {modelDropdownOpen ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-        </div>
-
-        {modelDropdownOpen && (
-          <div className="model-dropdown" onClick={(e) => e.stopPropagation()}>
-            {availableProviders.map((provider) => (
-              <div key={provider.name} className="model-group">
-                <div className="model-group-header">
-                  {provider.name}
-                  {!provider.available && <span className="unavailable">(unconfigured)</span>}
-                </div>
-                {availableModels
-                  .filter((m) => m.provider === provider.name)
-                  .map((model) => (
-                    <button
-                      key={model.id}
-                      className={`model-option ${model.id === currentModel ? 'active' : ''} ${!model.available ? 'disabled' : ''}`}
-                      onClick={() => model.available && handleModelSwitch(model.id, model.provider)}
-                      disabled={!model.available}
-                    >
-                      {model.name}
-                      {model.id === currentModel && <span className="check">✓</span>}
-                    </button>
-                  ))}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Right - Stats + Terminal toggle */}

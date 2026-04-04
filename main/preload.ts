@@ -436,6 +436,7 @@ const api: ElectronAPI = {
 
   file: {
     read: (filePath: string) => ipcRenderer.invoke('file:read', filePath),
+    readBinary: (filePath: string) => ipcRenderer.invoke('file:readBinary', filePath),
     write: (filePath: string, content: string) => ipcRenderer.invoke('file:write', filePath, content),
     edit: (filePath: string, oldString: string, newString: string) =>
       ipcRenderer.invoke('file:edit', filePath, oldString, newString),

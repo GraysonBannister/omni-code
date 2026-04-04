@@ -152,14 +152,24 @@ export async function createWindow(): Promise<BrowserWindow> {
   console.log('Preload path:', preloadPath);
 
   // Resolve icon path - try multiple locations for dev and production
-  const iconPaths = [
-    path.join(process.resourcesPath, 'logo.png'),
-    path.join(__dirname, '..', 'logo.png'),
-    path.join(__dirname, '..', '..', 'logo.png'),
-    path.join(__dirname, 'logo.png'),
-  ];
+  const { app } = await import('electron');
+  const appRoot = app.getAppPath();
+  const iconPaths = process.platform === 'darwin'
+    ? [
+        path.join(appRoot, 'build', 'icon.icns'),
+        path.join(appRoot, '..', 'build', 'icon.icns'),
+        path.join(__dirname, '..', 'build', 'icon.icns'),
+        path.join(appRoot, 'logo.png'),
+        path.join(__dirname, '..', 'logo.png'),
+      ]
+    : [
+        path.join(process.resourcesPath, 'logo.png'),
+        path.join(appRoot, 'logo.png'),
+        path.join(__dirname, '..', 'logo.png'),
+        path.join(__dirname, '..', '..', 'logo.png'),
+      ];
 
-  let icon = undefined;
+  let icon: Electron.NativeImage | undefined = undefined;
   for (const iconPath of iconPaths) {
     try {
       const img = nativeImage.createFromPath(iconPath);

@@ -6,6 +6,7 @@ import { SettingsPanel } from './Settings';
 import { BrowserPanel } from './BrowserPanel';
 import { HtmlPreviewPanel } from './HtmlPreviewPanel';
 import { ResizableSplitPane } from './ResizableSplitPane';
+import { ImageViewer } from './ImageViewer';
 import './Editor.css';
 
 // TypeScript type for the Monaco editor
@@ -77,6 +78,13 @@ function parseDiff(diffContent: string): {
 const isHtmlFile = (filePath: string): boolean => {
   const ext = filePath.split('.').pop()?.toLowerCase();
   return ext === 'html' || ext === 'htm';
+};
+
+// Check if a file is an image based on extension
+const isImageFile = (filePath: string): boolean => {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'];
+  return imageExtensions.includes(ext || '');
 };
 
 export const CodeEditor: React.FC = () => {
@@ -412,6 +420,8 @@ export const CodeEditor: React.FC = () => {
             <SettingsPanel embedded />
           ) : activeFile.type === 'browser' ? (
             <BrowserPanel url={activeFile.url || activeFile.path} />
+          ) : isImageFile(activeFile.path) ? (
+            <ImageViewer filePath={activeFile.path} />
           ) : isHtmlFile(activeFile.path) && activeFile.viewMode === 'preview' ? (
             <HtmlPreviewPanel content={activeFile.content} filePath={activeFile.path} />
           ) : isHtmlFile(activeFile.path) && activeFile.viewMode === 'split' ? (
@@ -508,6 +518,11 @@ export const CodeEditor: React.FC = () => {
                 Accept
               </button>
             </div>
+          ) : isImageFile(activeFile.path) ? (
+            <>
+              <span>IMAGE</span>
+              <span>{activeFile.path.split('.').pop()?.toUpperCase() || 'IMG'}</span>
+            </>
           ) : (
             <>
               <span>{getLanguage(activeFile.path).toUpperCase()}</span>

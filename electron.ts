@@ -10,11 +10,15 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Main] Unhandled rejection:', reason);
 });
 
-import { app } from 'electron';
+import { app, nativeImage } from 'electron';
+import * as path from 'node:path';
 import { createWindow, setupAppEventHandlers } from './main/app-window.js';
 import { initializeCore } from './main/core-integration.js';
 import { setupIpcHandlers, cleanupIpcHandlers, setupRulesAndSkillsIpcHandlers } from './main/ipc-handlers.js';
 import { setupSettingsIpcHandlers, cleanupSettingsIpcHandlers } from './main/settings.js';
+
+// Set app name before ready so it appears correctly in dock/taskbar
+app.setName('Omni Code');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (process.platform === 'win32') {
@@ -24,6 +28,31 @@ if (process.platform === 'win32') {
 // Initialize app
 async function initializeApp(): Promise<void> {
   try {
+    // Set macOS dock icon - must be called after app is ready
+    if (process.platform === 'darwin' && app.dock) {
+      const appRoot = app.getAppPath();
+      const iconPaths = [
+        path.join(appRoot, 'build', 'icon.icns'),
+        path.join(appRoot, '..', 'build', 'icon.icns'),
+        path.join(__dirname, '..', 'build', 'icon.icns'),
+        path.join(process.resourcesPath, 'build', 'icon.icns'),
+        path.join(appRoot, 'logo.png'),
+        path.join(__dirname, '..', 'logo.png'),
+      ];
+      for (const iconPath of iconPaths) {
+        try {
+          const img = nativeImage.createFromPath(iconPath);
+          if (!img.isEmpty()) {
+            app.dock.setIcon(img);
+            console.log('[Main] Using dock icon:', iconPath);
+            break;
+          }
+        } catch {
+          // Try next path
+        }
+      }
+    }
+
     // Setup IPC handlers FIRST (before window loads)
     setupIpcHandlers();
     setupSettingsIpcHandlers();
