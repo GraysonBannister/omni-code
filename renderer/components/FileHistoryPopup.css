@@ -1,10 +1,9 @@
 /* File History Popup - Scrollable file list popup */
 
 .file-history-popup {
-  background: #1e1e1e;
-  border-radius: 8px;
+  background: var(--color-bg-secondary);
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family);
   display: flex;
   flex-direction: column;
 }
@@ -15,8 +14,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #252526;
-  border-bottom: 1px solid #333;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
@@ -29,7 +28,7 @@
 }
 
 .file-history-popup-chevron {
-  color: #858585;
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
   transform: rotate(0deg);
 }
@@ -37,7 +36,7 @@
 .file-history-popup-count {
   font-size: 13px;
   font-weight: 500;
-  color: #d4d4d4;
+  color: var(--color-text-primary);
   white-space: nowrap;
 }
 
@@ -46,16 +45,16 @@
   align-items: center;
   gap: 8px;
   margin-left: 8px;
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
 }
 
 .file-history-popup-total-additions {
-  color: #28a745;
+  color: var(--color-text-success);
 }
 
 .file-history-popup-total-deletions {
-  color: #dc3545;
+  color: var(--color-text-error);
 }
 
 .file-history-popup-header-right {
@@ -69,17 +68,18 @@
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 500;
-  background: #4a4a4a;
-  border: 1px solid #525252;
-  border-radius: 4px;
-  color: #ffffff;
+  font-family: var(--font-family);
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .file-history-popup-review-btn:hover {
-  background: #525252;
-  border-color: #606060;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-bg-primary);
 }
 
 .file-history-popup-pin-btn {
@@ -89,21 +89,20 @@
   padding: 4px 6px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  color: #858585;
+  color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .file-history-popup-pin-btn:hover {
-  background: #3a3a3a;
-  color: #d4d4d4;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .file-history-popup-pin-btn.pinned {
-  color: #4a9eff;
-  background: rgba(74, 158, 255, 0.15);
-  border-color: rgba(74, 158, 255, 0.3);
+  color: var(--color-accent);
+  background: var(--color-accent-bg);
+  border-color: var(--color-border);
 }
 
 .file-history-popup-close-btn {
@@ -113,15 +112,14 @@
   padding: 4px 6px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
-  color: #858585;
+  color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .file-history-popup-close-btn:hover {
-  background: #3a3a3a;
-  color: #d4d4d4;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 /* File List Styles - Fully scrollable */
@@ -130,88 +128,86 @@
   max-height: 350px;
   padding: 4px 0;
   scrollbar-width: thin;
-  scrollbar-color: #3a3a3a transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .file-history-popup-file-list::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .file-history-popup-file-list::-webkit-scrollbar-track {
   background: transparent;
-  margin: 4px;
 }
 
 .file-history-popup-file-list::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  background: var(--color-border);
 }
 
 .file-history-popup-file-list::-webkit-scrollbar-thumb:hover {
-  background: #4a4a4a;
+  background: var(--color-text-secondary);
 }
 
-/* File Row Styles - Enhanced for clickability */
+/* File Row Styles */
 .file-history-popup-file-row {
   display: flex;
   align-items: center;
   padding: 8px 12px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--transition-fast);
   border-left: 3px solid transparent;
   user-select: none;
 }
 
 .file-history-popup-file-row:hover {
-  background: #2a2a2a;
+  background: var(--color-bg-hover);
   padding-left: 16px;
 }
 
 .file-history-popup-file-row:active {
-  background: #333333;
+  background: var(--color-bg-active);
 }
 
 .file-history-popup-file-row:focus {
   outline: none;
-  background: #2a2a2a;
+  background: var(--color-bg-hover);
 }
 
 /* Change Type Indicators */
 .file-history-popup-file-row.added {
-  border-left-color: #28a745;
+  border-left-color: var(--color-text-success);
 }
 
 .file-history-popup-file-row.modified {
-  border-left-color: #ffc107;
+  border-left-color: var(--color-text-warning);
 }
 
 .file-history-popup-file-row.deleted {
-  border-left-color: #dc3545;
+  border-left-color: var(--color-text-error);
 }
 
 /* Extension Badge Styles */
 .file-history-popup-extension-badge {
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 10px;
   font-weight: 600;
   padding: 2px 4px;
-  border-radius: 3px;
   margin-right: 8px;
   min-width: 24px;
   text-align: center;
   flex-shrink: 0;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 /* File Name Styles */
 .file-history-popup-file-name {
   flex: 1;
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  color: #d4d4d4;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,71 +220,17 @@
   align-items: center;
   gap: 8px;
   margin-left: 12px;
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
   flex-shrink: 0;
 }
 
 .file-history-popup-additions {
-  color: #28a745;
+  color: var(--color-text-success);
   font-weight: 500;
 }
 
 .file-history-popup-deletions {
-  color: #dc3545;
+  color: var(--color-text-error);
   font-weight: 500;
-}
-
-/* Dark mode support - these are defaults */
-@media (prefers-color-scheme: light) {
-  .file-history-popup {
-    background: #ffffff;
-    border-color: #e5e5e5;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15), 0 -2px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  .file-history-popup-header {
-    background: #f5f5f5;
-    border-bottom-color: #e5e5e5;
-  }
-
-  .file-history-popup-chevron {
-    color: #666666;
-  }
-
-  .file-history-popup-count {
-    color: #333333;
-  }
-
-  .file-history-popup-file-name {
-    color: #333333;
-  }
-
-  .file-history-popup-file-row:hover {
-    background: #f5f5f5;
-  }
-
-  .file-history-popup-review-btn {
-    background: #f0f0f0;
-    border-color: #d0d0d0;
-    color: #333333;
-  }
-
-  .file-history-popup-review-btn:hover {
-    background: #e5e5e5;
-    border-color: #c0c0c0;
-  }
-
-  .file-history-popup-close-btn:hover,
-  .file-history-popup-pin-btn:hover {
-    background: #e5e5e5;
-  }
-
-  .file-history-popup-file-list::-webkit-scrollbar-thumb {
-    background: #d0d0d0;
-  }
-
-  .file-history-popup-file-list::-webkit-scrollbar-thumb:hover {
-    background: #c0c0c0;
-  }
 }

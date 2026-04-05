@@ -300,6 +300,7 @@ interface AppState {
   openWorkspace: (filePath: string) => Promise<boolean>;
   saveWorkspace: () => Promise<boolean>;
   closeWorkspace: () => Promise<void>;
+  returnToMenu: () => Promise<void>;
   addFolderToWorkspace: (folderPath: string, folderName?: string) => Promise<boolean>;
   removeFolderFromWorkspace: (folderId: string) => Promise<boolean>;
   renameWorkspace: (newName: string) => Promise<boolean>;
@@ -512,6 +513,86 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (error) {
       console.error('Failed to close workspace:', error);
+    }
+  },
+
+  returnToMenu: async () => {
+    const state = get();
+
+    try {
+      // Save all conversations before returning to menu
+      await state.saveAllConversations();
+
+      // Close workspace if active
+      if (state.currentWorkspace) {
+        await window.electronAPI?.workspace?.indexing?.close(state.currentWorkspace.id);
+      }
+
+      // Clear all project-related state and return to welcome screen
+      set({
+        projectPath: null,
+        currentWorkspace: null,
+        isWorkspaceMode: false,
+        activeFolderId: null,
+        openFiles: [],
+        activeFilePath: null,
+        files: [],
+        expandedDirs: new Set(),
+        fileSearchResults: [],
+        fileSearchQuery: '',
+        conversations: [],
+        activeConversationId: null,
+        gitStatus: {
+          current: null,
+          tracking: null,
+          ahead: 0,
+          behind: 0,
+          staged: [],
+          modified: [],
+          not_added: [],
+          conflicted: [],
+          deleted: [],
+          renamed: [],
+          created: [],
+        },
+        browserTabs: [],
+        activeBrowserTab: null,
+        // Reset visibility to defaults
+        sidebarVisible: true,
+        chatVisible: true,
+        terminalVisible: false,
+        activeSidebarTab: 'files',
+        // Reset other state
+        contextPanelOpen: false,
+        contextFileInput: '',
+        selectedContextFiles: [],
+        mentionQuery: null,
+        mentionSearchResults: [],
+        selectedMentionIndex: -1,
+        fileHistory: {},
+        currentChangePreview: null,
+        changeReviewPanelOpen: false,
+        changeReviewPanelMode: 'all',
+        orchestrationStatus: {
+          isRunning: false,
+          currentStep: null,
+          totalSteps: null,
+          completedSteps: [],
+          failedSteps: [],
+          paused: false,
+        },
+        pendingPlan: null,
+        isPlanningMode: false,
+        planningApproach: 'iterative',
+        isGeneratingPlan: false,
+        pendingUserInputRequest: null,
+        fileChangeSinceLastVisit: {},
+      });
+
+      // Close all indexers
+      await window.electronAPI?.indexing?.closeAll?.();
+    } catch (error) {
+      console.error('Failed to return to menu:', error);
     }
   },
 

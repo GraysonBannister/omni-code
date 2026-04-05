@@ -12,6 +12,13 @@ import { useAppStore, subscribeToBrowserEvents } from './stores/appStore';
 import { useSettingsStore } from './stores/settingsStore';
 import './styles/app.css';
 
+function applyTheme(pref: string) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const resolved: 'dark' | 'light' = pref === 'system' ? (mq.matches ? 'dark' : 'light') : (pref as 'dark' | 'light');
+  document.documentElement.dataset.theme = resolved;
+  useAppStore.getState().setTheme(resolved);
+}
+
 export const App: React.FC = () => {
   const {
     sidebarVisible,
@@ -28,6 +35,21 @@ export const App: React.FC = () => {
     openWorkspace,
     loadSavedWorkspaces,
   } = useAppStore();
+
+  const themePref = useSettingsStore(state => state.settings?.general?.theme ?? 'dark');
+
+  // Apply theme to DOM whenever the preference changes
+  useEffect(() => {
+    applyTheme(themePref);
+
+    if (themePref === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => applyTheme('system');
+      mq.addEventListener('change', listener);
+      return () => mq.removeEventListener('change', listener);
+    }
+  }, [themePref]);
+
   const [isElectron, setIsElectron] = React.useState(true);
   const [recentFoldersState, setRecentFoldersState] = useState<string[]>([]);
   const [recentWorkspacesState, setRecentWorkspacesState] = useState<string[]>([]);
@@ -301,6 +323,9 @@ export const App: React.FC = () => {
         if (state.isWorkspaceMode) {
           state.closeWorkspace();
         }
+        break;
+      case 'close-folder':
+        state.returnToMenu();
         break;
     }
   }, [openFolder, openRecentWorkspace, openWorkspace]);

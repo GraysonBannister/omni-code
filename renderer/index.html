@@ -1,16 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; img-src 'self' data: https:; connect-src 'self' https:; frame-src https:; worker-src 'self' blob:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https:; frame-src https:; worker-src 'self' blob:;" />
   <title>Omni Code</title>
   <link rel="icon" type="image/png" href="../logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      border-radius: 0 !important;
+      box-shadow: none !important;
     }
     
     html, body, #root {
@@ -20,15 +25,15 @@
     }
     
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
       background: #0d1117;
-      color: #c9d1d9;
+      color: #eeeee8;
     }
     
     /* Scrollbar styling */
     ::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
+      width: 6px;
+      height: 6px;
     }
     
     ::-webkit-scrollbar-track {
@@ -36,12 +41,11 @@
     }
     
     ::-webkit-scrollbar-thumb {
-      background: #30363d;
-      border-radius: 5px;
+      background: #2a3441;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-      background: #484f58;
+      background: #8b919e;
     }
     
     /* Loading state */
@@ -51,7 +55,7 @@
       justify-content: center;
       height: 100%;
       font-size: 14px;
-      color: #8b949e;
+      color: #8b919e;
     }
   </style>
 </head>

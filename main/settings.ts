@@ -139,6 +139,27 @@ export interface SettingsSchema {
     lmstudio?: string;
   };
 
+  // Custom LLM endpoints (OpenAI-compatible)
+  customModels: {
+    id: string;           // Unique identifier (uuid or slug)
+    name: string;         // Display name for the endpoint
+    baseUrl: string;      // OpenAI-compatible API base URL
+    apiKey?: string;      // Optional API key
+    models: Array<{
+      id: string;         // Model ID (as returned by the API)
+      displayName: string; // User-friendly name
+      capabilities: {
+        streaming: boolean;
+        toolUse: boolean;
+        vision: boolean;
+        jsonMode: boolean;
+        systemPrompt: boolean;
+        maxContextWindow: number;
+        maxOutputTokens: number;
+      };
+    }>;
+  }[];
+
   // Usage tracking settings
   usage: {
     monthlyLimit: number | null;
@@ -288,6 +309,8 @@ export const defaultSettings: SettingsSchema = {
   },
 
   apiKeys: {},
+
+  customModels: [],
 
   usage: {
     monthlyLimit: null,

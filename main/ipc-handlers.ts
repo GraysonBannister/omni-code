@@ -722,6 +722,59 @@ export function setupIpcHandlers(): void {
     return configRef.getProviders();
   });
 
+  // Custom model test connection handler
+  ipcMain.handle('custom-models:test-connection', async (_: IpcMainInvokeEvent, { baseUrl, apiKey }: { baseUrl: string; apiKey?: string }) => {
+    try {
+      // Normalize the base URL
+      const normalizedUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const modelsUrl = `${normalizedUrl}/v1/models`;
+      
+      console.log(`[IPC] Testing custom endpoint connection: ${modelsUrl}`);
+      
+      // Use fetch to test the connection (Node 18+ has native fetch)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      
+      const response = await fetch(modelsUrl, {
+        method: 'GET',
+        headers,
+        // Short timeout for the connection test
+        signal: AbortSignal.timeout(10000),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[IPC] Custom endpoint test failed: ${response.status} ${errorText}`);
+        return { 
+          success: false, 
+          error: `HTTP ${response.status}: ${response.statusText}` 
+        };
+      }
+      
+      const data = await response.json() as { data?: Array<{ id: string }> };
+      const models = data.data?.map(m => m.id) || [];
+      
+      console.log(`[IPC] Custom endpoint test successful, found ${models.length} models`);
+      
+      return { 
+        success: true, 
+        models,
+      };
+    } catch (error) {
+      console.error('[IPC] Custom endpoint test error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Connection failed';
+      return { 
+        success: false, 
+        error: errorMessage,
+      };
+    }
+  });
+
   // Working directory handler
   ipcMain.handle('config:set-cwd', async (_: IpcMainInvokeEvent, cwd: string) => {
     await setWorkingDirectory(cwd);

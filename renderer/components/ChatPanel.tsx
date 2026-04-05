@@ -2020,17 +2020,21 @@ export const ChatPanel: React.FC = () => {
                       </div>
                       {availableModels
                         .filter((m) => m.provider === provider.name)
-                        .map((model) => (
-                          <button
-                            key={model.id}
-                            className={`chat-model-option ${model.id === activeModel ? 'active' : ''} ${!model.available ? 'disabled' : ''}`}
-                            onClick={() => model.available && handleModelSwitch(model.id, model.provider)}
-                            disabled={!model.available}
-                          >
-                            {model.name}
-                            {model.id === activeModel && <span className="check">✓</span>}
-                          </button>
-                        ))}
+                        .map((model) => {
+                          const isCustomModel = model.id.includes('/') || provider.name.startsWith('custom-');
+                          return (
+                            <button
+                              key={model.id}
+                              className={`chat-model-option ${model.id === activeModel ? 'active' : ''} ${!model.available ? 'disabled' : ''}`}
+                              onClick={() => model.available && handleModelSwitch(model.id, model.provider)}
+                              disabled={!model.available}
+                            >
+                              <span className="chat-model-name">{model.name}</span>
+                              {isCustomModel && <span className="chat-model-badge">Custom</span>}
+                              {model.id === activeModel && <span className="check">✓</span>}
+                            </button>
+                          );
+                        })}
                     </div>
                   ))}
                 </div>

@@ -96,6 +96,26 @@ export interface SettingsSchema {
     lmstudio?: string;
   };
 
+  customModels: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey?: string;
+    models: Array<{
+      id: string;
+      displayName: string;
+      capabilities: {
+        streaming: boolean;
+        toolUse: boolean;
+        vision: boolean;
+        jsonMode: boolean;
+        systemPrompt: boolean;
+        maxContextWindow: number;
+        maxOutputTokens: number;
+      };
+    }>;
+  }[];
+
   usage: {
     monthlyLimit: number | null;
     alertThresholds: number[];
@@ -248,6 +268,8 @@ export const defaultSettings: SettingsSchema = {
     ollama: '',
     lmstudio: '',
   },
+
+  customModels: [],
 
   usage: {
     monthlyLimit: null,

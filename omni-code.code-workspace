@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../omni-code-go"
+		},
+		{
+			"path": "../omni-code-website"
 		}
 	],
 	"settings": {}

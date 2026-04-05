@@ -379,6 +379,15 @@ type RemoteAPI = {
   generateQR: () => Promise<{ success: boolean; qrCodeDataUrl?: string; url?: string; error?: string }>;
 };
 
+// Custom Models API
+type CustomModelsAPI = {
+  testConnection: (config: { baseUrl: string; apiKey?: string }) => Promise<{ 
+    success: boolean; 
+    models?: string[]; 
+    error?: string 
+  }>;
+};
+
 // Main Electron API
 type ElectronAPI = {
   agent: AgentAPI;
@@ -398,6 +407,7 @@ type ElectronAPI = {
   browser: BrowserAPI;
   remote: RemoteAPI;
   project: ProjectAPI;
+  customModels: CustomModelsAPI;
   plan: PlanAPI;
   git: GitAPI;
   rules: RulesAPI;
@@ -521,6 +531,11 @@ const api: ElectronAPI = {
     export: (workspacePath?: string) => ipcRenderer.invoke('usage:export', workspacePath),
   },
 
+  customModels: {
+    testConnection: (config: { baseUrl: string; apiKey?: string }) => 
+      ipcRenderer.invoke('custom-models:test-connection', config),
+  },
+
   indexing: {
     start: (projectPath: string) => ipcRenderer.invoke('indexing:start', projectPath),
     reindex: (projectPath: string) => ipcRenderer.invoke('indexing:reindex', projectPath),
@@ -554,7 +569,8 @@ const api: ElectronAPI = {
       ipcRenderer.on('menu:action', handler);
       // Listen to specific menu channels
       const menuChannels = [
-        'menu:new-file', 'menu:open-folder', 'menu:save', 'menu:open-settings',
+        'menu:new-file', 'menu:open-folder', 'menu:close-folder', 'menu:close-workspace',
+        'menu:save', 'menu:open-settings',
         'menu:toggle-sidebar', 'menu:toggle-chat',
         'menu:send-message', 'menu:abort', 'menu:clear-chat'
       ];

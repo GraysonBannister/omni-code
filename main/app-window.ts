@@ -56,6 +56,12 @@ function buildMenu(): Menu {
         },
         { type: 'separator' },
         {
+          label: 'Close Folder',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => mainWindow?.webContents.send('menu:close-folder'),
+        },
+        { type: 'separator' },
+        {
           label: 'Recent Projects',
           submenu: recentSubmenu,
           id: 'recent-projects',

@@ -9,6 +9,7 @@ import { GroqProvider } from '../src/providers/groq/groq-provider.js';
 import { XAIProvider } from '../src/providers/xai/xai-provider.js';
 import { BedrockProvider } from '../src/providers/aws/bedrock-provider.js';
 import { MoonshotProvider } from '../src/providers/moonshot/moonshot-provider.js';
+import { OpenAICompatProvider } from '../src/providers/openai-compatible/openai-compat-provider.js';
 import { ToolRegistry } from '../src/tools/tool-registry.js';
 import { registerBuiltinTools } from '../src/tools/builtin/index.js';
 import { PermissionManager } from '../src/permissions/permission-manager.js';
@@ -154,6 +155,66 @@ export async function initializeCore(): Promise<void> {
     providerRegistry.register(new BedrockProvider());
     providerRegistry.register(new MoonshotProvider());
 
+    // Register custom endpoints from settings
+    const customModels = settingsManager.get('customModels') || [];
+    console.log(`[CoreIntegration] Found ${customModels.length} custom model endpoints`);
+    
+    for (const customEndpoint of customModels) {
+      try {
+        // Create endpoint config for OpenAICompatProvider
+        const endpointConfig = {
+          baseUrl: customEndpoint.baseUrl,
+          apiKey: customEndpoint.apiKey,
+          models: customEndpoint.models.map(m => m.id),
+        };
+        
+        // Create and register the provider with a unique name
+        const customProvider = new OpenAICompatProvider(customEndpoint.id, endpointConfig);
+        const uniqueProviderName = `custom-${customEndpoint.id}`;
+        
+        // Override the provider name to be unique for each custom endpoint
+        // This prevents conflicts in the provider registry
+        Object.defineProperty(customProvider, 'name', {
+          value: uniqueProviderName,
+          writable: false,
+          configurable: true,
+        });
+        
+        // Override the display name
+        Object.defineProperty(customProvider, 'displayName', {
+          value: customEndpoint.name,
+          writable: true,
+          configurable: true,
+        });
+        
+        // Override the model capabilities with user-defined ones
+        // Set the provider to the unique name so models are properly filtered
+        (customProvider as any).models = customEndpoint.models.map(m => ({
+          id: `${customEndpoint.id}/${m.id}`,
+          provider: uniqueProviderName as any,
+          displayName: m.displayName,
+          aliases: [m.id],
+          capabilities: {
+            streaming: m.capabilities.streaming,
+            toolUse: m.capabilities.toolUse,
+            vision: m.capabilities.vision,
+            jsonMode: m.capabilities.jsonMode,
+            systemPrompt: m.capabilities.systemPrompt,
+            caching: false,
+            extendedThinking: false,
+            maxContextWindow: m.capabilities.maxContextWindow,
+            maxOutputTokens: m.capabilities.maxOutputTokens,
+          },
+          pricing: { inputPerMillion: 0, outputPerMillion: 0 },
+        }));
+        
+        providerRegistry.register(customProvider);
+        console.log(`[CoreIntegration] Registered custom endpoint: ${customEndpoint.name} (${uniqueProviderName}) with ${customEndpoint.models.length} models`);
+      } catch (error) {
+        console.error(`[CoreIntegration] Failed to register custom endpoint ${customEndpoint.id}:`, error);
+      }
+    }
+
     // Build provider configs from settings, config file, and environment variables
     // Priority: settingsManager > config file > environment variables
     const providerConfigs: Record<string, any> = { ...config.get('providers') };
@@ -208,6 +269,14 @@ export async function initializeCore(): Promise<void> {
           apiKey: process.env[envVar],
         };
       }
+    }
+
+    // Add custom endpoint configs for initialization
+    for (const customEndpoint of customModels) {
+      providerConfigs[`custom-${customEndpoint.id}`] = {
+        baseUrl: customEndpoint.baseUrl,
+        apiKey: customEndpoint.apiKey,
+      };
     }
 
     console.log('[CoreIntegration] Initializing providers with configs:', Object.keys(providerConfigs));

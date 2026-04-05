@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy } from 'lucide-react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Plus, Trash2, Edit, Server } from 'lucide-react';
 import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
 import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
@@ -65,6 +65,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   ]);
   const [currentOS, setCurrentOS] = useState<string>('unknown');
   const [soundsLoading, setSoundsLoading] = useState(false);
+
+  // Custom endpoints state
+  const [showCustomEndpointForm, setShowCustomEndpointForm] = useState(false);
+  const [editingEndpointId, setEditingEndpointId] = useState<string | null>(null);
+  const [customEndpointForm, setCustomEndpointForm] = useState({
+    name: '',
+    baseUrl: '',
+    apiKey: '',
+    models: [] as Array<{
+      id: string;
+      displayName: string;
+      capabilities: {
+        streaming: boolean;
+        toolUse: boolean;
+        vision: boolean;
+        jsonMode: boolean;
+        systemPrompt: boolean;
+        maxContextWindow: number;
+        maxOutputTokens: number;
+      };
+    }>,
+  });
+  const [testingEndpoint, setTestingEndpoint] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load settings when panel opens or when embedded
   useEffect(() => {
@@ -233,6 +257,158 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  // Custom endpoint handlers
+  const resetCustomEndpointForm = () => {
+    setCustomEndpointForm({
+      name: '',
+      baseUrl: '',
+      apiKey: '',
+      models: [],
+    });
+    setEditingEndpointId(null);
+    setTestResult(null);
+  };
+
+  const handleAddCustomEndpoint = () => {
+    resetCustomEndpointForm();
+    setShowCustomEndpointForm(true);
+  };
+
+  const handleEditCustomEndpoint = (endpoint: typeof customEndpointForm & { id: string }) => {
+    setCustomEndpointForm({
+      name: endpoint.name,
+      baseUrl: endpoint.baseUrl,
+      apiKey: endpoint.apiKey || '',
+      models: endpoint.models,
+    });
+    setEditingEndpointId(endpoint.id);
+    setShowCustomEndpointForm(true);
+  };
+
+  const handleDeleteCustomEndpoint = async (endpointId: string) => {
+    const current = settings?.customModels || [];
+    const updated = current.filter(e => e.id !== endpointId);
+    await setSetting('customModels', updated);
+  };
+
+  const handleSaveCustomEndpoint = async () => {
+    if (!customEndpointForm.name.trim() || !customEndpointForm.baseUrl.trim()) {
+      return;
+    }
+
+    const current = settings?.customModels || [];
+    const endpointId = editingEndpointId || crypto.randomUUID();
+    
+    const endpoint = {
+      id: endpointId,
+      name: customEndpointForm.name.trim(),
+      baseUrl: customEndpointForm.baseUrl.trim(),
+      apiKey: customEndpointForm.apiKey.trim() || undefined,
+      models: customEndpointForm.models,
+    };
+
+    let updated;
+    if (editingEndpointId) {
+      updated = current.map(e => e.id === editingEndpointId ? endpoint : e);
+    } else {
+      updated = [...current, endpoint];
+    }
+
+    await setSetting('customModels', updated);
+    resetCustomEndpointForm();
+    setShowCustomEndpointForm(false);
+  };
+
+  const handleAddModelToEndpoint = () => {
+    setCustomEndpointForm(prev => ({
+      ...prev,
+      models: [
+        ...prev.models,
+        {
+          id: '',
+          displayName: '',
+          capabilities: {
+            streaming: true,
+            toolUse: true,
+            vision: false,
+            jsonMode: true,
+            systemPrompt: true,
+            maxContextWindow: 128000,
+            maxOutputTokens: 4096,
+          },
+        },
+      ],
+    }));
+  };
+
+  const handleRemoveModelFromEndpoint = (index: number) => {
+    setCustomEndpointForm(prev => ({
+      ...prev,
+      models: prev.models.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleUpdateModelField = (index: number, field: string, value: any) => {
+    setCustomEndpointForm(prev => ({
+      ...prev,
+      models: prev.models.map((m, i) => 
+        i === index ? { ...m, [field]: value } : m
+      ),
+    }));
+  };
+
+  const handleUpdateModelCapability = (index: number, cap: keyof typeof customEndpointForm.models[0]['capabilities'], value: any) => {
+    setCustomEndpointForm(prev => ({
+      ...prev,
+      models: prev.models.map((m, i) => 
+        i === index ? { ...m, capabilities: { ...m.capabilities, [cap]: value } } : m
+      ),
+    }));
+  };
+
+  const handleTestCustomEndpoint = async () => {
+    if (!customEndpointForm.baseUrl.trim()) return;
+    
+    setTestingEndpoint(true);
+    setTestResult(null);
+    
+    try {
+      const result = await window.electronAPI?.customModels?.testConnection?.({
+        baseUrl: customEndpointForm.baseUrl.trim(),
+        apiKey: customEndpointForm.apiKey.trim(),
+      });
+      
+      if (result?.success) {
+        setTestResult({ success: true, message: `Connection successful! Found ${result.models?.length || 0} models.` });
+        // Auto-populate models if the endpoint returned available models
+        if (result.models && result.models.length > 0 && customEndpointForm.models.length === 0) {
+          setCustomEndpointForm(prev => ({
+            ...prev,
+            models: result.models.map((m: string) => ({
+              id: m,
+              displayName: m,
+              capabilities: {
+                streaming: true,
+                toolUse: true,
+                vision: false,
+                jsonMode: true,
+                systemPrompt: true,
+                maxContextWindow: 128000,
+                maxOutputTokens: 4096,
+              },
+            })),
+          }));
+        }
+      } else {
+        setTestResult({ success: false, message: result?.error || 'Connection failed' });
+      }
+    } catch (error) {
+      setTestResult({ success: false, message: error instanceof Error ? error.message : 'Connection failed' });
+    }
+    
+    setTestingEndpoint(false);
   };
 
   if (!embedded && !isOpen) return null;
@@ -434,27 +610,33 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                       </div>
                       {availableModels
                         .filter((m) => m.provider === provider.name)
-                        .map((model) => (
-                          <button
-                            key={model.id}
-                            className={`model-list-item ${
-                              model.id === currentSettings.ai.defaultModel ? 'active' : ''
-                            } ${!model.available ? 'disabled' : ''}`}
-                            onClick={() => {
-                              if (model.available) {
-                                setSetting('ai.defaultModel', model.id);
-                                setSetting('ai.defaultProvider', provider.name);
-                                setModel(model.id, provider.name);
-                              }
-                            }}
-                            disabled={!model.available}
-                          >
-                            <span className="model-name">{model.name}</span>
-                            {model.id === currentSettings.ai.defaultModel && (
-                              <Check size={14} className="model-check" />
-                            )}
-                          </button>
-                        ))}
+                        .map((model) => {
+                          const isCustomModel = model.id.includes('/') || provider.name.startsWith('custom-');
+                          return (
+                            <button
+                              key={model.id}
+                              className={`model-list-item ${
+                                model.id === currentSettings.ai.defaultModel ? 'active' : ''
+                              } ${!model.available ? 'disabled' : ''}`}
+                              onClick={() => {
+                                if (model.available) {
+                                  setSetting('ai.defaultModel', model.id);
+                                  setSetting('ai.defaultProvider', provider.name);
+                                  setModel(model.id, provider.name);
+                                }
+                              }}
+                              disabled={!model.available}
+                            >
+                              <span className="model-name">{model.name}</span>
+                              {isCustomModel && (
+                                <span className="model-badge custom">Custom</span>
+                              )}
+                              {model.id === currentSettings.ai.defaultModel && (
+                                <Check size={14} className="model-check" />
+                              )}
+                            </button>
+                          );
+                        })}
                     </div>
                   ))}
                 </div>
@@ -755,6 +937,300 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   <div className="validation-badge valid">
                     <CheckCircle2 size={14} />
                   </div>
+                )}
+              </div>
+
+              {/* Custom Endpoints Section */}
+              <div className="custom-endpoints-section" style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid var(--color-border)' }}>
+                <h3 className="settings-section-title">
+                  <Server size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                  Custom Endpoints
+                </h3>
+                <p className="settings-section-description">
+                  Add OpenAI-compatible endpoints (Ollama, LM Studio, vLLM, etc.) with custom model configurations.
+                </p>
+
+                {/* List of existing custom endpoints */}
+                {currentSettings.customModels?.length > 0 && (
+                  <div className="custom-endpoints-list" style={{ marginBottom: '16px' }}>
+                    {currentSettings.customModels.map((endpoint) => (
+                      <div key={endpoint.id} className="custom-endpoint-item" style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        padding: '12px',
+                        background: 'var(--color-bg-secondary)',
+                        borderRadius: '8px',
+                        marginBottom: '8px'
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{endpoint.name}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                            {endpoint.baseUrl} • {endpoint.models.length} model{endpoint.models.length !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="btn btn-icon"
+                            onClick={() => handleEditCustomEndpoint(endpoint)}
+                            title="Edit"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            className="btn btn-icon btn-danger"
+                            onClick={() => handleDeleteCustomEndpoint(endpoint.id)}
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add/Edit Form */}
+                {showCustomEndpointForm && (
+                  <div className="custom-endpoint-form" style={{ 
+                    padding: '16px',
+                    background: 'var(--color-bg-secondary)',
+                    borderRadius: '8px',
+                    marginBottom: '16px'
+                  }}>
+                    <h4 style={{ marginTop: 0, marginBottom: '16px' }}>
+                      {editingEndpointId ? 'Edit Custom Endpoint' : 'Add Custom Endpoint'}
+                    </h4>
+
+                    <SettingInput
+                      label="Name"
+                      description="Display name for this endpoint"
+                      value={customEndpointForm.name}
+                      onChange={(value) => setCustomEndpointForm(prev => ({ ...prev, name: value }))}
+                    />
+
+                    <SettingInput
+                      label="Base URL"
+                      description="OpenAI-compatible API base URL (e.g., http://localhost:11434)"
+                      value={customEndpointForm.baseUrl}
+                      onChange={(value) => setCustomEndpointForm(prev => ({ ...prev, baseUrl: value }))}
+                    />
+
+                    <div className="api-key-row">
+                      <SettingInput
+                        label="API Key (Optional)"
+                        description="API key if required by the endpoint"
+                        value={customEndpointForm.apiKey}
+                        type="password"
+                        onChange={(value) => setCustomEndpointForm(prev => ({ ...prev, apiKey: value }))}
+                      />
+                      <button
+                        className="btn btn-secondary"
+                        onClick={handleTestCustomEndpoint}
+                        disabled={testingEndpoint || !customEndpointForm.baseUrl.trim()}
+                        style={{ marginBottom: '16px', height: 'fit-content', alignSelf: 'flex-end' }}
+                      >
+                        {testingEndpoint ? 'Testing...' : 'Test Connection'}
+                      </button>
+                    </div>
+
+                    {testResult && (
+                      <div style={{ 
+                        padding: '8px 12px', 
+                        borderRadius: '4px', 
+                        marginBottom: '16px',
+                        background: testResult.success ? 'var(--color-success-bg, rgba(34, 197, 94, 0.1))' : 'var(--color-error-bg, rgba(239, 68, 68, 0.1))',
+                        color: testResult.success ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)'
+                      }}>
+                        {testResult.message}
+                      </div>
+                    )}
+
+                    {/* Models Section */}
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <label className="setting-label" style={{ margin: 0 }}>
+                          <span className="setting-title">Models</span>
+                        </label>
+                        <button className="btn btn-secondary btn-small" onClick={handleAddModelToEndpoint}>
+                          <Plus size={14} style={{ marginRight: '4px' }} />
+                          Add Model
+                        </button>
+                      </div>
+
+                      {customEndpointForm.models.length === 0 && (
+                        <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+                          No models configured. Click "Test Connection" to auto-detect models, or add them manually.
+                        </p>
+                      )}
+
+                      {customEndpointForm.models.map((model, index) => (
+                        <div key={index} className="custom-model-item" style={{
+                          padding: '12px',
+                          background: 'var(--color-bg-tertiary)',
+                          borderRadius: '6px',
+                          marginBottom: '8px'
+                        }}>
+                          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '4px' }}>
+                                Model ID
+                              </label>
+                              <input
+                                type="text"
+                                value={model.id}
+                                onChange={(e) => handleUpdateModelField(index, 'id', e.target.value)}
+                                placeholder="e.g., llama3.1"
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--color-border)',
+                                  background: 'var(--color-bg)',
+                                  color: 'var(--color-text)'
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '4px' }}>
+                                Display Name
+                              </label>
+                              <input
+                                type="text"
+                                value={model.displayName}
+                                onChange={(e) => handleUpdateModelField(index, 'displayName', e.target.value)}
+                                placeholder="e.g., Llama 3.1"
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--color-border)',
+                                  background: 'var(--color-bg)',
+                                  color: 'var(--color-text)'
+                                }}
+                              />
+                            </div>
+                            <button
+                              className="btn btn-icon btn-danger"
+                              onClick={() => handleRemoveModelFromEndpoint(index)}
+                              title="Remove model"
+                              style={{ alignSelf: 'flex-end' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={model.capabilities.streaming}
+                                onChange={(e) => handleUpdateModelCapability(index, 'streaming', e.target.checked)}
+                              />
+                              Streaming
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={model.capabilities.toolUse}
+                                onChange={(e) => handleUpdateModelCapability(index, 'toolUse', e.target.checked)}
+                              />
+                              Tool Use
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={model.capabilities.vision}
+                                onChange={(e) => handleUpdateModelCapability(index, 'vision', e.target.checked)}
+                              />
+                              Vision
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={model.capabilities.jsonMode}
+                                onChange={(e) => handleUpdateModelCapability(index, 'jsonMode', e.target.checked)}
+                              />
+                              JSON Mode
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px' }}>
+                              <input
+                                type="checkbox"
+                                checked={model.capabilities.systemPrompt}
+                                onChange={(e) => handleUpdateModelCapability(index, 'systemPrompt', e.target.checked)}
+                              />
+                              System Prompt
+                            </label>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '4px' }}>
+                                Context Window
+                              </label>
+                              <input
+                                type="number"
+                                value={model.capabilities.maxContextWindow}
+                                onChange={(e) => handleUpdateModelCapability(index, 'maxContextWindow', parseInt(e.target.value) || 0)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--color-border)',
+                                  background: 'var(--color-bg)',
+                                  color: 'var(--color-text)'
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '4px' }}>
+                                Max Output Tokens
+                              </label>
+                              <input
+                                type="number"
+                                value={model.capabilities.maxOutputTokens}
+                                onChange={(e) => handleUpdateModelCapability(index, 'maxOutputTokens', parseInt(e.target.value) || 0)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--color-border)',
+                                  background: 'var(--color-bg)',
+                                  color: 'var(--color-text)'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleSaveCustomEndpoint}
+                        disabled={!customEndpointForm.name.trim() || !customEndpointForm.baseUrl.trim()}
+                      >
+                        {editingEndpointId ? 'Save Changes' : 'Add Endpoint'}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          resetCustomEndpointForm();
+                          setShowCustomEndpointForm(false);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!showCustomEndpointForm && (
+                  <button className="btn btn-secondary" onClick={handleAddCustomEndpoint}>
+                    <Plus size={16} style={{ marginRight: '8px' }} />
+                    Add Custom Endpoint
+                  </button>
                 )}
               </div>
             </div>

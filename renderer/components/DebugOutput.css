@@ -1,10 +1,9 @@
 .debug-output {
-  background: #1e1e1e;
-  border-radius: 8px;
+  background: var(--color-bg-secondary);
   overflow: hidden;
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
-  color: #d4d4d4;
+  color: var(--color-text-primary);
 }
 
 .debug-header {
@@ -12,15 +11,15 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #252526;
-  border-bottom: 1px solid #333;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .debug-title {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 
 .debug-controls {
@@ -30,34 +29,35 @@
 }
 
 .debug-filter {
-  background: #1e1e1e;
-  border: 1px solid #333;
-  color: #d4d4d4;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   padding: 4px 8px;
-  border-radius: 4px;
+  font-family: var(--font-family);
   font-size: 12px;
   cursor: pointer;
   outline: none;
 }
 
 .debug-filter:hover {
-  border-color: #555;
+  border-color: var(--color-text-tertiary);
 }
 
 .debug-clear {
-  background: #444;
-  color: #ccc;
-  border: none;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
   padding: 4px 10px;
-  border-radius: 4px;
+  font-family: var(--font-family);
   font-size: 11px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .debug-clear:hover {
-  background: #dc3545;
-  color: white;
+  background: var(--color-text-error);
+  border-color: var(--color-text-error);
+  color: var(--color-bg-primary);
 }
 
 .debug-events {
@@ -68,42 +68,41 @@
 .debug-empty {
   padding: 24px;
   text-align: center;
-  color: #666;
+  color: var(--color-text-tertiary);
   font-style: italic;
 }
 
 .debug-event {
   margin-bottom: 4px;
-  background: #252526;
-  border-radius: 4px;
+  background: var(--color-bg-tertiary);
   overflow: hidden;
   cursor: pointer;
   border-left: 3px solid transparent;
-  transition: background 0.2s;
+  transition: background var(--transition-fast);
 }
 
 .debug-event:hover {
-  background: #2d2d30;
+  background: var(--color-bg-hover);
 }
 
 .debug-event.tool_call {
-  border-left-color: #0d6efd;
+  border-left-color: var(--color-accent);
 }
 
 .debug-event.llm_request {
-  border-left-color: #ffc107;
+  border-left-color: var(--color-text-warning);
 }
 
 .debug-event.llm_response {
-  border-left-color: #17a2b8;
+  border-left-color: var(--color-text-secondary);
 }
 
 .debug-event.error {
-  border-left-color: #dc3545;
+  border-left-color: var(--color-text-error);
 }
 
 .debug-event.info {
-  border-left-color: #6c757d;
+  border-left-color: var(--color-border);
 }
 
 .debug-event-header {
@@ -121,14 +120,14 @@
 
 .debug-timestamp {
   font-size: 11px;
-  color: #888;
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
 }
 
 .debug-event-title {
   flex: 1;
   font-weight: 500;
-  color: #d4d4d4;
+  color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -136,49 +135,48 @@
 
 .debug-duration {
   font-size: 11px;
-  color: #0d6efd;
-  background: rgba(13, 110, 253, 0.1);
+  color: var(--color-text-secondary);
+  background: var(--color-accent-bg);
   padding: 2px 6px;
-  border-radius: 3px;
+  border: 1px solid var(--color-border);
 }
 
 .debug-expand {
   font-size: 10px;
-  color: #888;
+  color: var(--color-text-tertiary);
   transition: transform 0.2s;
 }
 
 .debug-details {
   margin: 0;
   padding: 12px;
-  background: #1e1e1e;
-  border-top: 1px solid #333;
+  background: var(--color-bg-primary);
+  border-top: 1px solid var(--color-border);
   font-size: 11px;
   line-height: 1.5;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #aaa;
+  color: var(--color-text-secondary);
 }
 
 .debug-event.error .debug-event-title {
-  color: #dc3545;
+  color: var(--color-text-error);
 }
 
 /* Scrollbar styling */
 .debug-events::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .debug-events::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: var(--color-bg-secondary);
 }
 
 .debug-events::-webkit-scrollbar-thumb {
-  background: #444;
-  border-radius: 4px;
+  background: var(--color-border);
 }
 
 .debug-events::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--color-text-secondary);
 }
