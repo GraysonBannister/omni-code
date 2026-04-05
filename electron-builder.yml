@@ -55,5 +55,5 @@ linux:
   category: Development
 publish:
   provider: github
-  owner: omnicode
+  owner: GraysonBannister
   repo: omni-code
