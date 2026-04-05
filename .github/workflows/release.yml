@@ -47,7 +47,7 @@ jobs:
             g++
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Build and publish release
         run: npm run electron:release
