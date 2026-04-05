@@ -15,6 +15,7 @@ interface FileReferenceChipProps {
   onRemove: () => void;
   onClick?: () => void;
   compact?: boolean;
+  readonly?: boolean;
 }
 
 // Extension to color mapping
@@ -61,6 +62,7 @@ export const FileReferenceChip: React.FC<FileReferenceChipProps> = ({
   onRemove,
   onClick,
   compact = false,
+  readonly = false,
 }) => {
   const handleRemove = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,14 +100,16 @@ export const FileReferenceChip: React.FC<FileReferenceChipProps> = ({
         {reference.name}
       </span>
       
-      <button
-        className="file-reference-chip-remove"
-        onClick={handleRemove}
-        type="button"
-        title="Remove reference"
-      >
-        <X size={compact ? 10 : 12} />
-      </button>
+      {!readonly && (
+        <button
+          className="file-reference-chip-remove"
+          onClick={handleRemove}
+          type="button"
+          title="Remove reference"
+        >
+          <X size={compact ? 10 : 12} />
+        </button>
+      )}
     </div>
   );
 };
@@ -116,6 +120,7 @@ interface FileReferenceChipRowProps {
   onClick?: (reference: FileReference) => void;
   compact?: boolean;
   maxChips?: number;
+  readonly?: boolean;
 }
 
 export const FileReferenceChipRow: React.FC<FileReferenceChipRowProps> = ({
@@ -124,6 +129,7 @@ export const FileReferenceChipRow: React.FC<FileReferenceChipRowProps> = ({
   onClick,
   compact = false,
   maxChips = 5,
+  readonly = false,
 }) => {
   if (references.length === 0) return null;
 
@@ -139,6 +145,7 @@ export const FileReferenceChipRow: React.FC<FileReferenceChipRowProps> = ({
           onRemove={() => onRemove?.(ref)}
           onClick={() => onClick?.(ref)}
           compact={compact}
+          readonly={readonly}
         />
       ))}
       

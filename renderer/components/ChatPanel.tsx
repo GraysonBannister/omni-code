@@ -1421,7 +1421,7 @@ export const ChatPanel: React.FC = () => {
 
         case 'user_message': {
           console.log('[ChatPanel] user_message event received, conversationId=', conversationId, 'raw event=', JSON.stringify(agentEvent).slice(0, 300));
-          const userMsg = agentEvent.message as { id: string; role: string; content: string | ContentBlock[]; timestamp: number } | undefined;
+          const userMsg = agentEvent.message as { id: string; role: string; content: string | ContentBlock[]; timestamp: number; fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; extension?: string }> } | undefined;
           if (!userMsg) {
             console.warn('[ChatPanel] user_message event has no message field, skipping');
             break;
@@ -1442,6 +1442,7 @@ export const ChatPanel: React.FC = () => {
               role: 'user',
               content: contentStr,
               timestamp: userMsg.timestamp,
+              fileReferences: userMsg.fileReferences,
             });
             setConversationProcessing(conversationId, true);
           }
@@ -2102,6 +2103,9 @@ export const ChatPanel: React.FC = () => {
                   )}
                 </div>
                 <div className="chat-message-content">
+                  {message.role === 'user' && message.fileReferences && message.fileReferences.length > 0 && (
+                    <FileReferenceChipRow references={message.fileReferences} compact readonly />
+                  )}
                   <MessageContent content={message.content} />
                 </div>
                 {message.role === 'assistant' && (

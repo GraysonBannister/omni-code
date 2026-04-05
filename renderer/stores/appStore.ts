@@ -34,7 +34,8 @@ export interface Message {
   content: string | ContentBlock[];
   timestamp: number;
   metadata?: MessageMetadata;
-  fileChanges?: FileChange[]; // Track file changes for this message
+  fileChanges?: FileChange[];
+  fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; extension?: string }>;
 }
 
 export interface ToolCall {

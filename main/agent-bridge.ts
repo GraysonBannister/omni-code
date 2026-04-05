@@ -530,13 +530,23 @@ export class AgentBridge {
     // Emit user message event so all listeners (Electron renderer, remote clients) see it
     const userMsgId = `user-${Date.now()}`;
     console.log(`[AgentBridge] Emitting user_message event: conversationId=${conversationId}, id=${userMsgId}, contentType=${typeof messageContent}, isArray=${Array.isArray(messageContent)}`);
+    const displayContent: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; mediaType: string; data: string } }> = images && images.length > 0
+      ? [
+          { type: 'text' as const, text: message },
+          ...images.map(img => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, mediaType: img.mediaType, data: img.data },
+          })),
+        ]
+      : message;
     this.emitEvent(conversationId, {
       type: 'user_message',
       message: {
         id: userMsgId,
         role: 'user',
-        content: messageContent,
+        content: displayContent,
         timestamp: Date.now(),
+        fileReferences: fileReferences?.map(({ path, name, isDirectory, extension }) => ({ path, name, isDirectory, extension })),
       },
     });
     console.log(`[AgentBridge] user_message event emitted, listener count=${this.eventListeners.size}`);
