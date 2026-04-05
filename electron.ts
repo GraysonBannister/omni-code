@@ -20,16 +20,7 @@ import { setupSettingsIpcHandlers, cleanupSettingsIpcHandlers } from './main/set
 // Set app name before ready so it appears correctly in dock/taskbar
 app.setName('Omni Code');
 
-// Handle Windows Squirrel installer events (install/uninstall shortcuts, etc.)
-// Must be checked before app.whenReady() to prevent duplicate launches during install
-if (process.platform === 'win32') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const squirrelStartup = require('electron-squirrel-startup');
-  if (squirrelStartup) {
-    app.quit();
-    process.exit(0);
-  }
-}
+// Windows-specific setup (NSIS installer handles shortcuts — no Squirrel handler needed)
 
 // Initialize app
 async function initializeApp(): Promise<void> {
