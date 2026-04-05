@@ -41,6 +41,8 @@ type AgentAPI = {
   setPermissionMode: (autoRunMode: string) => Promise<void>;
   setChangeReviewEnabled: (enabled: boolean) => Promise<void>;
   respondToChangeReview: (conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') => Promise<{ success: boolean }>;
+  acceptAllChanges: (conversationId: string) => Promise<{ success: boolean; accepted: string[]; failed: Array<{ toolCallId: string; error: string }> }>;
+  rejectAllChanges: (conversationId: string, messageId: string) => Promise<{ success: boolean; rejected: string[]; failed: Array<{ toolCallId: string; error: string }> }>;
 };
 
 // File change tracking interface for backup/restore
@@ -151,14 +153,15 @@ type DialogAPI = {
 type AppAPI = {
   platform: () => Promise<NodeJS.Platform>;
   version: () => Promise<string>;
-  onBeforeQuit: (callback: () => Promise<void> | void) => () => void;
+  onBeforeQuit: (callback: (replyChannel: string) => Promise<void> | void) => () => void;
   onMenuAction: (callback: (action: string) => void) => () => void;
   onOpenRecent: (callback: (path: string) => void) => () => void;
-  notifySaveComplete: () => void;
+  notifySaveComplete: (replyChannel?: string) => void;
   checkForUpdates: () => Promise<unknown>;
   installUpdate: () => Promise<void>;
   onUpdateAvailable: (callback: (info: { version: string }) => void) => () => void;
   onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
+  newWindow: () => Promise<{ success: boolean }>;
 };
 
 // Settings API
@@ -462,6 +465,10 @@ const api: ElectronAPI = {
     setChangeReviewEnabled: (enabled: boolean) => ipcRenderer.invoke('agent:set-change-review-enabled', enabled),
     respondToChangeReview: (conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') =>
       ipcRenderer.invoke('changes:respond', conversationId, messageId, toolCallId, decision),
+    acceptAllChanges: (conversationId: string) =>
+      ipcRenderer.invoke('changes:accept-all', conversationId),
+    rejectAllChanges: (conversationId: string, messageId: string) =>
+      ipcRenderer.invoke('changes:reject-all', conversationId, messageId),
     onEvent: (callback: (event: ConversationAgentEvent) => void) => {
       const handler = (_: IpcRendererEvent, event: ConversationAgentEvent) => callback(event);
       ipcRenderer.on('agent:event', handler);
@@ -581,16 +588,19 @@ const api: ElectronAPI = {
   app: {
     platform: () => ipcRenderer.invoke('app:platform'),
     version: () => ipcRenderer.invoke('app:version'),
-    onBeforeQuit: (callback: () => void) => {
-      const handler = () => callback();
+    onBeforeQuit: (callback: (replyChannel: string) => void) => {
+      const handler = (_: IpcRendererEvent, payload?: { replyChannel?: string }) => {
+        callback(payload?.replyChannel ?? 'app:save-complete');
+      };
       ipcRenderer.on('app:before-quit', handler);
       return () => ipcRenderer.off('app:before-quit', handler);
     },
-    notifySaveComplete: () => {
-      ipcRenderer.invoke('app:save-complete');
+    notifySaveComplete: (replyChannel?: string) => {
+      ipcRenderer.invoke(replyChannel ?? 'app:save-complete');
     },
     checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
     installUpdate: () => ipcRenderer.invoke('app:install-update'),
+    newWindow: () => ipcRenderer.invoke('window:new'),
     onUpdateAvailable: (callback: (info: { version: string }) => void) => {
       const handler = (_: IpcRendererEvent, info: { version: string }) => callback(info);
       ipcRenderer.on('app:update-available', handler);

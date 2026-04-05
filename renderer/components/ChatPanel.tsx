@@ -705,6 +705,50 @@ export const ChatPanel: React.FC = () => {
     }
   }, []);
 
+  // Accept all pending change reviews for the active conversation
+  const handleAcceptAll = useCallback(async () => {
+    if (!activeConversationId || !window.electronAPI) return;
+    for (const previews of messageChangePreviews.values()) {
+      for (const preview of previews) {
+        if (preview.status === 'pending' && !reviewedToolCallIds.has(preview.toolCallId)) {
+          useAppStore.getState().markToolCallReviewed(preview.toolCallId, 'accepted');
+        }
+      }
+    }
+    try {
+      await window.electronAPI.agent.acceptAllChanges(activeConversationId);
+    } catch (err) {
+      console.error('[ChangeReview] Failed to accept all changes:', err);
+    }
+  }, [activeConversationId, messageChangePreviews, reviewedToolCallIds]);
+
+  // Reject all pending change reviews for the active conversation
+  const handleRejectAll = useCallback(async () => {
+    if (!activeConversationId || !window.electronAPI) return;
+    for (const [msgId, previews] of messageChangePreviews) {
+      for (const preview of previews) {
+        if (preview.status === 'pending' && !reviewedToolCallIds.has(preview.toolCallId)) {
+          useAppStore.getState().markToolCallReviewed(preview.toolCallId, 'rejected');
+        }
+      }
+      try {
+        await window.electronAPI.agent.rejectAllChanges(activeConversationId, msgId);
+      } catch (err) {
+        console.error('[ChangeReview] Failed to reject all changes:', err);
+      }
+    }
+  }, [activeConversationId, messageChangePreviews, reviewedToolCallIds]);
+
+  // True when at least one change preview is still awaiting review
+  const hasPendingChanges = useMemo(() => {
+    for (const previews of messageChangePreviews.values()) {
+      for (const p of previews) {
+        if (p.status === 'pending' && !reviewedToolCallIds.has(p.toolCallId)) return true;
+      }
+    }
+    return false;
+  }, [messageChangePreviews, reviewedToolCallIds]);
+
   // Handle file review from the file history panel
   const handleReviewFile = useCallback((filePath: string, messageId?: string) => {
     // Open the file in the editor
@@ -2318,6 +2362,16 @@ export const ChatPanel: React.FC = () => {
                 />
               )}
             </div>
+            {hasPendingChanges && (
+              <div className="file-history-toolbar-actions">
+                <button className="btn-reject-all" onClick={handleRejectAll} type="button">
+                  Reject All
+                </button>
+                <button className="btn-accept-all" onClick={handleAcceptAll} type="button">
+                  Accept All
+                </button>
+              </div>
+            )}
           </div>
         )}
         {/* Attached Image Previews */}

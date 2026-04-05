@@ -13,6 +13,49 @@ export const HtmlPreviewPanel: React.FC<HtmlPreviewPanelProps> = ({ content, fil
   const [isLoading, setIsLoading] = useState(false);
   const [scale, setScale] = useState(1);
 
+  // Helper to inject CSP meta tag into HTML content
+  const injectCSP = (htmlContent: string): string => {
+    // CSP meta tag that allows loading resources from common CDNs (permissive for preview)
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; font-src * data:; img-src * data: blob: http: https:; connect-src * http: https: ws: wss:;">`;
+
+    // First, remove any existing CSP meta tags to ensure our permissive one takes effect
+    let processedContent = htmlContent.replace(
+      /<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi,
+      ''
+    );
+
+    // Check if content is a full HTML document
+    const hasHtmlTag = processedContent.includes('<html');
+    const hasHeadTag = processedContent.includes('<head>');
+
+    if (!hasHtmlTag) {
+      // Wrap content in basic HTML structure with CSP
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  ${cspMeta}
+  <base target="_blank">
+</head>
+<body>
+${processedContent}
+</body>
+</html>`;
+    } else if (!hasHeadTag) {
+      // Has html tag but no head - insert head with CSP
+      return processedContent.replace('<html', `<html>
+<head>
+  <meta charset="UTF-8">
+  ${cspMeta}
+  <base target="_blank">
+</head>`);
+    } else {
+      // Has head tag - insert CSP at the beginning of head
+      return processedContent.replace(/<head>/i, `<head>
+  ${cspMeta}`);
+    }
+  };
+
   // Update iframe content when it changes
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -20,9 +63,10 @@ export const HtmlPreviewPanel: React.FC<HtmlPreviewPanelProps> = ({ content, fil
 
     setIsLoading(true);
 
-    // Use srcDoc for sandboxed rendering
+    // Inject CSP and use srcDoc for sandboxed rendering
     // This prevents the HTML from accessing parent window
-    iframe.srcdoc = content;
+    const contentWithCSP = injectCSP(content);
+    iframe.srcdoc = contentWithCSP;
 
     const handleLoad = () => {
       setIsLoading(false);
@@ -40,7 +84,8 @@ export const HtmlPreviewPanel: React.FC<HtmlPreviewPanelProps> = ({ content, fil
     if (!iframe) return;
 
     setIsLoading(true);
-    iframe.srcdoc = content;
+    const contentWithCSP = injectCSP(content);
+    iframe.srcdoc = contentWithCSP;
   }, [content]);
 
   const handleOpenExternal = useCallback(() => {

@@ -258,7 +258,7 @@ export const App: React.FC = () => {
     });
 
     // Setup before quit handler
-    const unsubscribeQuit = window.electronAPI!.app.onBeforeQuit(async () => {
+    const unsubscribeQuit = window.electronAPI!.app.onBeforeQuit(async (replyChannel: string) => {
       console.log('App quitting, saving state...');
 
       // Force save all dirty conversations before app quits
@@ -271,7 +271,7 @@ export const App: React.FC = () => {
       } finally {
         // Signal the main process that saving is complete so it doesn't have
         // to wait for the 5-second timeout before quitting.
-        window.electronAPI!.app.notifySaveComplete();
+        window.electronAPI!.app.notifySaveComplete(replyChannel);
       }
     });
 

@@ -21,8 +21,11 @@ import {
 } from './terminal-manager.js';
 import { GitManager } from '../src/git/git-manager.js';
 
-// Reference to main window for sending browser events to renderer
+// Reference to the most recently focused window (used by agent browser tools)
 let mainWindowRef: BrowserWindow | null = null;
+
+// Per-window working directory map (webContents ID -> cwd)
+const windowCwdMap = new Map<number, string>();
 import {
   DEFAULT_CHUNK_THRESHOLD_BYTES,
   writeLargeFile,
@@ -215,6 +218,16 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('changes:respond', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, toolCallId: string, decision: 'accept' | 'reject') => {
     if (!agentRef) throw new Error('Agent not initialized');
     return await agentRef.respondToChangeReview(conversationId, messageId, toolCallId, decision);
+  });
+
+  ipcMain.handle('changes:accept-all', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.acceptAllChanges(conversationId);
+  });
+
+  ipcMain.handle('changes:reject-all', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
+    if (!agentRef) throw new Error('Agent not initialized');
+    return await agentRef.rejectAllChanges(conversationId, messageId);
   });
 
   // Tools metadata handler
@@ -781,7 +794,8 @@ export function setupIpcHandlers(): void {
   });
 
   // Working directory handler
-  ipcMain.handle('config:set-cwd', async (_: IpcMainInvokeEvent, cwd: string) => {
+  ipcMain.handle('config:set-cwd', async (event: IpcMainInvokeEvent, cwd: string) => {
+    windowCwdMap.set(event.sender.id, cwd);
     await setWorkingDirectory(cwd);
     
     // Add the opened folder as a shared workspace so it appears in the Flutter app
@@ -1082,40 +1096,44 @@ export function setupIpcHandlers(): void {
   });
 
   // Browser IPC handlers for AI-controlled browser tabs
-  ipcMain.handle('browser:open', async (_: IpcMainInvokeEvent, url: string, title?: string) => {
-    if (!mainWindowRef) {
+  ipcMain.handle('browser:open', async (event: IpcMainInvokeEvent, url: string, title?: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindowRef;
+    if (!win) {
       return { success: false, error: 'Main window not available' };
     }
     // Send event to renderer to open browser tab
-    mainWindowRef.webContents.send('browser:open', { url, title });
+    win.webContents.send('browser:open', { url, title });
     return { success: true, url };
   });
 
-  ipcMain.handle('browser:navigate', async (_: IpcMainInvokeEvent, tabId: string, url: string) => {
-    if (!mainWindowRef) {
+  ipcMain.handle('browser:navigate', async (event: IpcMainInvokeEvent, tabId: string, url: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindowRef;
+    if (!win) {
       return { success: false, error: 'Main window not available' };
     }
-    mainWindowRef.webContents.send('browser:navigate', { tabId, url });
+    win.webContents.send('browser:navigate', { tabId, url });
     return { success: true, tabId, url };
   });
 
-  ipcMain.handle('browser:close', async (_: IpcMainInvokeEvent, tabId: string) => {
-    if (!mainWindowRef) {
+  ipcMain.handle('browser:close', async (event: IpcMainInvokeEvent, tabId: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindowRef;
+    if (!win) {
       return { success: false, error: 'Main window not available' };
     }
-    mainWindowRef.webContents.send('browser:close', { tabId });
+    win.webContents.send('browser:close', { tabId });
     return { success: true, tabId };
   });
 
   // Screenshot handlers - Clear any existing pending requests and use module-level map
   pendingScreenshotRequests.clear();
 
-  ipcMain.handle('browser:request-screenshot', async (_: IpcMainInvokeEvent, tabId: string) => {
-    if (!mainWindowRef) {
+  ipcMain.handle('browser:request-screenshot', async (event: IpcMainInvokeEvent, tabId: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindowRef;
+    if (!win) {
       return { success: false, error: 'Main window not available' };
     }
     // Send request to renderer to capture screenshot
-    mainWindowRef.webContents.send('browser:request-screenshot', { tabId });
+    win.webContents.send('browser:request-screenshot', { tabId });
     // Return a promise that resolves when the screenshot response comes back
     return new Promise<{ success: boolean; dataUrl?: string; error?: string }>((resolve) => {
       const timeout = setTimeout(() => {
@@ -1677,6 +1695,13 @@ export function setupUpdaterIpcHandlers(): void {
 
   ipcMain.handle('app:install-update', () => {
     autoUpdater.quitAndInstall(false, true);
+  });
+
+  // Window management
+  ipcMain.handle('window:new', async () => {
+    const { createWindow } = await import('./app-window.js');
+    await createWindow();
+    return { success: true };
   });
 }
 

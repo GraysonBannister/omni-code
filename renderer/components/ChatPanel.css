@@ -556,6 +556,47 @@
 /* File History Toolbar - positions the popup container */
 .file-history-toolbar {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.file-history-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-accept-all,
+.btn-reject-all {
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid;
+}
+
+.btn-accept-all {
+  background: transparent;
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.btn-accept-all:hover {
+  background: rgba(40, 167, 69, 0.12);
+}
+
+.btn-reject-all {
+  background: transparent;
+  border-color: #dc3545;
+  color: #dc3545;
+}
+
+.btn-reject-all:hover {
+  background: rgba(220, 53, 69, 0.12);
 }
 
 /* Container for the toggle button and popup */

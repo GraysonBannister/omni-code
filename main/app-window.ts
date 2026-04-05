@@ -40,25 +40,33 @@ function buildMenu(): Menu {
     });
   }
 
+  const fw = () => BrowserWindow.getFocusedWindow();
+
   const template: MenuItemConstructorOptions[] = [
     {
       label: 'File',
       submenu: [
         {
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => { createWindow(); },
+        },
+        { type: 'separator' },
+        {
           label: 'New File',
           accelerator: 'CmdOrCtrl+N',
-          click: () => mainWindow?.webContents.send('menu:new-file'),
+          click: () => fw()?.webContents.send('menu:new-file'),
         },
         {
           label: 'Open Folder',
           accelerator: 'CmdOrCtrl+O',
-          click: () => mainWindow?.webContents.send('menu:open-folder'),
+          click: () => fw()?.webContents.send('menu:open-folder'),
         },
         { type: 'separator' },
         {
           label: 'Close Folder',
           accelerator: 'CmdOrCtrl+Shift+W',
-          click: () => mainWindow?.webContents.send('menu:close-folder'),
+          click: () => fw()?.webContents.send('menu:close-folder'),
         },
         { type: 'separator' },
         {
@@ -70,13 +78,13 @@ function buildMenu(): Menu {
         {
           label: 'Save',
           accelerator: 'CmdOrCtrl+S',
-          click: () => mainWindow?.webContents.send('menu:save'),
+          click: () => fw()?.webContents.send('menu:save'),
         },
         { type: 'separator' },
         {
           label: 'Settings',
           accelerator: 'CmdOrCtrl+,',
-          click: () => mainWindow?.webContents.send('menu:open-settings'),
+          click: () => fw()?.webContents.send('menu:open-settings'),
         },
         { type: 'separator' },
         { role: 'quit' },
@@ -100,12 +108,12 @@ function buildMenu(): Menu {
         {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+B',
-          click: () => mainWindow?.webContents.send('menu:toggle-sidebar'),
+          click: () => fw()?.webContents.send('menu:toggle-sidebar'),
         },
         {
           label: 'Toggle Chat',
           accelerator: 'CmdOrCtrl+Shift+L',
-          click: () => mainWindow?.webContents.send('menu:toggle-chat'),
+          click: () => fw()?.webContents.send('menu:toggle-chat'),
         },
         { type: 'separator' },
         { role: 'reload' },
@@ -124,18 +132,18 @@ function buildMenu(): Menu {
         {
           label: 'Send Message',
           accelerator: 'CmdOrCtrl+Enter',
-          click: () => mainWindow?.webContents.send('menu:send-message'),
+          click: () => fw()?.webContents.send('menu:send-message'),
         },
         {
           label: 'Abort',
           accelerator: 'Escape',
-          click: () => mainWindow?.webContents.send('menu:abort'),
+          click: () => fw()?.webContents.send('menu:abort'),
         },
         { type: 'separator' },
         {
           label: 'Clear Conversation',
           accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => mainWindow?.webContents.send('menu:clear-chat'),
+          click: () => fw()?.webContents.send('menu:clear-chat'),
         },
       ],
     },
@@ -189,12 +197,23 @@ export async function createWindow(): Promise<BrowserWindow> {
     }
   }
 
+  // Calculate cascaded position so new windows appear offset from the existing window
+  const existingWindows = BrowserWindow.getAllWindows();
+  let windowPosition: { x: number; y: number } | undefined;
+  if (existingWindows.length > 0) {
+    const ref = BrowserWindow.getFocusedWindow() ?? existingWindows[existingWindows.length - 1];
+    const [rx, ry] = ref.getPosition();
+    const cascade = existingWindows.length * 30;
+    windowPosition = { x: rx + cascade, y: ry + cascade };
+  }
+
   // Create the browser window
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    ...(windowPosition ?? {}),
     titleBarStyle: 'hiddenInset',
     icon,
     webPreferences: {
@@ -208,32 +227,43 @@ export async function createWindow(): Promise<BrowserWindow> {
     show: false,
   });
 
-  // Set main window reference for browser events
-  setMainWindowForBrowser(mainWindow);
+  // Track the first window as mainWindow for backward-compat (before-quit, etc.)
+  if (!mainWindow) {
+    mainWindow = win;
+    setMainWindowForBrowser(win);
+  }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
+  win.once('ready-to-show', () => {
+    win.show();
+    win.focus();
   });
 
   // Load the app
   if (isDev) {
-    await mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    await win.loadURL('http://localhost:5173');
+    win.webContents.openDevTools();
   } else {
-    await mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    await win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // Handle window closed
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  // If the primary window closes, promote the next available window
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      const remaining = BrowserWindow.getAllWindows();
+      mainWindow = remaining.length > 0 ? remaining[0] : null;
+    }
   });
 
   // Initialize focus tracking for notification sounds
-  initializeWindowFocusTracking(mainWindow);
+  initializeWindowFocusTracking(win);
+
+  // Keep mainWindowRef (used by agent browser tools) pointing to the focused window
+  win.on('focus', () => {
+    setMainWindowForBrowser(win);
+  });
 
   // Open external links in browser
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -242,7 +272,7 @@ export async function createWindow(): Promise<BrowserWindow> {
   const menu = buildMenu();
   Menu.setApplicationMenu(menu);
 
-  return mainWindow;
+  return win;
 }
 
 // Rebuild the menu (call this when recent workspaces change)
@@ -266,31 +296,33 @@ export function setupAppEventHandlers(): void {
     }
   });
 
-  app.on('before-quit', async (e) => {
-    if (isQuitting || !mainWindow) return;
+  app.on('before-quit', async (e: Electron.Event) => {
+    if (isQuitting) return;
+
+    const allWindows = BrowserWindow.getAllWindows();
+    if (allWindows.length === 0) return;
 
     // Prevent immediate quit
     e.preventDefault();
     isQuitting = true;
 
     try {
-      // Wait for renderer to save (with 5 second timeout)
+      // Notify every open window to save, wait for all (or 5s timeout)
       await Promise.race([
-        new Promise<void>((resolve) => {
-          // Set up one-time handler for save complete
-          ipcMain.handleOnce('app:save-complete', () => {
-            console.log('[Main] Renderer signaled save complete');
+        Promise.all(allWindows.map(w => new Promise<void>(resolve => {
+          const replyChannel = `app:save-complete-${w.id}`;
+          ipcMain.handleOnce(replyChannel, () => {
+            console.log(`[Main] Window ${w.id} signaled save complete`);
             resolve();
           });
-          // Notify renderer to start saving
-          mainWindow?.webContents.send('app:before-quit');
-        }),
+          w.webContents.send('app:before-quit', { replyChannel });
+        }))),
         new Promise<void>((_, reject) =>
           setTimeout(() => reject(new Error('Save timeout')), 5000)
         )
       ]);
 
-      console.log('[Main] Save complete, quitting now');
+      console.log('[Main] All windows saved, quitting now');
     } catch (error) {
       console.error('[Main] Save failed or timed out, quitting anyway:', error);
     }
