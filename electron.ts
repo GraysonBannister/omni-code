@@ -14,15 +14,21 @@ import { app, nativeImage } from 'electron';
 import * as path from 'node:path';
 import { createWindow, setupAppEventHandlers } from './main/app-window.js';
 import { initializeCore } from './main/core-integration.js';
-import { setupIpcHandlers, cleanupIpcHandlers, setupRulesAndSkillsIpcHandlers } from './main/ipc-handlers.js';
+import { setupIpcHandlers, cleanupIpcHandlers, setupRulesAndSkillsIpcHandlers, setupUpdaterIpcHandlers } from './main/ipc-handlers.js';
 import { setupSettingsIpcHandlers, cleanupSettingsIpcHandlers } from './main/settings.js';
 
 // Set app name before ready so it appears correctly in dock/taskbar
 app.setName('Omni Code');
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling
+// Handle Windows Squirrel installer events (install/uninstall shortcuts, etc.)
+// Must be checked before app.whenReady() to prevent duplicate launches during install
 if (process.platform === 'win32') {
-  // Windows specific setup
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const squirrelStartup = require('electron-squirrel-startup');
+  if (squirrelStartup) {
+    app.quit();
+    process.exit(0);
+  }
 }
 
 // Initialize app
@@ -57,6 +63,7 @@ async function initializeApp(): Promise<void> {
     setupIpcHandlers();
     setupSettingsIpcHandlers();
     setupRulesAndSkillsIpcHandlers();
+    setupUpdaterIpcHandlers();
 
     // Wait for settings manager to be ready before creating window
     const { getSettingsManager } = await import('./main/settings.js');
@@ -71,6 +78,15 @@ async function initializeApp(): Promise<void> {
 
     // Setup app event handlers
     setupAppEventHandlers();
+
+    // Check for updates in production builds (not during development)
+    if (app.isPackaged) {
+      const { autoUpdater } = await import('electron-updater');
+      autoUpdater.logger = null; // IPC handlers in ipc-handlers.ts forward events to renderer
+      autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+        console.error('[Updater] Failed to check for updates:', err);
+      });
+    }
 
     // Setup cleanup on quit
     app.on('before-quit', () => {

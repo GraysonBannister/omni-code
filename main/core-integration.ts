@@ -286,9 +286,24 @@ export async function initializeCore(): Promise<void> {
     const availableProviders = providerRegistry.getAvailable().map(p => p.name);
     console.log('[CoreIntegration] Available providers after init:', availableProviders);
 
-    // Resolve default model and provider
-    const defaultModel = config.get('defaultModel') || 'claude-sonnet-4-5';
-    const defaultProvider = config.get('defaultProvider') || 'anthropic';
+    // Resolve default model and provider from activeModels or fallback to first available
+    const activeModels = (config.get('activeModels') as string[] | undefined) || [];
+    const allModels = providerRegistry.getAllModels();
+    let defaultModel: string;
+    let defaultProvider: string;
+
+    if (activeModels.length > 0) {
+      // Use first active model
+      const firstActiveId = activeModels[0];
+      const resolved = providerRegistry.resolveModel(firstActiveId);
+      defaultModel = resolved?.model.id || firstActiveId;
+      defaultProvider = resolved?.provider.name || 'openai';
+    } else {
+      // Fallback to first available model
+      const firstModel = allModels[0];
+      defaultModel = firstModel?.id || 'claude-sonnet-4-5';
+      defaultProvider = firstModel?.provider || 'anthropic';
+    }
 
     const resolved = providerRegistry.resolveModel(defaultModel);
     const currentModel = resolved?.model.id || defaultModel;

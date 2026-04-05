@@ -1,13 +1,15 @@
 import React from 'react';
-import { Files, GitBranch } from 'lucide-react';
+import { Files, GitBranch, Puzzle } from 'lucide-react';
 import { useAppStore, type SidebarTab } from '../stores/appStore';
 import { FileExplorer } from './FileExplorer';
 import { GitPanel } from './GitPanel';
+import { AddonsPanel } from './AddonsPanel';
 import './SidebarPanel.css';
 
 const tabs: Array<{ id: SidebarTab; icon: React.ReactNode; label: string }> = [
   { id: 'files', icon: <Files size={20} />, label: 'Explorer' },
   { id: 'git', icon: <GitBranch size={20} />, label: 'Source Control' },
+  { id: 'addons', icon: <Puzzle size={20} />, label: 'Add-ons' },
 ];
 
 export const SidebarPanel: React.FC = () => {
@@ -31,6 +33,7 @@ export const SidebarPanel: React.FC = () => {
       <div className="sidebar-content">
         {activeSidebarTab === 'files' && <FileExplorer />}
         {activeSidebarTab === 'git' && <GitPanel />}
+        {activeSidebarTab === 'addons' && <AddonsPanel />}
       </div>
     </div>
   );

@@ -1,0 +1,278 @@
+/* ── Addons Panel ────────────────────────────────────────────────────────── */
+
+.addons-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--sidebar-bg);
+}
+
+/* Header */
+.addons-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
+}
+
+.addons-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+}
+
+.addons-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.addons-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+  text-decoration: none;
+}
+
+.addons-icon-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.addons-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Content area */
+.addons-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* States */
+.addons-loading,
+.addons-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.addons-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  font-size: var(--font-size-xs);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.addons-error-banner span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Section */
+.addons-section {
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.addons-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  transition: background 0.1s;
+}
+
+.addons-section-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.addons-section-chevron {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
+.addons-section-label {
+  flex: 1;
+  text-align: left;
+}
+
+.addons-section-body {
+  padding: 4px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Addon card */
+.addon-card {
+  padding: 8px 10px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  background: var(--color-bg-secondary, rgba(255,255,255,0.03));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.12s;
+}
+
+.addon-card:hover {
+  border-color: var(--color-border-hover, var(--color-accent));
+}
+
+.addon-card--error {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.addon-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.addon-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.addon-card-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addon-card-version {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.addon-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.addon-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s, color 0.1s;
+  text-decoration: none;
+  color: var(--color-text-tertiary);
+}
+
+.addon-action-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.addon-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addon-action-btn--install:hover {
+  color: var(--color-accent, #3b82f6);
+}
+
+.addon-action-btn--remove:hover {
+  color: #ef4444;
+}
+
+.addon-action-btn--link {
+  color: var(--color-text-tertiary);
+}
+
+.addon-card-desc {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.addon-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.addon-tag {
+  padding: 1px 6px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  border-radius: 3px;
+  letter-spacing: 0.03em;
+}
+
+.addon-card-error {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  color: #ef4444;
+  margin-top: 2px;
+}
+
+/* Spinning animation */
+.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

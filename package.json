@@ -22,6 +22,7 @@
     "dev:vite": "vite -c electron.vite.config.ts",
     "electron:build": "npm run build && vite build -c electron.vite.config.ts && electron-builder",
     "electron:pack": "electron-builder --dir",
+    "electron:release": "npm run build && vite build -c electron.vite.config.ts && electron-builder --publish always",
     "postinstall": "electron-builder install-app-deps && node scripts/patch-electron-name.mjs"
   },
   "main": "dist-electron/electron.cjs",
@@ -38,53 +39,6 @@
     "ollama"
   ],
   "license": "MIT",
-  "build": {
-    "appId": "com.omni-code.app",
-    "productName": "Omni Code",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist-electron/**/*",
-      "logo.png",
-      "!dist-electron/main/*.map",
-      "!dist-electron/renderer/*.map"
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "dir",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "build/icon.icns"
-    },
-    "dmg": {
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    }
-  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1000.0",
@@ -107,6 +61,7 @@
     "dotenv": "^16.5.0",
     "duckduckgo-search": "^1.0.7",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.3",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "fast-glob": "^3.3.3",
@@ -157,6 +112,7 @@
     "@types/uuid": "^10.0.0",
     "concurrently": "^9.2.1",
     "electron": "^40.8.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.39.3",
     "ink-testing-library": "^4.0.0",
     "prettier": "^3.8.1",

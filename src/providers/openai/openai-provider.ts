@@ -263,9 +263,12 @@ export class OpenAIProvider extends BaseProvider {
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
 
-    // Extended thinking for o3/o3-mini reasoning models
-    if (request.thinking?.enabled && (request.model.startsWith('o3') || request.model.startsWith('o4'))) {
-      params.reasoning_effort = 'high';
+    // Extended thinking for o3/o4/gpt-5 reasoning models
+    if (request.thinking?.enabled &&
+        (request.model.startsWith('o3') ||
+         request.model.startsWith('o4') ||
+         request.model.startsWith('gpt-5'))) {
+      params.reasoning_effort = request.thinking.effort || 'high';
       delete params.temperature; // Reasoning models don't support temperature
     }
 

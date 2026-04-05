@@ -37,6 +37,22 @@ export const App: React.FC = () => {
   } = useAppStore();
 
   const themePref = useSettingsStore(state => state.settings?.general?.theme ?? 'dark');
+  const activeModelsSetting = useSettingsStore(state => state.settings?.ai?.activeModels);
+
+  // Re-filter availableModels whenever activeModels setting changes
+  useEffect(() => {
+    const { allModels, setAvailableModels, currentModel, setModel, currentProvider } = useAppStore.getState();
+    if (!allModels.length) return;
+    const active = activeModelsSetting || [];
+    const models = active.length > 0
+      ? allModels.filter((m) => active.includes(m.id))
+      : allModels;
+    setAvailableModels(models);
+    // If the current model was removed from the active list, switch to the first available model
+    if (models.length > 0 && !models.find((m) => m.id === currentModel)) {
+      setModel(models[0].id, models[0].provider);
+    }
+  }, [activeModelsSetting]);
 
   // Apply theme to DOM whenever the preference changes
   useEffect(() => {
@@ -161,7 +177,7 @@ export const App: React.FC = () => {
       
       try {
         // Get store functions via getState() to avoid dependency issues
-        const { setAvailableModels, setAvailableProviders, setModel } = useAppStore.getState();
+        const { setAllModels, setAvailableModels, setAvailableProviders, setModel } = useAppStore.getState();
         const { loadSettings, getRecentWorkspaces } = useSettingsStore.getState();
 
         // Load settings first
@@ -171,30 +187,31 @@ export const App: React.FC = () => {
 
         // Load available models and providers
         console.log('[App] Loading models and providers...');
-        const [models, providers] = await Promise.all([
+        const [allModels, providers] = await Promise.all([
           window.electronAPI!.config.getModels(),
           window.electronAPI!.config.getProviders(),
         ]);
-        console.log('[App] Loaded models:', models.length, 'providers:', providers.length);
+        console.log('[App] Loaded models:', allModels.length, 'providers:', providers.length);
+
+        // Store the full unfiltered model list so the activeModels subscription can re-filter
+        setAllModels(allModels);
+
+        // Get active models setting and filter models
+        const currentSettings = useSettingsStore.getState().settings;
+        const activeModels = currentSettings?.ai?.activeModels || [];
+        const models = activeModels.length > 0
+          ? allModels.filter((m) => activeModels.includes(m.id))
+          : allModels;
+        console.log('[App] Filtered models:', models.length, '(active:', activeModels.length, ')');
 
         setAvailableModels(models);
         setAvailableProviders(providers);
 
-        // Note: We get settings from the store after loadSettings completes
-        // Using the settingsStore directly to avoid dependency issues
-        const currentSettings = useSettingsStore.getState().settings;
-        const aiSettings = currentSettings?.ai;
-        if (aiSettings?.defaultModel && aiSettings?.defaultProvider) {
-          console.log('[App] Setting model from settings:', aiSettings.defaultModel);
-          setModel(aiSettings.defaultModel, aiSettings.defaultProvider);
-        } else {
-          // Fallback to config
-          console.log('[App] Loading model from config...');
-          const currentModel = await window.electronAPI!.config.get('defaultModel');
-          const currentProvider = await window.electronAPI!.config.get('defaultProvider');
-          if (currentModel && currentProvider) {
-            setModel(currentModel as string, currentProvider as string);
-          }
+        // Set initial model to first available model
+        if (models.length > 0) {
+          const firstModel = models[0];
+          console.log('[App] Setting initial model:', firstModel.id, '(', firstModel.provider, ')');
+          setModel(firstModel.id, firstModel.provider);
         }
 
         // Load recent folders and workspaces for welcome screen

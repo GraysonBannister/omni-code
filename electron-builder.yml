@@ -17,23 +17,40 @@ extraResources:
 mac:
   category: public.app-category.developer-tools
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
   icon: build/icon.icns
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
 win:
   target:
-    - nsis
-    - portable
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
   icon: build/icon.ico
-linux:
-  target:
-    - AppImage
-    - deb
-  icon: build/icon.png
-  category: Development
+  requestedExecutionLevel: asInvoker
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+  icon: build/icon.png
+  category: Development
 publish:
   provider: github
   owner: omnicode

@@ -71,6 +71,7 @@ export interface CompletionRequest {
   thinking?: {
     enabled: boolean;
     budgetTokens: number;
+    effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   };
 }
 

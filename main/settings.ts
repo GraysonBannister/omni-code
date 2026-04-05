@@ -60,8 +60,7 @@ export interface SettingsSchema {
 
   // AI / Agent
   ai: {
-    defaultProvider: string;
-    defaultModel: string;
+    activeModels: string[]; // enabled model IDs that appear in chat panel (empty = all models)
     temperature: number;
     maxContextTokens: number;
     autoRunMode: 'ask' | 'always' | 'never';
@@ -227,19 +226,18 @@ export const defaultSettings: SettingsSchema = {
     cursorBlinking: 'blink',
   },
 
-  ai: {
-    defaultProvider: 'anthropic',
-    defaultModel: 'claude-sonnet-4-5',
-    temperature: 0.7,
-    maxContextTokens: 128000,
-    autoRunMode: 'always',
-    showTokenCosts: true,
-    showThinking: true,
-    autoAcceptEdits: false,
-    contextCompressionThreshold: 0.9,
-    contextRecentMessagesToKeep: 6,
-    maxTurns: null,
-  },
+    ai: {
+      activeModels: [], // empty = all models available in chat panel
+      temperature: 0.7,
+      maxContextTokens: 128000,
+      autoRunMode: 'always',
+      showTokenCosts: true,
+      showThinking: true,
+      autoAcceptEdits: false,
+      contextCompressionThreshold: 0.9,
+      contextRecentMessagesToKeep: 6,
+      maxTurns: null,
+    },
 
   chat: {
     autoSave: true,

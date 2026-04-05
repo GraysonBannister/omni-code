@@ -155,6 +155,10 @@ type AppAPI = {
   onMenuAction: (callback: (action: string) => void) => () => void;
   onOpenRecent: (callback: (path: string) => void) => () => void;
   notifySaveComplete: () => void;
+  checkForUpdates: () => Promise<unknown>;
+  installUpdate: () => Promise<void>;
+  onUpdateAvailable: (callback: (info: { version: string }) => void) => () => void;
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
 };
 
 // Settings API
@@ -412,7 +416,28 @@ type ElectronAPI = {
   git: GitAPI;
   rules: RulesAPI;
   skills: SkillsAPI;
+  addons: AddonsAPI;
 };
+
+interface AddonManifest {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+  download: string;
+  entrypoint: string;
+  tags?: string[];
+  platforms?: string[];
+  minOmniCodeVersion?: string;
+  repo?: string;
+}
+
+interface AddonsAPI {
+  list: () => Promise<{ manifests: AddonManifest[]; error: string | null }>;
+  install: (manifest: AddonManifest) => Promise<{ success: boolean; error: string | null }>;
+  uninstall: (id: string) => Promise<{ success: boolean; error: string | null }>;
+}
 
 // Expose APIs via contextBridge
 const api: ElectronAPI = {
@@ -564,6 +589,18 @@ const api: ElectronAPI = {
     notifySaveComplete: () => {
       ipcRenderer.invoke('app:save-complete');
     },
+    checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+    installUpdate: () => ipcRenderer.invoke('app:install-update'),
+    onUpdateAvailable: (callback: (info: { version: string }) => void) => {
+      const handler = (_: IpcRendererEvent, info: { version: string }) => callback(info);
+      ipcRenderer.on('app:update-available', handler);
+      return () => ipcRenderer.off('app:update-available', handler);
+    },
+    onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+      const handler = (_: IpcRendererEvent, info: { version: string }) => callback(info);
+      ipcRenderer.on('app:update-downloaded', handler);
+      return () => ipcRenderer.off('app:update-downloaded', handler);
+    },
     onMenuAction: (callback: (action: string) => void) => {
       const handler = (_: IpcRendererEvent, action: string) => callback(action);
       ipcRenderer.on('menu:action', handler);
@@ -714,6 +751,11 @@ const api: ElectronAPI = {
     createBranch: (cwd: string, name: string) => ipcRenderer.invoke('git:create-branch', cwd, name),
     log: (cwd: string, maxCount?: number) => ipcRenderer.invoke('git:log', cwd, maxCount),
     init: (cwd: string) => ipcRenderer.invoke('git:init', cwd),
+  },
+  addons: {
+    list: () => ipcRenderer.invoke('addons:list'),
+    install: (manifest: AddonManifest) => ipcRenderer.invoke('addons:install', manifest),
+    uninstall: (id: string) => ipcRenderer.invoke('addons:uninstall', id),
   },
 };
 

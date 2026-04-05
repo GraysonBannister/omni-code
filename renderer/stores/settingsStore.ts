@@ -25,8 +25,7 @@ export interface SettingsSchema {
   };
 
   ai: {
-    defaultProvider: string;
-    defaultModel: string;
+    activeModels: string[]; // enabled model IDs that appear in chat panel (empty = all models)
     temperature: number;
     maxContextTokens: number;
     autoRunMode: 'ask' | 'always' | 'never';
@@ -179,8 +178,7 @@ export const defaultSettings: SettingsSchema = {
   },
 
   ai: {
-    defaultProvider: 'anthropic',
-    defaultModel: 'claude-sonnet-4-5',
+    activeModels: [], // empty = all models available in chat panel
     temperature: 0.7,
     maxContextTokens: 128000,
     autoRunMode: 'always',

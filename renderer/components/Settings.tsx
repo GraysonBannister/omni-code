@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Plus, Trash2, Edit, Server } from 'lucide-react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Plus, Trash2, Edit, Server, Eye, EyeOff } from 'lucide-react';
 import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
 import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
@@ -37,7 +37,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   const [activeTab, setActiveTab] = useState<TabId>('general');
   const [isLoading, setIsLoading] = useState(false);
   const { settings, loadSettings, setSetting, resetSetting } = useSettingsStore();
-  const { availableModels, availableProviders, setModel } = useAppStore();
+  const { allModels, availableModels, availableProviders, setModel } = useAppStore();
 
   // Remote server state
   const [remoteStatus, setRemoteStatus] = useState<{
@@ -595,51 +595,110 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
               <div className="setting-model-selector">
                 <label className="setting-label">
-                  <span className="setting-title">Default Model</span>
-                  <span className="setting-description">Select your preferred AI model</span>
+                  <span className="setting-title">Active Models</span>
+                  <span className="setting-description">Select which models appear in the chat panel. Empty = all models shown.</span>
                 </label>
                 <div className="model-list">
-                  {availableProviders.map((provider) => (
-                    <div key={provider.name} className="model-provider-group">
-                      <div className="model-provider-header">
-                        <Cpu size={14} />
-                        <span>{provider.name}</span>
-                        {!provider.available && (
-                          <span className="model-unavailable-badge">Configure API Key</span>
-                        )}
-                      </div>
-                      {availableModels
-                        .filter((m) => m.provider === provider.name)
-                        .map((model) => {
-                          const isCustomModel = model.id.includes('/') || provider.name.startsWith('custom-');
-                          return (
+                  {availableProviders.map((provider) => {
+                    // Use allModels (full unfiltered list) so the panel always shows every model
+                    const providerModels = allModels.filter((m) => m.provider === provider.name);
+                    const activeModels = currentSettings?.ai?.activeModels || [];
+                    const isEmptyActiveList = activeModels.length === 0;
+                    // When activeModels is empty, all models are implicitly shown (all selected)
+                    const activeModelsForProvider = isEmptyActiveList
+                      ? providerModels
+                      : providerModels.filter((m) => activeModels.includes(m.id));
+                    const allSelected = activeModelsForProvider.length === providerModels.length && providerModels.length > 0;
+                    const noneSelected = activeModelsForProvider.length === 0;
+
+                    return (
+                      <div key={provider.name} className="model-provider-group">
+                        <div className="model-provider-header">
+                          <Cpu size={14} />
+                          <span>{provider.name}</span>
+                          {!provider.available && (
+                            <span className="model-unavailable-badge">Configure API Key</span>
+                          )}
+                          <div className="model-provider-actions">
                             <button
-                              key={model.id}
-                              className={`model-list-item ${
-                                model.id === currentSettings.ai.defaultModel ? 'active' : ''
-                              } ${!model.available ? 'disabled' : ''}`}
+                              className="model-action-btn"
                               onClick={() => {
-                                if (model.available) {
-                                  setSetting('ai.defaultModel', model.id);
-                                  setSetting('ai.defaultProvider', provider.name);
-                                  setModel(model.id, provider.name);
+                                const allIds = providerModels.map((m) => m.id);
+                                if (allSelected) {
+                                  // Deselect all for this provider: when the full list was empty
+                                  // (all shown), we need to activate everything except this provider
+                                  const base = isEmptyActiveList
+                                    ? allModels.map((m) => m.id)
+                                    : activeModels;
+                                  const newActive = base.filter((id) => !allIds.includes(id));
+                                  setSetting('ai.activeModels', newActive);
+                                } else {
+                                  const newActive = [...new Set([...activeModels, ...allIds])];
+                                  setSetting('ai.activeModels', newActive);
                                 }
                               }}
-                              disabled={!model.available}
                             >
+                              {allSelected ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                        </div>
+                        {providerModels.map((model) => {
+                          const isCustomModel = model.id.includes('/') || provider.name.startsWith('custom-');
+                          const isActive = activeModels.includes(model.id);
+                          const isEmptyList = activeModels.length === 0;
+                          const isShown = isActive || isEmptyList;
+
+                          return (
+                            <label
+                              key={model.id}
+                              className={`model-list-item checkbox ${!model.available ? 'disabled' : ''} ${isShown ? 'active' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isActive || isEmptyList}
+                                onChange={(e) => {
+                                  if (isEmptyList) {
+                                    // Was showing all; unchecking one model means "keep all others active"
+                                    setSetting(
+                                      'ai.activeModels',
+                                      allModels.map((m) => m.id).filter((id) => id !== model.id)
+                                    );
+                                  } else if (e.target.checked) {
+                                    setSetting('ai.activeModels', [...activeModels, model.id]);
+                                  } else {
+                                    setSetting(
+                                      'ai.activeModels',
+                                      activeModels.filter((id) => id !== model.id)
+                                    );
+                                  }
+                                }}
+                                disabled={!model.available}
+                              />
                               <span className="model-name">{model.name}</span>
                               {isCustomModel && (
                                 <span className="model-badge custom">Custom</span>
                               )}
-                              {model.id === currentSettings.ai.defaultModel && (
-                                <Check size={14} className="model-check" />
+                              {isShown && (
+                                <Eye size={14} className="model-check" />
                               )}
-                            </button>
+                            </label>
                           );
                         })}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
+                {currentSettings?.ai?.activeModels && currentSettings.ai.activeModels.length > 0 && (
+                  <div className="active-models-footer">
+                    <span>{currentSettings.ai.activeModels.length} model(s) selected</span>
+                    <button
+                      className="clear-models-btn"
+                      onClick={() => setSetting('ai.activeModels', [])}
+                    >
+                      Show all models
+                    </button>
+                  </div>
+                )}
               </div>
 
               <SettingInput

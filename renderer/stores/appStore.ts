@@ -127,7 +127,7 @@ export interface TerminalSession {
   createdAt: number;
 }
 
-export type SidebarTab = 'files' | 'git';
+export type SidebarTab = 'files' | 'git' | 'addons';
 
 interface AppState {
   // UI State
@@ -162,6 +162,7 @@ interface AppState {
   // Global Agent State (shared across conversations)
   currentModel: string;
   currentProvider: string;
+  allModels: Array<{ id: string; name: string; provider: string; available: boolean }>; // full unfiltered list
   availableModels: Array<{ id: string; name: string; provider: string; available: boolean }>;
   availableProviders: Array<{ name: string; available: boolean; models: string[] }>;
   totalCost: number;
@@ -268,6 +269,7 @@ interface AppState {
   
   // Global Agent Actions
   setModel: (model: string, provider: string) => void;
+  setAllModels: (models: Array<{ id: string; name: string; provider: string; available: boolean }>) => void;
   setAvailableModels: (models: Array<{ id: string; name: string; provider: string; available: boolean }>) => void;
   setAvailableProviders: (providers: Array<{ name: string; available: boolean; models: string[] }>) => void;
   setCost: (totalCost: number, inputTokens: number, outputTokens: number) => void;
@@ -351,9 +353,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   pastChats: [],
   pastChatsLoaded: false,
   
-  // Initial Global Agent State
-  currentModel: 'claude-sonnet-4-5',
-  currentProvider: 'anthropic',
+  // Initial Global Agent State (will be set dynamically after loading models)
+  currentModel: '',
+  currentProvider: '',
+  allModels: [],
   availableModels: [],
   availableProviders: [],
   totalCost: 0,
@@ -1516,7 +1519,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   // Global Agent Actions
   setModel: (model, provider) => set({ currentModel: model, currentProvider: provider }),
-  
+
+  setAllModels: (models) => set({ allModels: models }),
+
   setAvailableModels: (models) => set({ availableModels: models }),
   
   setAvailableProviders: (providers) => set({ availableProviders: providers }),

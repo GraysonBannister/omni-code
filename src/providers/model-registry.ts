@@ -41,18 +41,6 @@ export const MODEL_REGISTRY: ModelInfo[] = [
 
   // ── OpenAI ──
   {
-    id: 'gpt-4.5-preview',
-    provider: 'openai',
-    displayName: 'GPT-4.5 Preview',
-    aliases: ['gpt-4.5', '4.5'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 128_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 75, outputPerMillion: 150 },
-  },
-  {
     id: 'gpt-4.1',
     provider: 'openai',
     displayName: 'GPT-4.1',
@@ -113,16 +101,40 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     pricing: { inputPerMillion: 0.15, outputPerMillion: 0.6 },
   },
   {
-    id: 'o3',
+    id: 'o1',
     provider: 'openai',
-    displayName: 'o3',
-    aliases: ['o3-reasoning'],
+    displayName: 'o1',
+    aliases: ['o1-reasoning'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: false, extendedThinking: true,
       maxContextWindow: 200_000, maxOutputTokens: 100_000,
     },
-    pricing: { inputPerMillion: 10, outputPerMillion: 40 },
+    pricing: { inputPerMillion: 15, outputPerMillion: 60 },
+  },
+  {
+    id: 'o1-pro',
+    provider: 'openai',
+    displayName: 'o1 Pro',
+    aliases: ['o1-pro-high'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 100_000,
+    },
+    pricing: { inputPerMillion: 150, outputPerMillion: 600 },
+  },
+  {
+    id: 'o3-pro',
+    provider: 'openai',
+    displayName: 'o3 Pro',
+    aliases: ['o3-pro-high'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 100_000,
+    },
+    pricing: { inputPerMillion: 20, outputPerMillion: 80 },
   },
   {
     id: 'o3-mini',
@@ -137,16 +149,16 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     pricing: { inputPerMillion: 1.1, outputPerMillion: 4.4 },
   },
   {
-    id: 'o4-mini',
+    id: 'o3-deep-research',
     provider: 'openai',
-    displayName: 'o4 Mini',
-    aliases: ['o4m', 'o4-mini'],
+    displayName: 'o3 Deep Research',
+    aliases: ['o3-dr', 'deep-research'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: false, extendedThinking: true,
       maxContextWindow: 200_000, maxOutputTokens: 100_000,
     },
-    pricing: { inputPerMillion: 1.1, outputPerMillion: 4.4 },
+    pricing: { inputPerMillion: 10, outputPerMillion: 40 },
   },
   {
     id: 'o4-mini-high',
@@ -159,6 +171,154 @@ export const MODEL_REGISTRY: ModelInfo[] = [
       maxContextWindow: 200_000, maxOutputTokens: 100_000,
     },
     pricing: { inputPerMillion: 1.1, outputPerMillion: 4.4 },
+  },
+  {
+    id: 'o4-mini-deep-research',
+    provider: 'openai',
+    displayName: 'o4 Mini Deep Research',
+    aliases: ['o4m-dr', 'o4-mini-dr'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 100_000,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 8 },
+  },
+
+  // ── GPT-5.4 Family (Latest Flagship) ──
+  {
+    id: 'gpt-5.4',
+    provider: 'openai',
+    displayName: 'GPT-5.4',
+    aliases: ['5.4', 'gpt-5-4'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 1_047_576, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 2.5, outputPerMillion: 15 },
+  },
+  {
+    id: 'gpt-5.4-pro',
+    provider: 'openai',
+    displayName: 'GPT-5.4 Pro',
+    aliases: ['5.4-pro', 'gpt-5-4-pro'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 1_047_576, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 30, outputPerMillion: 180 },
+  },
+  {
+    id: 'gpt-5.4-mini',
+    provider: 'openai',
+    displayName: 'GPT-5.4 Mini',
+    aliases: ['5.4-mini', 'gpt-5-4-mini'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 1_047_576, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 0.75, outputPerMillion: 4.5 },
+  },
+  {
+    id: 'gpt-5.4-nano',
+    provider: 'openai',
+    displayName: 'GPT-5.4 Nano',
+    aliases: ['5.4-nano', 'gpt-5-4-nano'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 1_047_576, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 1.25 },
+  },
+
+  // ── GPT-5 Family (Reasoning Models) ──
+  {
+    id: 'gpt-5',
+    provider: 'openai',
+    displayName: 'GPT-5',
+    aliases: ['5', 'gpt-5-base'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 1.25, outputPerMillion: 10 },
+  },
+  {
+    id: 'gpt-5-pro',
+    provider: 'openai',
+    displayName: 'GPT-5 Pro',
+    aliases: ['5-pro', 'gpt-5-pro'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 15, outputPerMillion: 120 },
+  },
+  {
+    id: 'gpt-5-mini',
+    provider: 'openai',
+    displayName: 'GPT-5 Mini',
+    aliases: ['5-mini', 'gpt-5-mini'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 0.25, outputPerMillion: 2 },
+  },
+  {
+    id: 'gpt-5-nano',
+    provider: 'openai',
+    displayName: 'GPT-5 Nano',
+    aliases: ['5-nano', 'gpt-5-nano'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 0.05, outputPerMillion: 0.4 },
+  },
+  {
+    id: 'gpt-5.1',
+    provider: 'openai',
+    displayName: 'GPT-5.1',
+    aliases: ['5.1', 'gpt-5-1'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 1.25, outputPerMillion: 10 },
+  },
+  {
+    id: 'gpt-5.2',
+    provider: 'openai',
+    displayName: 'GPT-5.2',
+    aliases: ['5.2', 'gpt-5-2'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 1.75, outputPerMillion: 14 },
+  },
+  {
+    id: 'gpt-5.2-pro',
+    provider: 'openai',
+    displayName: 'GPT-5.2 Pro',
+    aliases: ['5.2-pro', 'gpt-5-2-pro'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 400_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 21, outputPerMillion: 168 },
   },
 
   // ── Google Gemini ──

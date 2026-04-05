@@ -1,6 +1,11 @@
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard } from 'electron';
+import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard, app } from 'electron';
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
+import * as https from 'node:https';
+import * as http from 'node:http';
+import { execFile } from 'node:child_process';
 import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getChatStorage } from './chat-storage.js';
@@ -1513,6 +1518,166 @@ export function setupRulesAndSkillsIpcHandlers(): void {
       return { success: false, error: (error as Error).message };
     }
   });
+
+  // ── Add-ons handlers ─────────────────────────────────────────────────────
+
+  const getAddonsDir = () => path.join(app.getPath('userData'), 'addons');
+
+  /** Download a URL following up to 5 redirects, writing to destPath. */
+  const downloadFile = (url: string, destPath: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      let redirects = 0;
+      const doGet = (targetUrl: string) => {
+        const mod = targetUrl.startsWith('https:') ? https : http;
+        mod.get(targetUrl, (res) => {
+          if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) && res.headers.location) {
+            if (++redirects > 5) { reject(new Error('Too many redirects')); return; }
+            doGet(res.headers.location);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+            return;
+          }
+          const fileStream = fsSync.createWriteStream(destPath);
+          res.pipe(fileStream);
+          fileStream.on('finish', () => { fileStream.close(); resolve(); });
+          fileStream.on('error', reject);
+        }).on('error', reject);
+      };
+      doGet(url);
+    });
+  };
+
+  ipcMain.handle('addons:list', async () => {
+    try {
+      const addonsDir = getAddonsDir();
+      await fs.mkdir(addonsDir, { recursive: true });
+      const entries = await fs.readdir(addonsDir, { withFileTypes: true });
+      const manifests: unknown[] = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const manifestPath = path.join(addonsDir, entry.name, 'manifest.json');
+        try {
+          const raw = await fs.readFile(manifestPath, 'utf-8');
+          manifests.push(JSON.parse(raw));
+        } catch {
+          // skip corrupted or incomplete entries
+        }
+      }
+      return { manifests, error: null };
+    } catch (error) {
+      return { manifests: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('addons:install', async (_: IpcMainInvokeEvent, manifest: {
+    id: string;
+    name: string;
+    description: string;
+    author: string;
+    version: string;
+    download: string;
+    entrypoint: string;
+    tags?: string[];
+    platforms?: string[];
+    minOmniCodeVersion?: string;
+    repo?: string;
+  }) => {
+    try {
+      if (!manifest?.id || !manifest?.download) {
+        return { success: false, error: 'Invalid manifest: missing id or download URL' };
+      }
+      const addonsDir = getAddonsDir();
+      const addonDir = path.join(addonsDir, manifest.id);
+      const zipPath = path.join(os.tmpdir(), `omni-addon-${manifest.id}-${Date.now()}.zip`);
+
+      // Download zip
+      await downloadFile(manifest.download, zipPath);
+
+      // Extract zip
+      await fs.mkdir(addonDir, { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+        execFile('unzip', ['-o', '-q', zipPath, '-d', addonDir], (err) => {
+          if (err) reject(err); else resolve();
+        });
+      });
+
+      // Clean up zip file
+      await fs.unlink(zipPath).catch(() => {});
+
+      // Flatten single-directory archives (GitHub zips wrap content in a subdirectory)
+      const contents = await fs.readdir(addonDir, { withFileTypes: true });
+      const subdirs = contents.filter(e => e.isDirectory());
+      if (contents.length === 1 && subdirs.length === 1) {
+        const innerDir = path.join(addonDir, subdirs[0].name);
+        const innerContents = await fs.readdir(innerDir);
+        for (const item of innerContents) {
+          await fs.rename(path.join(innerDir, item), path.join(addonDir, item));
+        }
+        await fs.rmdir(innerDir);
+      }
+
+      // Persist manifest alongside the add-on code
+      await fs.writeFile(
+        path.join(addonDir, 'manifest.json'),
+        JSON.stringify(manifest, null, 2),
+        'utf-8'
+      );
+
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('addons:uninstall', async (_: IpcMainInvokeEvent, id: string) => {
+    try {
+      if (!id || typeof id !== 'string' || id.includes('..') || path.isAbsolute(id)) {
+        return { success: false, error: 'Invalid add-on ID' };
+      }
+      const addonDir = path.join(getAddonsDir(), id);
+      await fs.rm(addonDir, { recursive: true, force: true });
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+}
+
+// ── Auto-updater IPC ──────────────────────────────────────────────────────────
+
+export function setupUpdaterIpcHandlers(): void {
+  if (!app.isPackaged) return; // Only active in production builds
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { autoUpdater } = require('electron-updater');
+
+  autoUpdater.on('update-available', (info: { version: string }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.webContents.send('app:update-available', info);
+  });
+
+  autoUpdater.on('update-downloaded', (info: { version: string }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.webContents.send('app:update-downloaded', info);
+  });
+
+  autoUpdater.on('error', (err: Error) => {
+    console.error('[Updater] Error:', err);
+  });
+
+  ipcMain.handle('app:check-for-updates', async () => {
+    try {
+      return await autoUpdater.checkForUpdates();
+    } catch (err) {
+      return { error: String(err) };
+    }
+  });
+
+  ipcMain.handle('app:install-update', () => {
+    autoUpdater.quitAndInstall(false, true);
+  });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -1635,4 +1800,13 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('skills:get');
   ipcMain.removeHandler('skills:save');
   ipcMain.removeHandler('skills:delete');
+
+  // Add-ons cleanup
+  ipcMain.removeHandler('addons:list');
+  ipcMain.removeHandler('addons:install');
+  ipcMain.removeHandler('addons:uninstall');
+
+  // Updater cleanup
+  ipcMain.removeHandler('app:check-for-updates');
+  ipcMain.removeHandler('app:install-update');
 }

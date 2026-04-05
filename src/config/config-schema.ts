@@ -30,6 +30,7 @@ export const HookEntrySchema = z.object({
 export const OmniCodeConfigSchema = z.object({
   defaultProvider: z.string().default('anthropic'),
   defaultModel: z.string().optional(),
+  activeModels: z.array(z.string()).default([]), // enabled model IDs that appear in UI (empty = all models)
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   permissionMode: PermissionModeSchema.default('ask'),
   disabledTools: z.array(z.string()).default([]),
