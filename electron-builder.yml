@@ -5,6 +5,8 @@ directories:
   output: dist-electron
   buildResources: build
 files:
+  - dist-electron/electron.cjs
+  - dist-electron/electron.cjs.map
   - dist-electron/main/**/*
   - dist-electron/renderer/**/*
   - package.json
