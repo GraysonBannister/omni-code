@@ -63,7 +63,10 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   async *streamComplete(request: CompletionRequest): AsyncIterable<StreamDelta> {
+    console.log('[AnthropicProvider] streamComplete called with model:', request.model, 'thinking:', request.thinking);
     const params = this.buildParams(request);
+    console.log('[AnthropicProvider] Final params - model:', params.model, 'has thinking:', !!params.thinking, 'thinkingConfig:', params.thinking);
+
     const stream = this.client.messages.stream({
       ...params,
     });
@@ -161,8 +164,10 @@ export class AnthropicProvider extends BaseProvider {
 
   private buildParams(request: CompletionRequest): Anthropic.MessageCreateParamsNonStreaming {
     const modelInfo = this.getModelInfo(request.model);
+    // Use apiId if set (thinking variants share same API model as base), then id, then raw model string
+    const canonicalModelId = modelInfo?.apiId || modelInfo?.id || request.model;
     const params: any = {
-      model: request.model,
+      model: canonicalModelId,
       messages: this.formatMessages(request.messages),
       max_tokens: request.maxTokens ?? 8192,
     };
@@ -184,14 +189,43 @@ export class AnthropicProvider extends BaseProvider {
     }
 
     // Extended thinking for Claude models that support it
-    if (request.thinking?.enabled && modelInfo?.capabilities.extendedThinking) {
+    const thinkingEnabled = request.thinking?.enabled && modelInfo?.capabilities.extendedThinking;
+
+    if (thinkingEnabled) {
+      // Anthropic requires: budget_tokens >= 1024, budget_tokens < max_tokens
+      // When thinking is enabled, ensure max_tokens is large enough to accommodate both
+      // thinking budget AND the actual response.
+      const requestedBudget = request.thinking?.budgetTokens ?? 8000;
+      const minMaxTokens = requestedBudget + 2000; // reserve 2k for the actual response
+      if (params.max_tokens < minMaxTokens) {
+        params.max_tokens = minMaxTokens;
+      }
+      // Cap budget at 80% of max_tokens to always leave room for the response
+      const budgetTokens = Math.min(requestedBudget, Math.floor(params.max_tokens * 0.8));
+
+      console.log('[AnthropicProvider] Enabling thinking:', {
+        canonicalModelId,
+        maxTokens: params.max_tokens,
+        budgetTokens,
+      });
+
       params.thinking = {
         type: 'enabled',
-        budget_tokens: request.thinking.budgetTokens,
+        budget_tokens: budgetTokens,
       };
       // Anthropic requires temperature=1 with extended thinking
       params.temperature = 1;
     }
+
+    console.log('[AnthropicProvider] Final params:', {
+      requestedModel: request.model,
+      canonicalModelId,
+      modelInfoFound: !!modelInfo,
+      modelExtendedThinking: modelInfo?.capabilities?.extendedThinking,
+      thinkingEnabled,
+      maxTokens: params.max_tokens,
+      hasThinkingBlock: !!params.thinking,
+    });
 
     return params;
   }

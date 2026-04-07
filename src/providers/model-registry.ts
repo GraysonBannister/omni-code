@@ -2,41 +2,149 @@ import type { ModelInfo } from './provider-types.js';
 
 export const MODEL_REGISTRY: ModelInfo[] = [
   // ── Anthropic ──
+  // Each thinking-capable model gets two entries:
+  //   base  → extendedThinking: false  (user picks this to use the model without thinking)
+  //   -thinking → extendedThinking: true, apiId = base model  (user picks this to enable thinking)
+
+  // Claude Opus 4.6
   {
     id: 'claude-opus-4-6',
     provider: 'anthropic',
     displayName: 'Claude Opus 4.6',
-    aliases: ['opus', 'claude-opus'],
+    aliases: ['opus', 'claude-opus', 'opus-4-6'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 1_000_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25, cacheReadPerMillion: 0.5, cacheWritePerMillion: 6.25 },
+  },
+  {
+    id: 'claude-opus-4-6-thinking',
+    apiId: 'claude-opus-4-6',
+    provider: 'anthropic',
+    displayName: 'Claude Opus 4.6 (Thinking)',
+    aliases: ['opus-thinking', 'claude-opus-thinking'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 200_000, maxOutputTokens: 32_000,
+      maxContextWindow: 1_000_000, maxOutputTokens: 128_000,
     },
-    pricing: { inputPerMillion: 15, outputPerMillion: 75, cacheReadPerMillion: 1.5, cacheWritePerMillion: 18.75 },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25, cacheReadPerMillion: 0.5, cacheWritePerMillion: 6.25 },
+  },
+  // Claude Sonnet 4.6
+  {
+    id: 'claude-sonnet-4-6',
+    provider: 'anthropic',
+    displayName: 'Claude Sonnet 4.6',
+    aliases: ['sonnet', 'claude-sonnet', 'sonnet-4-6'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheWritePerMillion: 3.75 },
+  },
+  {
+    id: 'claude-sonnet-4-6-thinking',
+    apiId: 'claude-sonnet-4-6',
+    provider: 'anthropic',
+    displayName: 'Claude Sonnet 4.6 (Thinking)',
+    aliases: ['sonnet-thinking', 'claude-sonnet-thinking'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheWritePerMillion: 3.75 },
+  },
+  // Claude Haiku 4.5
+  {
+    id: 'claude-haiku-4-5',
+    provider: 'anthropic',
+    displayName: 'Claude Haiku 4.5',
+    aliases: ['haiku', 'claude-haiku', 'haiku-4-5'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 1, outputPerMillion: 5, cacheReadPerMillion: 0.1, cacheWritePerMillion: 1.25 },
+  },
+  {
+    id: 'claude-haiku-4-5-thinking',
+    apiId: 'claude-haiku-4-5',
+    provider: 'anthropic',
+    displayName: 'Claude Haiku 4.5 (Thinking)',
+    aliases: ['haiku-thinking', 'claude-haiku-thinking'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 200_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 1, outputPerMillion: 5, cacheReadPerMillion: 0.1, cacheWritePerMillion: 1.25 },
+  },
+  // Legacy models
+  {
+    id: 'claude-opus-4-5',
+    provider: 'anthropic',
+    displayName: 'Claude Opus 4.5',
+    aliases: ['opus-4-5'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25, cacheReadPerMillion: 0.5, cacheWritePerMillion: 6.25 },
   },
   {
     id: 'claude-sonnet-4-5',
     provider: 'anthropic',
     displayName: 'Claude Sonnet 4.5',
-    aliases: ['sonnet', 'claude-sonnet'],
+    aliases: ['sonnet-4-5'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 200_000, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 64_000,
     },
     pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheWritePerMillion: 3.75 },
   },
   {
-    id: 'claude-haiku-3-5',
+    id: 'claude-sonnet-4',
     provider: 'anthropic',
-    displayName: 'Claude Haiku 3.5',
-    aliases: ['haiku', 'claude-haiku'],
+    displayName: 'Claude Sonnet 4',
+    aliases: ['sonnet-4'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: false,
-      maxContextWindow: 200_000, maxOutputTokens: 8_192,
+      maxContextWindow: 200_000, maxOutputTokens: 64_000,
     },
-    pricing: { inputPerMillion: 0.8, outputPerMillion: 4, cacheReadPerMillion: 0.08, cacheWritePerMillion: 1 },
+    pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheWritePerMillion: 3.75 },
+  },
+  {
+    id: 'claude-opus-4',
+    provider: 'anthropic',
+    displayName: 'Claude Opus 4',
+    aliases: ['opus-4'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 32_000,
+    },
+    pricing: { inputPerMillion: 15, outputPerMillion: 75, cacheReadPerMillion: 1.5, cacheWritePerMillion: 18.75 },
+  },
+  // Deprecated
+  {
+    id: 'claude-haiku-3',
+    provider: 'anthropic',
+    displayName: 'Claude Haiku 3 (Deprecated)',
+    aliases: ['haiku-3'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 200_000, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0.25, outputPerMillion: 1.25, cacheReadPerMillion: 0.025, cacheWritePerMillion: 0.3125 },
   },
 
   // ── OpenAI ──
@@ -400,147 +508,108 @@ export const MODEL_REGISTRY: ModelInfo[] = [
   },
 
   // ── xAI Grok ──
+  // Per official docs: https://docs.x.ai/docs/guides/reasoning
+  // Only grok-3-mini models support reasoning_effort. grok-3 and grok-3-fast do NOT.
+  // Each mini model gets a base entry (no thinking) + a thinking variant.
+
+  // Grok 3 — deep domain knowledge, no reasoning_effort support
   {
-    id: 'grok-4-1-fast-reasoning',
+    id: 'grok-3-latest',
     provider: 'xai',
-    displayName: 'Grok 4.1 Fast (Reasoning)',
-    aliases: ['grok-4-1-fast', 'grok-4-fast', 'grok-fast', 'grok'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
-  },
-  {
-    id: 'grok-4-1-fast-non-reasoning',
-    provider: 'xai',
-    displayName: 'Grok 4.1 Fast (Non-Reasoning)',
-    aliases: ['grok-4-1-nr', 'grok-fast-nr'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: false,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
-  },
-  {
-    id: 'grok-code-fast-1',
-    provider: 'xai',
-    displayName: 'Grok Code Fast',
-    aliases: ['grok-code', 'grok-coder'],
+    displayName: 'Grok 3',
+    aliases: ['grok', 'grok-3', 'grok3', 'grok-3-beta'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 256_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 0.2, outputPerMillion: 1.5, cacheReadPerMillion: 0.02 },
-  },
-  {
-    id: 'grok-4.20-multi-agent-experimental-beta-0304',
-    provider: 'xai',
-    displayName: 'Grok 4.20 Multi-Agent (Experimental)',
-    aliases: ['grok-4.20', 'grok-multi-agent', 'grok-experimental'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 2, outputPerMillion: 6 },
-  },
-  {
-    id: 'grok-4.20-experimental-beta-0304-reasoning',
-    provider: 'xai',
-    displayName: 'Grok 4.20 Experimental (Reasoning)',
-    aliases: ['grok-4.20-reasoning'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 2, outputPerMillion: 6 },
-  },
-  {
-    id: 'grok-4.20-experimental-beta-0304-non-reasoning',
-    provider: 'xai',
-    displayName: 'Grok 4.20 Experimental (Non-Reasoning)',
-    aliases: ['grok-4.20-nr'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: false,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 2, outputPerMillion: 6 },
-  },
-  {
-    id: 'grok-4-fast-reasoning',
-    provider: 'xai',
-    displayName: 'Grok 4 Fast (Reasoning)',
-    aliases: ['grok-4-fr'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5 },
-  },
-  {
-    id: 'grok-4-fast-non-reasoning',
-    provider: 'xai',
-    displayName: 'Grok 4 Fast (Non-Reasoning)',
-    aliases: ['grok-4-fnr'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: false,
-      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5 },
-  },
-  {
-    id: 'grok-4-0709',
-    provider: 'xai',
-    displayName: 'Grok 4',
-    aliases: ['grok-4', 'grok4'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
-      maxContextWindow: 256_000, maxOutputTokens: 16_384,
-    },
-    pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.75 },
-  },
-  {
-    id: 'grok-3',
-    provider: 'xai',
-    displayName: 'Grok-3',
-    aliases: ['grok3'],
-    capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: false,
+      systemPrompt: true, caching: false, extendedThinking: false,
       maxContextWindow: 131_072, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.75 },
+    pricing: { inputPerMillion: 3, outputPerMillion: 15 },
   },
   {
-    id: 'grok-3-mini',
+    id: 'grok-3-fast-latest',
     provider: 'xai',
-    displayName: 'Grok-3 Mini',
-    aliases: ['grok-mini', 'grok3-mini'],
+    displayName: 'Grok 3 Fast',
+    aliases: ['grok-fast', 'grok-3-fast', 'grok3-fast', 'grok-3-fast-beta'],
     capabilities: {
-      streaming: true, toolUse: true, vision: true, jsonMode: true,
-      systemPrompt: true, caching: true, extendedThinking: true,
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
       maxContextWindow: 131_072, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5, cacheReadPerMillion: 0.07 },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25 },
+  },
+  // Grok 3 Mini — supports reasoning_effort; split into base and thinking variants
+  {
+    id: 'grok-3-mini-latest',
+    provider: 'xai',
+    displayName: 'Grok 3 Mini',
+    aliases: ['grok-mini', 'grok-3-mini', 'grok3-mini', 'grok-3-mini-beta'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5 },
+  },
+  {
+    id: 'grok-3-mini-latest-thinking',
+    apiId: 'grok-3-mini-latest',
+    provider: 'xai',
+    displayName: 'Grok 3 Mini (Thinking)',
+    aliases: ['grok-mini-thinking', 'grok-3-mini-thinking'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5 },
+  },
+  {
+    id: 'grok-3-mini-fast-latest',
+    provider: 'xai',
+    displayName: 'Grok 3 Mini Fast',
+    aliases: ['grok-mini-fast', 'grok-3-mini-fast', 'grok3-mini-fast', 'grok-3-mini-fast-beta'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.6, outputPerMillion: 4 },
+  },
+  {
+    id: 'grok-3-mini-fast-latest-thinking',
+    apiId: 'grok-3-mini-fast-latest',
+    provider: 'xai',
+    displayName: 'Grok 3 Mini Fast (Thinking)',
+    aliases: ['grok-mini-fast-thinking', 'grok-3-mini-fast-thinking'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: true,
+      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.6, outputPerMillion: 4 },
+  },
+  // Grok 2 — vision and general chat
+  {
+    id: 'grok-2-1212',
+    provider: 'xai',
+    displayName: 'Grok 2',
+    aliases: ['grok-2', 'grok2', 'grok-2-latest'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: false, jsonMode: true,
+      systemPrompt: true, caching: false, extendedThinking: false,
+      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 10 },
   },
   {
     id: 'grok-2-vision-1212',
     provider: 'xai',
-    displayName: 'Grok-2 Vision',
-    aliases: ['grok2-vision', 'grok-2-vision'],
+    displayName: 'Grok 2 Vision',
+    aliases: ['grok-2-vision', 'grok2-vision', 'grok-2-vision-latest'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 32_768, maxOutputTokens: 16_384,
+      maxContextWindow: 8_192, maxOutputTokens: 4_096,
     },
     pricing: { inputPerMillion: 2, outputPerMillion: 10 },
   },

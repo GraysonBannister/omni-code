@@ -293,6 +293,64 @@
   color: var(--color-text-primary);
 }
 
+/* Thinking/Reasoning Section */
+.thinking-section {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  margin-bottom: var(--spacing-sm);
+  overflow: hidden;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-tertiary);
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  width: 100%;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.thinking-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.thinking-header svg {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.thinking-header span {
+  flex: 1;
+}
+
+.thinking-content {
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+}
+
+.thinking-content pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 /* Rollback button shown on user messages */
 .message-actions {
   display: flex;

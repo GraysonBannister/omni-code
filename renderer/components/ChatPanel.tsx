@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Brain } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -10,6 +10,7 @@ import { UserInputCard, type UserInputRequest } from './UserInputCard';
 import { PermissionCard, type PermissionRequest } from './PermissionCard';
 import { CollapsibleToolSummary } from './CollapsibleToolSummary';
 import { useAppStore, type ToolCall, type PendingPlan, type PlanningApproach, type PlanStepStatus } from '../stores/appStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import type { ChangePreviewData } from '../types/changeReview';
 import './ChatPanel.css';
@@ -196,6 +197,32 @@ const InlineToolCall: React.FC<{ block: Extract<ContentBlock, { type: 'tool_use'
 // Tool results are shown in the timeline, not inline
 const InlineToolResult: React.FC<{ block: Extract<ContentBlock, { type: 'tool_result' }>; index: number }> = () => {
   return null;
+};
+
+// Collapsible thinking/reasoning section for assistant messages
+const ThinkingSection: React.FC<{ thinking: string }> = ({ thinking }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  console.log(`[ThinkingSection] Rendering with thinking length: ${thinking.length}, preview: ${thinking.substring(0, 100)}...`);
+
+  return (
+    <div className="thinking-section">
+      <button
+        className="thinking-header"
+        onClick={() => setIsExpanded(!isExpanded)}
+        title={isExpanded ? 'Hide thinking' : 'Show thinking'}
+      >
+        <Brain size={14} />
+        <span>Thinking</span>
+        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {isExpanded && (
+        <div className="thinking-content">
+          <pre>{thinking}</pre>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undefined }> = ({ content }) => {
@@ -547,6 +574,10 @@ export const ChatPanel: React.FC = () => {
     openRecentWorkspace,
     reviewedToolCallIds,
   } = useAppStore();
+
+  // Get settings for showThinking preference
+  const { settings } = useSettingsStore();
+  const showThinking = settings?.ai?.showThinking ?? true;
 
   const [inputValue, setInputValue] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -1175,13 +1206,19 @@ export const ChatPanel: React.FC = () => {
             id: string;
             role: string;
             content: string | ContentBlock[];
+            reasoning?: string;
             timestamp: number;
             metadata?: unknown;
           };
+          console.log(`[ChatPanel] turn_complete: messageId=${msg.id}, role=${msg.role}, hasReasoning=${!!msg.reasoning}, reasoningLength=${msg.reasoning?.length || 0}`);
+          if (msg.reasoning) {
+            console.log(`[ChatPanel] Reasoning preview: ${msg.reasoning.substring(0, 200)}...`);
+          }
           addMessageToConversation(conversationId, {
             id: msg.id,
             role: msg.role as 'user' | 'assistant' | 'system',
             content: msg.content,
+            reasoning: msg.reasoning,
             timestamp: msg.timestamp,
             metadata: msg.metadata as Record<string, unknown>,
           });
@@ -2221,6 +2258,15 @@ export const ChatPanel: React.FC = () => {
                 <div className="chat-message-content">
                   {message.role === 'user' && message.fileReferences && message.fileReferences.length > 0 && (
                     <FileReferenceChipRow references={message.fileReferences} compact readonly />
+                  )}
+                  {(() => {
+                    if (message.role === 'assistant') {
+                      console.log(`[ChatPanel] Rendering assistant message: messageId=${message.id}, showThinking=${showThinking}, hasReasoning=${!!message.reasoning}, reasoningLength=${message.reasoning?.length || 0}`);
+                    }
+                    return null;
+                  })()}
+                  {message.role === 'assistant' && showThinking && message.reasoning && (
+                    <ThinkingSection thinking={message.reasoning} />
                   )}
                   <MessageContent content={message.content} />
                 </div>

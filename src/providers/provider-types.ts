@@ -32,6 +32,10 @@ export interface ModelPricing {
 
 export interface ModelInfo {
   id: string;
+  /** The actual model ID sent to the provider API. Defaults to `id` when absent.
+   *  Use this to create thinking-variant entries that share the same API model
+   *  but have extendedThinking: true set in their capabilities. */
+  apiId?: string;
   provider: ProviderName;
   displayName: string;
   capabilities: ModelCapabilities;

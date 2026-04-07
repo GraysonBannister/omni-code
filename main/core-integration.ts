@@ -514,6 +514,24 @@ export async function initializeCore(): Promise<void> {
         },
       });
 
+      // Thinking is controlled by model selection: if the user picked a "(Thinking)" variant
+      // (extendedThinking: true in the registry), always enable it. Otherwise never request it.
+      // The global "Show Thinking" setting only controls whether the UI displays the thoughts.
+      const modelInfo = resolvedProvider?.getModelInfo(model);
+      const modelRequestsThinking = modelInfo?.capabilities?.extendedThinking ?? false;
+      const thinkingConfig = modelRequestsThinking
+        ? { enabled: true, budgetTokens: 8000 } // 8k budget; provider will enforce budget < max_tokens
+        : undefined;
+
+      console.log('[core-integration] Creating agent:', {
+        model,
+        provider: providerName,
+        modelRequestsThinking,
+        thinkingEnabled: !!thinkingConfig,
+        modelId: modelInfo?.id,
+        modelApiId: modelInfo?.apiId,
+      });
+
       return new AgentImpl(
         {
           provider: resolvedProvider!,
@@ -522,11 +540,12 @@ export async function initializeCore(): Promise<void> {
           tools: toolRegistry.getAll(),
           temperature: config.get('temperature'),
           maxContextTokens: config.get('maxContextTokens'),
-          maxTurns: config.get('maxTurns'),
+          maxTurns: settingsManager.get('ai.maxTurns') ?? undefined,
           contextCompressionThreshold: config.get('contextCompressionThreshold'),
           contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
           planMode: false,
           cwd: currentWorkingDirectory,
+          thinking: thinkingConfig,
           limitCheck: {
             check: async () => {
               try {

@@ -74,7 +74,8 @@ export class AgentImpl implements Agent {
     this._messages.push(userMsg);
 
     let turns = 0;
-    const maxTurns = this.config.maxTurns ?? 50;
+    // Preserve null as unlimited (no turn limit), only default to 50 for undefined
+    const maxTurns = this.config.maxTurns !== undefined ? this.config.maxTurns : 50;
 
     while (maxTurns === null || turns < maxTurns) {
       turns++;
@@ -117,6 +118,19 @@ export class AgentImpl implements Agent {
         ? this.config.thinking
         : undefined;
 
+      // Debug: Log thinking configuration details
+      console.log('[AgentImpl:run] Thinking configuration:', {
+        model: this.config.model,
+        provider: this.config.provider.name,
+        configThinkingEnabled: this.config.thinking?.enabled,
+        modelSupportsExtendedThinking: modelInfo?.capabilities.extendedThinking,
+        thinkingConfigWillBeSent: !!thinkingConfig,
+        thinkingBudgetTokens: thinkingConfig?.budgetTokens,
+        modelInfoFound: !!modelInfo,
+        modelId: modelInfo?.id,
+        modelAliases: modelInfo?.aliases,
+      });
+
       // Call the LLM (streaming)
       const request = {
         messages: this._messages,
@@ -133,6 +147,7 @@ export class AgentImpl implements Agent {
       console.log('[AgentImpl:run] Sending request to provider:', {
         provider: this.config.provider.name,
         model: this.config.model,
+        hasThinkingConfig: !!thinkingConfig,
         messageCount: this._messages.length,
         messages: this._messages.map(m => ({
           id: m.id,
@@ -164,6 +179,7 @@ export class AgentImpl implements Agent {
 
             case 'thinking':
               thinkingBuffer += delta.text || '';
+              console.log(`[AgentImpl:run] Received thinking delta, buffer length now: ${thinkingBuffer.length}`);
               break;
 
             case 'tool_use_start':
@@ -221,8 +237,74 @@ export class AgentImpl implements Agent {
           }
         }
       } catch (error) {
-        yield { type: 'error', error: error as Error };
-        return;
+        const errorMessage = (error as Error)?.message || String(error);
+        console.error('[AgentImpl:run] Stream error:', errorMessage);
+
+        // Check if this is a "thinking not supported" error - retry without thinking
+        if (thinkingConfig && errorMessage.includes('thinking is not supported')) {
+          console.log('[AgentImpl:run] Model does not support thinking, retrying without thinking configuration...');
+          // Retry without thinking - this will disable thinking for this request
+          const retryRequest = {
+            ...request,
+            thinking: undefined,
+          };
+          try {
+            for await (const delta of this.config.provider.streamComplete(retryRequest)) {
+              if (this.abortController.signal.aborted) break;
+              yield { type: 'stream_delta', delta };
+
+              switch (delta.type) {
+                case 'text':
+                  textBuffer += delta.text || '';
+                  break;
+                case 'tool_use_start':
+                  if (delta.toolUse?.id && delta.toolUse?.name) {
+                    activeToolId = delta.toolUse.id;
+                    toolCallBuffers.set(delta.toolUse.id, {
+                      id: delta.toolUse.id,
+                      name: delta.toolUse.name,
+                      inputJson: '',
+                    });
+                    hasToolCalls = true;
+                  }
+                  break;
+                case 'tool_use_delta':
+                  {
+                    const targetToolId = delta.toolUse?.id || activeToolId;
+                    if (!targetToolId || !delta.toolUse?.inputDelta) {
+                      break;
+                    }
+                    const buf = toolCallBuffers.get(targetToolId);
+                    if (buf) {
+                      buf.inputJson += delta.toolUse.inputDelta;
+                    }
+                  }
+                  break;
+                case 'tool_use_end':
+                  if (activeToolId) {
+                    activeToolId = undefined;
+                  }
+                  break;
+                case 'usage':
+                  if (delta.usage) {
+                    usage.inputTokens += delta.usage.inputTokens || 0;
+                    usage.outputTokens += delta.usage.outputTokens || 0;
+                  }
+                  break;
+                case 'error':
+                  yield { type: 'error', error: delta.error || new Error('Unknown streaming error') };
+                  return;
+              }
+            }
+            // Continue to message assembly below
+          } catch (retryError) {
+            yield { type: 'error', error: retryError as Error };
+            return;
+          }
+        } else {
+          yield { type: 'error', error: error as Error };
+          return;
+        }
       }
 
       // Assemble the assistant message
@@ -267,6 +349,17 @@ export class AgentImpl implements Agent {
         },
       };
       this._messages.push(assistantMsg);
+
+      // Debug: Log turn completion with reasoning status
+      console.log('[AgentImpl:run] Turn complete:', {
+        messageId: assistantMsg.id,
+        hasReasoning: !!thinkingBuffer,
+        reasoningLength: thinkingBuffer?.length || 0,
+        hasToolCalls,
+        contentLength: typeof assistantMsg.content === 'string'
+          ? assistantMsg.content.length
+          : JSON.stringify(assistantMsg.content).length,
+      });
 
       // Track cost
       const turnCost = this.costTracker.calculateCost(this.config.model, usage);

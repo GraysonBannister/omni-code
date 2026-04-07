@@ -169,9 +169,13 @@ export class XAIProvider extends BaseProvider {
     const stopReason = choice.finish_reason === 'tool_calls' ? 'tool_use' as const
       : choice.finish_reason === 'length' ? 'max_tokens' as const : 'end_turn' as const;
 
+    // xAI returns reasoning traces in reasoning_content (for grok-3-mini models)
+    const reasoningContent = (choice.message as any).reasoning_content as string | undefined;
+
     return {
       message: {
         id: response.id, role: 'assistant', content, timestamp: Date.now(),
+        reasoning: reasoningContent || undefined,
         metadata: {
           model: request.model, provider: 'xai',
           inputTokens: response.usage?.prompt_tokens || 0,
@@ -207,6 +211,9 @@ export class XAIProvider extends BaseProvider {
         }
         continue;
       }
+      // xAI streams reasoning_content for grok-3-mini models (separate from regular content)
+      const reasoningDelta = (delta as any).reasoning_content as string | undefined;
+      if (reasoningDelta) yield { type: 'thinking', text: reasoningDelta };
       if (delta.content) yield { type: 'text', text: delta.content };
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
@@ -401,16 +408,23 @@ export class XAIProvider extends BaseProvider {
   // ─── Chat Completions API (standard models) ───
 
   private buildParams(request: CompletionRequest): any {
-    const params: any = { model: request.model, messages: this.formatMessages(request.messages) };
+    const modelInfo = this.getModelInfo(request.model);
+    // Use apiId if set (thinking variants share same API model as base), then id, then raw model string
+    const canonicalModelId = modelInfo?.apiId || modelInfo?.id || request.model;
+
+    const params: any = { model: canonicalModelId, messages: this.formatMessages(request.messages) };
     if (request.systemPrompt) params.messages = [{ role: 'system', content: request.systemPrompt }, ...params.messages];
     if (request.tools?.length) params.tools = this.formatTools(request.tools);
     if (request.temperature !== undefined) params.temperature = request.temperature;
     if (request.maxTokens) params.max_tokens = request.maxTokens;
     if (request.topP !== undefined) params.top_p = request.topP;
 
-    // Extended thinking for Grok reasoning models
-    if (request.thinking?.enabled && request.model.includes('reasoning')) {
-      params.reasoning_effort = 'high';
+    // Extended thinking for Grok models — use registry capability flag, not string matching.
+    // xAI only supports 'low' or 'high' for reasoning_effort.
+    if (request.thinking?.enabled && modelInfo?.capabilities.extendedThinking) {
+      const effort = request.thinking.effort || 'high';
+      // Normalize effort values: minimal/low -> 'low', everything else -> 'high'
+      params.reasoning_effort = (effort === 'minimal' || effort === 'low') ? 'low' : 'high';
     }
 
     return params;

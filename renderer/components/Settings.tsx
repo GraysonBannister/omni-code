@@ -736,7 +736,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
               <SettingToggle
                 label="Show Thinking"
-                description="Show AI reasoning process"
+                description="Display AI reasoning in chat when using a (Thinking) model variant"
                 checked={currentSettings.ai.showThinking}
                 onChange={(checked) => setSetting('ai.showThinking', checked)}
               />

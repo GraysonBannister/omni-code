@@ -32,6 +32,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | ContentBlock[];
+  reasoning?: string; // AI thinking/reasoning content
   timestamp: number;
   metadata?: MessageMetadata;
   fileChanges?: FileChange[];
