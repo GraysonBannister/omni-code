@@ -54,7 +54,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
 };
 
 function stripPlanBlock(text: string): string {
-  return text.replace(/<plan>[\s\S]*?<\/plan>/g, '').trim();
+  if (!text.includes('<plan>')) return text;
+  // Strip preamble + the plan block; preserve any content after </plan>
+  return text.replace(/[\s\S]*<plan>[\s\S]*?<\/plan>\n?/g, '').trim();
 }
 
 function renderTextContent(content: string, keyPrefix: string): React.ReactNode[] {
@@ -521,6 +523,7 @@ export const ChatPanel: React.FC = () => {
     setConversationMode,
     setPlanningApproach,
     setPendingPlan,
+    setPlanFilePath,
     updatePendingPlanStepStatus,
     // Past chats state
     pastChats,
@@ -613,6 +616,28 @@ export const ChatPanel: React.FC = () => {
     }
   }, [activeConversationId, messageChangePreviews]);
 
+  // Subscribe to plan file changes (external edits or AI updates)
+  useEffect(() => {
+    if (!window.electronAPI?.plan?.onFileChanged) return;
+
+    const unsubscribe = window.electronAPI.plan.onFileChanged(({ conversationId, plan: fileData }) => {
+      const store = useAppStore.getState();
+      const conv = store.conversations.find(c => c.id === conversationId);
+      if (!conv?.pendingPlan) return;
+
+      // Merge step statuses from file into in-memory plan
+      const updatedStatuses: Record<string, PlanStepStatus> = { ...(conv.pendingPlan.stepStatuses ?? {}) };
+      for (const step of fileData.steps) {
+        if (step.status !== 'pending') {
+          updatedStatuses[step.id] = step.status as PlanStepStatus;
+        }
+      }
+      store.setPendingPlan(conversationId, { ...conv.pendingPlan, stepStatuses: updatedStatuses }, conv.planSourceMessageId ?? undefined);
+    });
+
+    return unsubscribe;
+  }, []);
+
   // Scroll to UserInputCard when it appears
   useEffect(() => {
     if (pendingUserInput && userInputCardRef.current) {
@@ -646,7 +671,7 @@ export const ChatPanel: React.FC = () => {
     const confirmed = window.confirm(
       `Rollback ${changes.length} file change${changes.length !== 1 ? 's' : ''}?\n\n` +
       changes.map(c => `- ${c.filePath} (${c.changeType})`).join('\n') +
-      '\n\nThis will restore files to their state before this message.'
+      '\n\nThis will restore files to their state before this prompt was sent.'
     );
 
     if (!confirmed) return;
@@ -815,7 +840,22 @@ export const ChatPanel: React.FC = () => {
   const orchestrationStatus = activeConversation?.orchestrationStatus || null;
   const pendingPlan = activeConversation?.pendingPlan ?? null;
   const planSourceMessageId = activeConversation?.planSourceMessageId ?? null;
+  const planFilePath = activeConversation?.planFilePath ?? null;
   const planningApproach: PlanningApproach = activeConversation?.planningApproach ?? 'one-shot';
+
+  // Map each user message ID to the next assistant message ID that follows it
+  const userToAssistantMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (let i = 0; i < messages.length - 1; i++) {
+      if (messages[i].role === 'user') {
+        const next = messages[i + 1];
+        if (next?.role === 'assistant') {
+          map.set(messages[i].id, next.id);
+        }
+      }
+    }
+    return map;
+  }, [messages]);
 
   useEffect(() => {
     if (!toolCalls.some(tool => tool.status === 'running' && tool.toolName === 'Write')) {
@@ -1161,6 +1201,16 @@ export const ChatPanel: React.FC = () => {
               try {
                 const parsed: PendingPlan = JSON.parse(planMatch[1].trim());
                 useAppStore.getState().setPendingPlan(conversationId, parsed, msg.id);
+                // Persist to disk and start file watcher
+                if (projectPath && window.electronAPI?.plan?.createFile) {
+                  window.electronAPI.plan.createFile(projectPath, parsed, conversationId)
+                    .then(result => {
+                      if (result.success && result.filePath) {
+                        useAppStore.getState().setPlanFilePath(conversationId, result.filePath);
+                      }
+                    })
+                    .catch(err => console.error('[ChatPanel] Failed to create plan file:', err));
+                }
               } catch {
                 // Malformed plan JSON — ignore
               }
@@ -1363,6 +1413,12 @@ export const ChatPanel: React.FC = () => {
                 for (const step of planConv.pendingPlan.steps) {
                   if (step.files?.some(f => fileChange.filePath.endsWith(f))) {
                     useAppStore.getState().updatePendingPlanStepStatus(conversationId, step.id, 'completed');
+                    // Persist step status to plan file
+                    if (planConv.planFilePath && window.electronAPI?.plan?.updateStep) {
+                      window.electronAPI.plan.updateStep(planConv.planFilePath, step.id, 'completed').catch(err =>
+                        console.error('[ChatPanel] Failed to update plan step on disk:', err)
+                      );
+                    }
                   }
                 }
               }
@@ -1571,9 +1627,21 @@ export const ChatPanel: React.FC = () => {
     if (!activeConversationId || !pendingPlan) return;
     // Do NOT clear pendingPlan — it stays as a live progress tracker during execution
     setConversationMode(activeConversationId, 'code');
+
+    // Mark plan file as approved on disk
+    const currentPlanFilePath = useAppStore.getState().conversations.find(c => c.id === activeConversationId)?.planFilePath;
+    if (currentPlanFilePath && window.electronAPI?.plan?.markApproved) {
+      window.electronAPI.plan.markApproved(currentPlanFilePath).catch(err =>
+        console.error('[ChatPanel] Failed to mark plan approved:', err)
+      );
+    }
+
     const planJson = JSON.stringify(pendingPlan, null, 2);
+    const planFileNote = currentPlanFilePath
+      ? `\n\nThe plan is also saved at \`.omnicode/plan.json\` — update each step's \`status\` field to \`"in_progress"\` when you start it and \`"completed"\` when done.`
+      : '';
     const executionMessage =
-      `The following plan has been approved. Please execute it step by step:\n\n\`\`\`json\n${planJson}\n\`\`\`\n\nImplement each step in order. Write clean, well-structured code.`;
+      `The following plan has been approved. Please execute it step by step:\n\n\`\`\`json\n${planJson}\n\`\`\`\n\nImplement each step in order. Write clean, well-structured code.${planFileNote}`;
     setConversationProcessing(activeConversationId, true);
     try {
       await window.electronAPI!.agent.sendMessage(
@@ -2156,16 +2224,20 @@ export const ChatPanel: React.FC = () => {
                   )}
                   <MessageContent content={message.content} />
                 </div>
-                {message.role === 'assistant' && (
-                  <div className="message-actions">
-                    <RollbackButton
-                      conversationId={activeConversationId!}
-                      messageId={message.id}
-                      fileChanges={messageFileChanges.get(message.id) || []}
-                      onRollback={handleRollback}
-                    />
-                  </div>
-                )}
+                {message.role === 'user' && (() => {
+                  const assistantMsgId = userToAssistantMap.get(message.id);
+                  const changes = assistantMsgId ? (messageFileChanges.get(assistantMsgId) || []) : [];
+                  return changes.length > 0 ? (
+                    <div className="message-actions">
+                      <RollbackButton
+                        conversationId={activeConversationId!}
+                        messageId={assistantMsgId!}
+                        fileChanges={changes}
+                        onRollback={handleRollback}
+                      />
+                    </div>
+                  ) : null;
+                })()}
                 {message.role === 'assistant' && (messageChangePreviews.get(message.id) || []).length > 0 && (
                   <div className="change-review-previews">
                     {(messageChangePreviews.get(message.id) || []).map((preview) => {
@@ -2218,6 +2290,7 @@ export const ChatPanel: React.FC = () => {
                 onReject={handlePlanReject}
                 onDismiss={handlePlanDismiss}
                 isExecuting={isProcessing && activeConversation?.mode === 'code'}
+                onOpenFile={planFilePath ? () => window.electronAPI?.plan?.openFile(planFilePath) : undefined}
               />
             );
           }

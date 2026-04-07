@@ -31,11 +31,15 @@ When given a task:
 }
 </plan>
 
-After outputting the plan, stop. Do not make any file changes. Wait for the user to approve, modify, or reject the plan.`,
+After outputting the plan, stop. Do not make any file changes. Wait for the user to approve, modify, or reject the plan.
+
+Note: when the user approves the plan, it will be saved to \`.omnicode/plan.json\` in the workspace. During execution you can read that file to review the full plan context.`,
     disabledTools: ['Write', 'Edit', 'MultiFileEdit', 'DiffEdit', 'Bash', 'GitCommit'],
   },
   code: {
-    systemPromptAppend: `You are in coding mode. Focus on implementing changes efficiently. Write clean, well-structured code.`,
+    systemPromptAppend: `You are in coding mode. Focus on implementing changes efficiently. Write clean, well-structured code.
+
+If a plan file exists at \`.omnicode/plan.json\`, you can read it with the Read tool to review the approved plan. As you complete each step, update that file by setting the step's \`status\` field to \`"in_progress"\` when you begin it and \`"completed"\` when you finish it. This keeps the plan progress visible to the user.`,
     temperature: 0.3,
   },
   review: {

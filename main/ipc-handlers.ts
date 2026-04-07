@@ -6,7 +6,18 @@ import * as os from 'node:os';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
-import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager } from './core-integration.js';
+import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
+import {
+  createPlanFile,
+  readPlanFile,
+  updatePlanStep,
+  markPlanApproved,
+  openPlanFile,
+  watchPlanFile,
+  stopWatchingPlanFile,
+  stopAllPlanWatchers,
+  type PlanFileData,
+} from './plan-file-manager.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
@@ -1414,6 +1425,77 @@ export function setupIpcHandlers(): void {
   });
 
   console.log('[IPC:git] All git handlers registered');
+
+  // ── Plan file handlers ────────────────────────────────────────────────────
+  console.log('[IPC] Registering plan file handlers...');
+
+  ipcMain.handle('plan:create-file', async (_: IpcMainInvokeEvent, workspaceRoot: string, plan: Parameters<typeof createPlanFile>[1], conversationId: string) => {
+    try {
+      const filePath = await createPlanFile(workspaceRoot, plan, conversationId);
+
+      watchPlanFile(filePath, conversationId, (convId: string, data: PlanFileData) => {
+        BrowserWindow.getAllWindows().forEach(win => {
+          win.webContents.send('plan:file-changed', { conversationId: convId, plan: data });
+        });
+      });
+
+      return { success: true, filePath };
+    } catch (error) {
+      console.error('[IPC] plan:create-file error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('plan:update-step', async (_: IpcMainInvokeEvent, filePath: string, stepId: string, status: 'pending' | 'in_progress' | 'completed' | 'failed') => {
+    try {
+      await updatePlanStep(filePath, stepId, status);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] plan:update-step error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('plan:mark-approved', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      await markPlanApproved(filePath);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] plan:mark-approved error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('plan:open-file', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      await openPlanFile(filePath);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] plan:open-file error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('plan:read-file', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const data = await readPlanFile(filePath);
+      return { success: true, data };
+    } catch (error) {
+      console.error('[IPC] plan:read-file error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('plan:stop-watching', async (_: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      stopWatchingPlanFile(filePath);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  console.log('[IPC] Plan file handlers registered');
 }
 
 /**
@@ -1643,6 +1725,9 @@ export function setupRulesAndSkillsIpcHandlers(): void {
         'utf-8'
       );
 
+      // Reload all add-ons so the agent picks up the new tools immediately
+      await reloadAddons();
+
       return { success: true, error: null };
     } catch (error) {
       return { success: false, error: (error as Error).message };
@@ -1656,6 +1741,10 @@ export function setupRulesAndSkillsIpcHandlers(): void {
       }
       const addonDir = path.join(getAddonsDir(), id);
       await fs.rm(addonDir, { recursive: true, force: true });
+
+      // Reload all add-ons so the uninstalled tool is removed from the agent
+      await reloadAddons();
+
       return { success: true, error: null };
     } catch (error) {
       return { success: false, error: (error as Error).message };
@@ -1790,6 +1879,15 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('browser:screenshot-response');
 
   ipcMain.removeHandler('project:scan');
+
+  // Plan file cleanup
+  stopAllPlanWatchers();
+  ipcMain.removeHandler('plan:create-file');
+  ipcMain.removeHandler('plan:update-step');
+  ipcMain.removeHandler('plan:mark-approved');
+  ipcMain.removeHandler('plan:open-file');
+  ipcMain.removeHandler('plan:read-file');
+  ipcMain.removeHandler('plan:stop-watching');
 
   // Git cleanup
   ipcMain.removeHandler('git:is-repo');

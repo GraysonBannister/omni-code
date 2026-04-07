@@ -10,6 +10,7 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  FileText,
 } from 'lucide-react'
 import type { ExecutionPlan, PlanStep } from './PlanningPanel'
 import './InlinePlanCard.css'
@@ -21,6 +22,7 @@ interface InlinePlanCardProps {
   onReject: () => void
   onDismiss?: () => void
   isExecuting?: boolean
+  onOpenFile?: () => void
 }
 
 const getStepStatusIcon = (status: NonNullable<PlanStep['status']>) => {
@@ -43,6 +45,7 @@ export const InlinePlanCard: React.FC<InlinePlanCardProps> = ({
   onReject,
   onDismiss,
   isExecuting = false,
+  onOpenFile,
 }) => {
   const [expanded, setExpanded] = useState(false)
 
@@ -85,7 +88,18 @@ export const InlinePlanCard: React.FC<InlinePlanCardProps> = ({
           <ListTodo className="ipc-plan-icon" />
           <span className="ipc-title">{plan.title}</span>
         </div>
-        <span className={`ipc-status-badge ${statusClass}`}>{statusLabel}</span>
+        <div className="ipc-header-right">
+          {onOpenFile && (
+            <button
+              className="ipc-open-file-btn"
+              onClick={onOpenFile}
+              title="Open plan file (.omnicode/plan.json)"
+            >
+              <FileText className="ipc-open-file-icon" />
+            </button>
+          )}
+          <span className={`ipc-status-badge ${statusClass}`}>{statusLabel}</span>
+        </div>
       </div>
 
       {/* Goal / description */}

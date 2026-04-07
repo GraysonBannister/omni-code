@@ -1,50 +1,125 @@
-# Omni Code v2
+# Omni Code
 
-Omni Code v2 is the Electron edition of Omni Code. It combines the original agent/core system with a desktop UI for chat, file browsing, code editing, settings, and workspace-based development.
+Omni Code is a powerful AI coding assistant that combines a multi-LLM agent system with a modern desktop interface. It supports both terminal-based and Electron desktop modes, offering flexible workflows for code generation, editing, debugging, and project management.
 
-## What It Includes
+## Features
 
-- Electron desktop app shell
-- React renderer UI
-- Built-in chat panel for working with the coding agent
-- File explorer and editor layout
-- Recent workspace support
-- Settings and model/provider configuration hooks
+### Multi-Provider LLM Support
+Connect to your preferred AI models from multiple providers:
+
+- **Anthropic** - Claude Opus 4.6, Sonnet 4.5, Haiku 3.5
+- **OpenAI** - GPT-5.4 series, GPT-5 series, GPT-5.1/5.2, GPT-4.1 series, GPT-4o, o1/o3 reasoning models
+- **Google** - Gemini 2.0 Pro, 2.0 Flash
+- **xAI** - Grok 4.x series, Grok 3.x series, Grok 2.x series
+- **Mistral** - Large, Codestral
+- **Groq** - Llama 3.3 70B, Mixtral 8x7B
+- **Moonshot** - Kimi K2.5, K1.6, K1.6 Long Context
+- **AWS Bedrock** - Claude, Llama, Mistral models
+- **Custom/OpenAI-compatible** - Ollama, LM Studio, vLLM, and more
+
+### Desktop Application
+- **Electron-based UI** with React renderer
+- **Multi-conversation tabs** for parallel work streams
+- **File explorer** with real-time file watching
+- **Code editor** with Monaco editor integration
+- **Chat panel** with streaming responses and tool visualization
+- **File change review** - accept or reject individual changes before they're applied
+
+### Advanced Capabilities
+
+#### Modes System
+Switch between specialized agent modes for different tasks:
+- **Code Mode** - Default coding mode with full tool access
+- **Architect Mode** - Analyze and plan without writing code
+- **Review Mode** - Code review and analysis without modifications
+- **Security Mode** - Security-focused vulnerability detection
+- **Debug Mode** - Systematic debugging and diagnostics
+
+#### Plan Mode
+Generate and execute structured execution plans:
+- Create detailed plans with file-by-file breakdowns
+- Interactive plan review with inline plan cards
+- Step-by-step execution tracking
+- Automatic progress updates as steps complete
+- Pause, resume, or abort plan execution
+
+#### Codebase Intelligence
+- **Semantic search** - Find code by meaning, not just text
+- **Codebase indexing** - Vector-based code understanding
+- **Project context** - Automatic project structure analysis
+- **Multi-file awareness** - Cross-file dependencies and relationships
+
+#### Skills, Rules & Addons
+- **Skills** - Reusable agent capabilities for common tasks
+- **Rules** - Persistent coding guidelines and conventions
+- **Addons** - Extend functionality with installable add-ons
+- **MCP Support** - Model Context Protocol for external tool integration
+
+#### Git Integration
+- Built-in Git panel with status visualization
+- Stage, unstage, commit, and push operations
+- Branch management and switching
+- Diff viewing for staged and unstaged changes
+- File history and blame tracking
+
+#### Development Tools
+- **Built-in terminal** - Full terminal access within the app
+- **Browser automation** - AI-controlled browser for testing and verification
+- **Remote access** - Pair with mobile devices via QR code
+- **Usage tracking** - Cost monitoring and token usage analytics
 
 ## Requirements
 
-- Node.js `20+`
-- npm
+- Node.js 20+
+- npm or yarn
 - macOS, Linux, or Windows with Electron support
+- API keys for desired LLM providers
 
-## Install
+## Installation
 
 ```bash
 npm install
 ```
 
-## Start The App
+## Configuration
 
-For local development:
+Omni Code uses a settings system for configuration:
+
+1. **API Keys** - Set provider API keys in Settings (`Cmd/Ctrl + ,`)
+2. **Permission Modes** - Choose between `always-ask`, `ask-on-write`, `ask-on-shell`, or `auto-approve`
+3. **Custom Endpoints** - Configure Ollama, LM Studio, or other OpenAI-compatible endpoints
+4. **Models** - Select default models per provider and conversation
+
+Configuration is stored in the app data directory and can be overridden via environment variables:
+
+```bash
+ANTHROPIC_API_KEY=your_key
+OPENAI_API_KEY=your_key
+GOOGLE_API_KEY=your_key
+# etc.
+```
+
+## Development
+
+### Start the Desktop App
+
+For local development with hot reload:
 
 ```bash
 npm run electron:dev
 ```
 
-This starts:
+This starts both the Vite renderer dev server and the Electron main process.
 
-- the Vite renderer dev server
-- the Electron main process
+### Start the Terminal Version
 
-For a direct Electron run against the built app entry:
+For the original terminal-based interface:
 
 ```bash
-npm run electron:run
+npm run dev
 ```
 
-If you use `electron:run`, make sure the app has already been built.
-
-## Build
+### Build
 
 Build the core package:
 
@@ -64,127 +139,232 @@ Create an unpacked Electron bundle:
 npm run electron:pack
 ```
 
-## Helpful Scripts
+Create a release build with auto-update support:
 
 ```bash
-npm run test
-npm run lint
-npm run typecheck
-npm run dev
+npm run electron:release
 ```
 
-`npm run dev` starts the original terminal-based entrypoint, while `npm run electron:dev` starts the desktop app.
+### Development Scripts
 
-## Using Omni Code v2
+```bash
+npm run test          # Run tests
+npm run lint          # Run ESLint
+npm run typecheck     # Run TypeScript checks
+npm run dev:vite      # Start Vite dev server only
+```
+
+## Using Omni Code
 
 ### 1. Launch the App
 
-Start the app with:
+Start the desktop app:
 
 ```bash
 npm run electron:dev
 ```
 
-When the window opens, Omni Code v2 initializes settings, models, providers, and recent workspaces.
+On first launch, the app initializes settings and prompts for API keys if not configured.
 
 ### 2. Open a Workspace
 
-Use one of these:
+Open a project folder using:
+- `Open Folder` button on the welcome screen
+- `Cmd/Ctrl + O` keyboard shortcut
+- Select from recent workspaces on the welcome screen
 
-- `Open Folder` from the welcome screen
-- `Cmd/Ctrl+O`
-- a recent workspace from the welcome screen or app menu
+The app automatically indexes the codebase for semantic search and loads the file explorer.
 
-After opening a folder, the app sets that directory as the active workspace and loads it into the file explorer.
+### 3. Start a Conversation
 
-### 3. Work With The Layout
+Click the `+` button in the chat panel to create a new conversation tab. Each conversation:
+- Has its own message history
+- Can use different models
+- Can have different modes enabled
+- Persists across app restarts (per workspace)
 
-The main window includes:
+### 4. Chat with the Agent
 
-- a file explorer sidebar
-- a central code editor
-- a chat panel for agent interactions
-- a status bar with model and app state
+Type requests in the chat box. The agent can:
+- Read and analyze files
+- Search the codebase (text and semantic)
+- Write and edit code
+- Run terminal commands
+- Use Git operations
+- Browse the web
+- Generate and execute plans
 
-You can resize panels and toggle sidebar/chat visibility from the menu.
+Typical prompts:
 
-### 4. Use The Chat
+- `Explain this codebase structure`
+- `Refactor the auth module to use JWT`
+- `Find and fix the bug in the user service`
+- `Create a plan for adding payment integration`
 
-The chat panel is where you interact with the coding agent.
+### 5. Review File Changes
 
-Typical workflow:
+When the agent proposes changes:
+- Changes appear inline in the chat
+- Review diff showing before/after
+- Accept or reject individual changes
+- Accept all changes at once
+- Restore from backup if needed
 
-1. Open a workspace.
-2. Type a request in the chat box.
-3. Let the agent inspect files, reason, and run supported tools.
-4. Review the streamed response and any tool activity shown inline.
+Enable auto-approval in Settings to skip manual review.
 
-Example prompts:
+### 6. Use the File Explorer
 
-- `Explain this codebase`
-- `Refactor the selected code`
-- `Find and fix bugs`
-- `Add a new command for opening recent workspaces`
+- Browse files in the sidebar
+- Click files to open in the editor
+- Multiple files open as tabs
+- File changes are watched and updated in real-time
 
-### 5. Open and Edit Files
+### 7. Work with Git
 
-- Select files from the explorer to open them in the editor.
-- Multiple files can be opened in tabs.
-- Settings are also exposed as a virtual editor tab from the app menu.
+Open the Git panel to:
+- See repository status (staged, modified, untracked)
+- Stage and unstage files
+- View diffs
+- Commit changes
+- Push and pull
+- Switch branches
 
-### 6. Settings and Shortcuts
+### 8. Access the Terminal
 
-Open settings with:
+Open the Terminal panel for:
+- Running npm/yarn commands
+- Starting dev servers
+- Running tests
+- Any shell operations
 
-- `Cmd/Ctrl+,`
-- the app menu
+### 9. Use Browser Automation
 
-Current shortcuts include:
+The agent can control a browser for:
+- Testing web applications
+- Verifying UI changes
+- Taking screenshots
+- Web scraping (when needed)
 
-- `Cmd/Ctrl+O` to open a folder
-- `Cmd/Ctrl+,` to open settings
-- `Cmd/Ctrl+B` to toggle the sidebar
-- `Cmd/Ctrl+Enter` for send-message behavior where supported
-- `Escape` to abort an active agent run
+### 10. Enable Remote Access
+
+From Settings, enable remote access to:
+- Generate a QR code
+- Pair with mobile devices
+- Access conversations from tablets/phones
+- Share workspaces securely
+
+### 11. Track Usage
+
+Open the Usage Dashboard to monitor:
+- Token consumption per model
+- Cost breakdown by provider
+- Monthly usage trends
+- Set spending limits
+
+### 12. Configure Modes
+
+Use the Mode Selector to switch between:
+- **Code** - Standard coding with all tools
+- **Architect** - Plan and analyze without writing code
+- **Review** - Analyze code for issues
+- **Security** - Focus on vulnerabilities
+- **Debug** - Systematic problem solving
+
+### 13. Create Execution Plans
+
+In Architect mode, ask the agent to create plans for complex tasks:
+
+1. Request a plan: `Create a plan for adding user authentication`
+2. Review the structured plan output
+3. Approve, modify, or reject the plan
+4. Switch to Code mode to execute
+5. Track progress as steps complete
 
 ## Project Structure
 
-```text
-main/        Electron main-process code
-renderer/    React-based desktop UI
-src/         Shared/core Omni Code agent logic
-dist-electron/  Built Electron output
-release/     Packaged desktop builds
+```
+main/              # Electron main-process code (IPC handlers, window management)
+renderer/          # React-based desktop UI components
+src/               # Core agent logic, providers, tools
+├── core/          # Agent implementation, orchestration, cost tracking
+├── providers/     # LLM provider integrations (Anthropic, OpenAI, etc.)
+├── tools/         # Built-in tools (file operations, search, Git, etc.)
+├── config/        # Configuration management, modes
+├── memory/        # Session storage, project context, indexing
+└── mcp/           # Model Context Protocol support
+dist-electron/     # Built Electron output (generated)
+release/           # Packaged desktop builds (generated)
 ```
 
-## Notes
+## Keyboard Shortcuts
 
-- Recent workspaces are stored with `electron-store`.
-- The Electron app depends on the Omni Code core in `src/`.
-- Build output directories like `dist-electron/` and `release/` are generated artifacts and should not be edited directly.
+| Shortcut | Action |
+|----------|--------|
+| `Cmd/Ctrl + O` | Open folder |
+| `Cmd/Ctrl + ,` | Open settings |
+| `Cmd/Ctrl + B` | Toggle sidebar |
+| `Cmd/Ctrl + Shift + P` | Toggle plan panel |
+| `Cmd/Ctrl + Enter` | Send message (in chat) |
+| `Escape` | Abort active agent run |
+| `Cmd/Ctrl + N` | New conversation |
+| `Cmd/Ctrl + W` | Close conversation |
+| `Cmd/Ctrl + 1-9` | Switch to conversation tab |
 
 ## Troubleshooting
 
-### Window does not open
+### App does not start
 
-- Re-run `npm run electron:dev`
-- Make sure port `5173` is available
-- Check the Electron terminal output for startup errors
-
-### Chat output looks wrong
-
-- Restart the app after pulling new changes
-- Confirm you are running the Electron version, not the terminal entrypoint
-
-### App fails on install
-
+- Ensure port 5173 is available for the Vite dev server
+- Check Electron terminal output for errors
 - Delete `node_modules` and reinstall:
+  ```bash
+  rm -rf node_modules package-lock.json
+  npm install
+  ```
 
-```bash
-rm -rf node_modules package-lock.json
-npm install
-```
+### Chat responses are slow or failing
+
+- Verify API keys are correctly set in Settings
+- Check your internet connection
+- Try switching to a different model
+- Check the Usage Dashboard for rate limit issues
+
+### File changes not appearing
+
+- Ensure the workspace is properly loaded
+- Check file watching permissions
+- Try re-indexing the codebase from Settings
+
+### Semantic search not working
+
+- Wait for initial indexing to complete (shown in status bar)
+- Re-index from Settings if needed
+- Check that the project has readable code files
+
+### Terminal or Browser panels not working
+
+- On macOS, grant necessary permissions in System Preferences
+- Check that `node-pty` dependencies are installed
+- Restart the app after granting permissions
+
+### Git operations failing
+
+- Ensure you're in a Git repository
+- Check Git configuration (name/email set)
+- Verify write permissions to the repository
+
+## Notes
+
+- Recent workspaces are stored with `electron-store`
+- Conversations are persisted per workspace in `.omnicode/chat/` directories
+- File change backups are stored temporarily for review/restore
+- Indexing data is stored in workspace-local SQLite databases
+- MCP servers can be configured for external tool integration
 
 ## Branching Intent
 
-This repo state is intended to represent the separate `omni-code-v2` edition so it can evolve independently from the original Omni Code branch and UI.
+This repo represents the `omni-code-v2` edition, evolving independently from the original Omni Code branch. It focuses on desktop-first experience with advanced features like multi-agent orchestration, plan mode execution, and comprehensive provider support.
+
+## License
+
+MIT

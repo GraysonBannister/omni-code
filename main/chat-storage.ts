@@ -24,6 +24,7 @@ interface SerializedConversation {
   mode?: string; // AI operating mode (code, architect, review, etc.)
   planningApproach?: string; // Planning strategy: 'one-shot' | 'iterative'
   pendingPlan?: unknown; // Plan awaiting user approval in architect mode
+  planFilePath?: string | null; // Path to .omnicode/plan.json on disk
   pendingChangePreviews?: Array<[string, ChangePreviewData[]]>; // Map as array for JSON serialization
 }
 
@@ -74,6 +75,7 @@ export class ChatStorage {
         mode: conversation.mode,
         planningApproach: (conversation as any).planningApproach,
         pendingPlan: (conversation as any).pendingPlan ?? undefined,
+        planFilePath: (conversation as any).planFilePath ?? undefined,
         pendingChangePreviews: serializedPreviews,
       };
 
@@ -145,6 +147,7 @@ export class ChatStorage {
             mode: migrated.mode,
             planningApproach: migrated.planningApproach,
             pendingPlan: migrated.pendingPlan ?? null,
+            planFilePath: migrated.planFilePath ?? null,
             pendingChangePreviews,
             // Reset runtime state
             isProcessing: false,

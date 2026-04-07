@@ -282,6 +282,29 @@ type ProjectAPI = {
 };
 
 // Plan Creation API
+type PlanFileData = {
+  version: number;
+  id: string;
+  conversationId: string;
+  title: string;
+  goal: string;
+  createdAt: string;
+  approvedAt: string | null;
+  completedAt: string | null;
+  files: Array<{ path: string; action: 'create' | 'modify' | 'delete'; reason: string }>;
+  steps: Array<{
+    id: string;
+    title: string;
+    description: string;
+    files?: string[];
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+    startedAt: string | null;
+    completedAt: string | null;
+  }>;
+  risks: string[];
+  questions: string[];
+};
+
 type PlanAPI = {
   startCreation: (conversationId: string, userRequest: string) => Promise<{ success: boolean; error?: string }>;
   submitAnswers: (conversationId: string, answers: Record<string, string>) => Promise<{ success: boolean; error?: string }>;
@@ -291,6 +314,14 @@ type PlanAPI = {
   pauseExecution: (conversationId: string) => Promise<{ success: boolean; paused?: boolean; error?: string }>;
   resumeExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
   abortExecution: (conversationId: string) => Promise<{ success: boolean; error?: string }>;
+  // Plan file methods
+  createFile: (workspaceRoot: string, plan: { title: string; goal: string; files?: Array<{ path: string; action: string; reason: string }>; steps: Array<{ id: string; title: string; description: string; files?: string[] }>; risks?: string[]; questions?: string[] }, conversationId: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  updateStep: (filePath: string, stepId: string, status: 'pending' | 'in_progress' | 'completed' | 'failed') => Promise<{ success: boolean; error?: string }>;
+  markApproved: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  readFile: (filePath: string) => Promise<{ success: boolean; data?: PlanFileData; error?: string }>;
+  stopWatching: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  onFileChanged: (callback: (data: { conversationId: string; plan: PlanFileData }) => void) => () => void;
 };
 
 // Rules API
@@ -727,6 +758,24 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('plan:resume-execution', conversationId),
     abortExecution: (conversationId) =>
       ipcRenderer.invoke('plan:abort-execution', conversationId),
+    // Plan file methods
+    createFile: (workspaceRoot, plan, conversationId) =>
+      ipcRenderer.invoke('plan:create-file', workspaceRoot, plan, conversationId),
+    updateStep: (filePath, stepId, status) =>
+      ipcRenderer.invoke('plan:update-step', filePath, stepId, status),
+    markApproved: (filePath) =>
+      ipcRenderer.invoke('plan:mark-approved', filePath),
+    openFile: (filePath) =>
+      ipcRenderer.invoke('plan:open-file', filePath),
+    readFile: (filePath) =>
+      ipcRenderer.invoke('plan:read-file', filePath),
+    stopWatching: (filePath) =>
+      ipcRenderer.invoke('plan:stop-watching', filePath),
+    onFileChanged: (callback) => {
+      const handler = (_: IpcRendererEvent, data: { conversationId: string; plan: PlanFileData }) => callback(data);
+      ipcRenderer.on('plan:file-changed', handler);
+      return () => ipcRenderer.off('plan:file-changed', handler);
+    },
   },
 
   rules: {
@@ -799,7 +848,7 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI, GitAPI, GitStatusResult,
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI, PlanFileData, GitAPI, GitStatusResult,
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
   RulesAPI, SkillsAPI, RuleData, SkillData,
 };

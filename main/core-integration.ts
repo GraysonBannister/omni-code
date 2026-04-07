@@ -25,11 +25,13 @@ import type { UsageRecord } from '../src/core/usage-types.js';
 import { settingsManager, type SettingsSchema } from './settings.js';
 import { rulesManager } from './rules-manager.js';
 import { skillsManager } from './skills-manager.js';
+import { loadInstalledAddons } from './addon-loader.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
 let agentInstance: AgentImpl | null = null;
 let providerRegistry: ProviderRegistry | null = null;
+let toolRegistryRef: ToolRegistry | null = null;
 
 // Module-level PermissionManager so its mode can be updated at runtime.
 // Initialized to 'auto-allow' until initializeCore() creates it with the
@@ -319,6 +321,10 @@ export async function initializeCore(): Promise<void> {
     // Initialize tools
     const toolRegistry = new ToolRegistry();
     registerBuiltinTools(toolRegistry);
+    toolRegistryRef = toolRegistry;
+
+    // Load any installed add-ons so their tools are available to the agent
+    await loadInstalledAddons(toolRegistry);
 
     for (const toolName of config.get('disabledTools')) {
       toolRegistry.setEnabled(toolName, false);
@@ -734,4 +740,15 @@ export async function reinitializeProviders(): Promise<{ success: boolean; error
  */
 export function getProviderRegistry(): ProviderRegistryType | null {
   return providerRegistry;
+}
+
+/**
+ * Reload all installed add-ons into the live ToolRegistry.
+ * Call after install or uninstall so the agent picks up changes immediately
+ * without requiring an app restart.
+ */
+export async function reloadAddons(): Promise<void> {
+  if (toolRegistryRef) {
+    await loadInstalledAddons(toolRegistryRef);
+  }
 }

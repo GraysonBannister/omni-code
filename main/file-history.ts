@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, extname, basename } from 'node:path';
-import { diffLines } from 'diff';
+import { diffLines, createPatch, applyPatch } from 'diff';
 
 /**
  * Represents a single file change snapshot
@@ -281,6 +281,28 @@ function getFileExtension(filePath: string): string {
  */
 function getFileName(filePath: string): string {
   return basename(filePath);
+}
+
+/**
+ * Apply the inverse of A's change (beforeContent→afterContent) to currentContent.
+ *
+ * This lets us revert A's specific edits to a file while preserving any
+ * concurrent modifications made by other chats on top of A's version.
+ *
+ * Strategy:
+ *   1. Build the inverse unified patch: afterContent → beforeContent
+ *   2. Apply that patch to currentContent with a small fuzz factor so that
+ *      minor context drift (e.g. B added/removed nearby lines) doesn't block it
+ *   3. Return null if the patch cannot be applied cleanly (caller decides fallback)
+ */
+function applyInversePatch(
+  beforeContent: string,
+  afterContent: string,
+  currentContent: string
+): string | null {
+  const inversePatch = createPatch('file', afterContent, beforeContent, '', '', { context: 4 });
+  const result = applyPatch(currentContent, inversePatch, { fuzzFactor: 2 });
+  return result === false ? null : result;
 }
 
 /**
@@ -599,25 +621,74 @@ export class FileHistoryManager {
         // Ensure directory exists
         await fs.mkdir(dirname(absolutePath), { recursive: true });
 
+        // Read the current on-disk content to detect concurrent modifications
+        // made by other chats running in parallel with this one.
+        let currentContent: string | null;
+        try {
+          currentContent = await fs.readFile(absolutePath, 'utf8');
+        } catch {
+          currentContent = null;
+        }
+
         if (change.changeType === 'delete') {
-          // If the change was a delete, we need to restore the file
+          // Original change was a deletion — restore the file regardless of
+          // concurrent modifications (there is no "current" file to preserve).
           if (change.beforeContent) {
             await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
-            restoredFiles.push(change.filePath);
           }
-        } else if (change.changeType === 'write' && !change.beforeContent) {
-          // New file was created, delete it to rollback
-          try {
-            await fs.unlink(absolutePath);
-            restoredFiles.push(change.filePath);
-          } catch (error) {
-            // File might already be deleted
-            restoredFiles.push(change.filePath);
-          }
-        } else {
-          // File was modified, restore original content
-          await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
           restoredFiles.push(change.filePath);
+
+        } else if (change.changeType === 'write' && !change.beforeContent) {
+          // A created a new file. To roll back, delete it — but only when no
+          // other chat has modified it since. If they have, use an inverse
+          // patch to remove just the lines this chat contributed.
+          if (currentContent === null || currentContent === change.afterContent) {
+            try { await fs.unlink(absolutePath); } catch { /* already gone */ }
+            restoredFiles.push(change.filePath);
+          } else {
+            const reverted = applyInversePatch('', change.afterContent!, currentContent);
+            if (reverted !== null) {
+              if (reverted.trim() === '') {
+                try { await fs.unlink(absolutePath); } catch { /* already gone */ }
+              } else {
+                await fs.writeFile(absolutePath, reverted, 'utf8');
+              }
+            } else {
+              // Patch conflict: fall back to deletion and warn.
+              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Deleting the file.`);
+              try { await fs.unlink(absolutePath); } catch { /* already gone */ }
+            }
+            restoredFiles.push(change.filePath);
+          }
+
+        } else {
+          // File was modified. If no other chat has touched it since, restore
+          // directly. Otherwise apply the inverse patch so that only this
+          // chat's edits are undone.
+          if (currentContent === null) {
+            // File is gone; restore beforeContent if it existed.
+            if (change.beforeContent) {
+              await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
+            }
+            restoredFiles.push(change.filePath);
+          } else if (currentContent === change.afterContent) {
+            // File unchanged since this chat modified it — simple restore.
+            await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
+            restoredFiles.push(change.filePath);
+          } else {
+            // Another chat has made further changes — apply the inverse patch
+            // so we only undo this chat's contribution.
+            const reverted = applyInversePatch(change.beforeContent, change.afterContent!, currentContent);
+            if (reverted !== null) {
+              await fs.writeFile(absolutePath, reverted, 'utf8');
+            } else {
+              // Patch failed due to conflicts. Fall back to restoring
+              // beforeContent and warn that concurrent edits may be affected.
+              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Restoring to pre-change state.`);
+              await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
+            }
+            restoredFiles.push(change.filePath);
+          }
         }
       } catch (error) {
         console.error(`[FileHistoryManager] Failed to restore ${change.filePath}:`, error);

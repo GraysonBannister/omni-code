@@ -116,6 +116,7 @@ export interface Conversation {
   planningApproach?: PlanningApproach; // Planning strategy when in architect mode
   pendingPlan?: PendingPlan | null; // Plan awaiting approval in architect mode
   planSourceMessageId?: string | null; // ID of the assistant message that produced the plan
+  planFilePath?: string | null; // Absolute path to the .omnicode/plan.json file on disk
   pendingChangePreviews?: Map<string, ChangePreviewData[]>; // Pending change review previews keyed by message ID
 }
 
@@ -248,6 +249,7 @@ interface AppState {
   setConversationMode: (conversationId: string, mode: 'code' | 'architect' | 'review' | 'security' | 'debug') => void;
   setPlanningApproach: (conversationId: string, approach: PlanningApproach) => void;
   setPendingPlan: (conversationId: string, plan: PendingPlan | null, sourceMessageId?: string | null) => void;
+  setPlanFilePath: (conversationId: string, filePath: string | null) => void;
   updatePendingPlanStepStatus: (conversationId: string, stepId: string, status: PlanStepStatus) => void;
   setPendingChangePreviews: (conversationId: string, previews: Map<string, ChangePreviewData[]>) => void;
 
@@ -996,6 +998,16 @@ export const useAppStore = create<AppState>((set, get) => ({
               planSourceMessageId: plan === null ? null : (sourceMessageId ?? c.planSourceMessageId),
               updatedAt: Date.now(),
             }
+          : c
+      ),
+    }));
+  },
+
+  setPlanFilePath: (conversationId, filePath) => {
+    set(state => ({
+      conversations: state.conversations.map(c =>
+        c.id === conversationId
+          ? { ...c, planFilePath: filePath, updatedAt: Date.now() }
           : c
       ),
     }));

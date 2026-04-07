@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../omni-code-website"
+		},
+		{
+			"path": "../omni-addons"
 		}
 	],
 	"settings": {}
