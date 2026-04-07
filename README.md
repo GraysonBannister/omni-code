@@ -111,14 +111,6 @@ npm run electron:dev
 
 This starts both the Vite renderer dev server and the Electron main process.
 
-### Start the Terminal Version
-
-For the original terminal-based interface:
-
-```bash
-npm run dev
-```
-
 ### Build
 
 Build the core package:
@@ -151,7 +143,6 @@ npm run electron:release
 npm run test          # Run tests
 npm run lint          # Run ESLint
 npm run typecheck     # Run TypeScript checks
-npm run dev:vite      # Start Vite dev server only
 ```
 
 ## Using Omni Code
