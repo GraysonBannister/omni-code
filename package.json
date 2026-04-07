@@ -12,7 +12,9 @@
   },
   "scripts": {
     "build": "tsup",
-    "dev": "tsx src/index.ts",
+    "dev": "npm run rebuild:node && tsx src/index.ts",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "npx electron-rebuild -m . -o better-sqlite3",
     "test": "vitest",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",

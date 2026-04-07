@@ -937,7 +937,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setIndexingPollInterval: (interval) => set({ indexingPollInterval: interval }),
+  setIndexingPollInterval: (interval) => {
+    const existing = get().indexingPollInterval;
+    if (existing) clearInterval(existing);
+    set({ indexingPollInterval: interval });
+  },
 
   // Multi-Conversation Actions
   createConversation: (options) => {
@@ -1822,6 +1826,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         files: [...state.files.filter(f => !f.path.startsWith(dirPath + '/')), ...result.files],
         projectPath: state.projectPath || dirPath,
       }));
+
+      // Unwatch previous directory before watching new one
+      const prevPath = get().projectPath;
+      if (prevPath && prevPath !== dirPath) {
+        await window.electronAPI.file.unwatch(prevPath).catch(() => {});
+      }
 
       // Start watching the directory
       await window.electronAPI.file.watch(dirPath);
