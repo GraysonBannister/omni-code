@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Brain } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -13,6 +13,7 @@ import { useAppStore, type ToolCall, type PendingPlan, type PlanningApproach, ty
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ContentBlock } from '../../src/core/message-types.js';
 import type { ChangePreviewData } from '../types/changeReview';
+import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import './ChatPanel.css';
 
 interface ImageAttachment {
@@ -60,7 +61,7 @@ function stripPlanBlock(text: string): string {
   return text.replace(/[\s\S]*<plan>[\s\S]*?<\/plan>\n?/g, '').trim();
 }
 
-function renderTextContent(content: string, keyPrefix: string): React.ReactNode[] {
+function renderTextContent(content: string, keyPrefix: string, trailingNode?: React.ReactNode): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   let remaining = content;
   let key = 0;
@@ -89,16 +90,27 @@ function renderTextContent(content: string, keyPrefix: string): React.ReactNode[
       
       remaining = remaining.substring(codeBlockMatch.index + codeBlockMatch[0].length);
     } else {
-      // No more code blocks
+      // No more code blocks — inject trailingNode inline at end of last paragraph
       if (remaining.trim()) {
         parts.push(
           <p key={`${keyPrefix}-tail-${key++}`} className="message-text">
-            {remaining}
+            {remaining}{trailingNode}
           </p>
         );
+      } else if (trailingNode) {
+        parts.push(<span key={`${keyPrefix}-trailing`}>{trailingNode}</span>);
       }
       break;
     }
+  }
+
+  // Content was empty but cursor present (streaming just started)
+  if (parts.length === 0 && trailingNode) {
+    parts.push(
+      <p key={`${keyPrefix}-empty`} className="message-text">
+        {trailingNode}
+      </p>
+    );
   }
 
   return parts;
@@ -121,64 +133,6 @@ function hasToolErrorContent(content: string | ContentBlock[] | null | undefined
   return Array.isArray(content) && content.some((block) => block.type === 'tool_result' && !!block.isError);
 }
 
-function formatToolInput(input: Record<string, unknown>): string {
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(input)) {
-    if (typeof value === 'string') {
-      const truncated = value.length > 60 ? `${value.slice(0, 60)}...` : value;
-      parts.push(`${key}: "${truncated}"`);
-    } else {
-      parts.push(`${key}: ${JSON.stringify(value)}`);
-    }
-  }
-  return parts.join(', ');
-}
-
-function formatByteSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getToolStatusDetail(
-  tool: {
-    toolName: string;
-    status: 'pending' | 'running' | 'completed' | 'error';
-    input: Record<string, unknown>;
-    startedAt?: number;
-    phase?: string;
-    detail?: string;
-  },
-  now: number,
-): string | undefined {
-  if (tool.detail) {
-    return tool.detail;
-  }
-
-  if (tool.phase === 'waiting_permission') {
-    return `Waiting for permission to run ${tool.toolName}.`;
-  }
-
-  if (tool.phase === 'validating') {
-    return 'Validating tool input.';
-  }
-
-  if (tool.status !== 'running' || tool.toolName !== 'Write') {
-    return undefined;
-  }
-
-  const pathValue = typeof tool.input.file_path === 'string' ? tool.input.file_path : 'file';
-  const contentValue = typeof tool.input.content === 'string' ? tool.input.content : '';
-  const contentBytes = new TextEncoder().encode(contentValue).length;
-  const elapsedMs = tool.startedAt ? now - tool.startedAt : 0;
-  const baseMessage = `Writing ${formatByteSize(contentBytes)} to ${pathValue}`;
-
-  if (elapsedMs >= 10000) {
-    return `${baseMessage}. Taking longer than expected.`;
-  }
-
-  return baseMessage;
-}
 
 function inferToolPhase(message: string): string {
   const normalized = message.toLowerCase();
@@ -199,30 +153,140 @@ const InlineToolResult: React.FC<{ block: Extract<ContentBlock, { type: 'tool_re
   return null;
 };
 
-// Collapsible thinking/reasoning section for assistant messages
-const ThinkingSection: React.FC<{ thinking: string }> = ({ thinking }) => {
+// Collapsible thinking/reasoning section — Cursor-style "Thought briefly ∨"
+const ThinkingSection: React.FC<{ thinking: string; isStreaming?: boolean }> = ({ thinking, isStreaming }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const contentRef = useRef<HTMLPreElement>(null);
 
-  console.log(`[ThinkingSection] Rendering with thinking length: ${thinking.length}, preview: ${thinking.substring(0, 100)}...`);
+  useEffect(() => {
+    if (contentRef.current && isExpanded) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [thinking, isExpanded]);
 
   return (
     <div className="thinking-section">
       <button
         className="thinking-header"
         onClick={() => setIsExpanded(!isExpanded)}
-        title={isExpanded ? 'Hide thinking' : 'Show thinking'}
       >
-        <Brain size={14} />
-        <span>Thinking</span>
-        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        <span className="thinking-label">
+          {isStreaming ? 'thinking' : 'Thought briefly'}
+        </span>
+        {isStreaming && <span className="thinking-dots">...</span>}
+        <ChevronDown size={12} className={isExpanded ? 'expanded' : ''} />
       </button>
       {isExpanded && (
         <div className="thinking-content">
-          <pre>{thinking}</pre>
+          <pre ref={contentRef}>{thinking}</pre>
         </div>
       )}
     </div>
   );
+};
+
+// Typewriter effect component for streaming terminal-like output
+interface TypewriterMessageProps {
+  content: string | ContentBlock[] | null | undefined;
+  isStreaming: boolean;
+  charDelay?: number;
+}
+
+const TypewriterMessage: React.FC<TypewriterMessageProps> = ({ 
+  content, 
+  isStreaming, 
+  charDelay = 12 
+}) => {
+  const [displayedLength, setDisplayedLength] = useState(0);
+  const contentRef = useRef<string>('');
+  const animationRef = useRef<number | null>(null);
+  const lastUpdateRef = useRef<number>(0);
+
+  // Extract text content for typewriter effect
+  const rawContent = useMemo(() => {
+    if (typeof content === 'string') return stripPlanBlock(content);
+    if (!Array.isArray(content)) return '';
+    return content
+      .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
+  }, [content]);
+
+  // Reset and start animation when content changes
+  useEffect(() => {
+    const newContent = rawContent;
+    
+    // If streaming stopped, immediately show all content
+    if (!isStreaming && newContent.length > displayedLength) {
+      setDisplayedLength(newContent.length);
+      contentRef.current = newContent;
+      return;
+    }
+
+    // If content changed, reset animation
+    if (newContent !== contentRef.current) {
+      contentRef.current = newContent;
+      // Only reset if we're not in the middle of streaming the same content
+      if (!newContent.startsWith(rawContent.slice(0, displayedLength))) {
+        setDisplayedLength(0);
+      }
+    }
+  }, [rawContent, isStreaming, displayedLength]);
+
+  // Animation loop using requestAnimationFrame for smooth updates
+  useEffect(() => {
+    if (!isStreaming && displayedLength >= contentRef.current.length) {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      return;
+    }
+
+    const animate = (timestamp: number) => {
+      if (timestamp - lastUpdateRef.current >= charDelay) {
+        lastUpdateRef.current = timestamp;
+        setDisplayedLength((prev) => {
+          const target = contentRef.current.length;
+          if (prev >= target) return prev;
+          // Reveal multiple characters during fast streaming for performance
+          const charsToReveal = isStreaming && target - prev > 50 ? 3 : 1;
+          return Math.min(prev + charsToReveal, target);
+        });
+      }
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isStreaming, charDelay, displayedLength]);
+
+  // Get the displayed portion of content
+  const displayedContent = rawContent.slice(0, displayedLength);
+  const hasMoreContent = displayedLength < rawContent.length;
+
+  // Respect reduced motion preference
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  // If reduced motion is preferred, just show full content
+  if (prefersReducedMotion) {
+    return <>{renderTextContent(rawContent, 'typewriter-reduced')}</>;
+  }
+
+  const cursor = (isStreaming || hasMoreContent) ? <span className="typewriter-cursor" /> : undefined;
+  return <>{renderTextContent(displayedContent, 'typewriter', cursor)}</>;
 };
 
 const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undefined }> = ({ content }) => {
@@ -441,7 +505,7 @@ function groupToolCalls(toolCalls: ToolCall[]): ToolGroup[] {
 }
 
 // Create unified timeline of messages and tool calls
-type TimelineItem = 
+type TimelineItem =
   | { type: 'message'; data: Message; timestamp: number }
   | { type: 'tool-group'; data: ToolCall[]; timestamp: number }
   | { type: 'tool-single'; data: ToolCall; timestamp: number }
@@ -482,7 +546,7 @@ function createTimeline(
       });
     }
   });
-  
+
   // Sort by timestamp
   timeline.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -615,6 +679,14 @@ export const ChatPanel: React.FC = () => {
   const pastChatsPanelRef = useRef<HTMLDivElement>(null);
   const projectPickerRef = useRef<HTMLDivElement>(null);
   const userInputCardRef = useRef<HTMLDivElement>(null);
+
+  // Message context menu state
+  const [messageContextMenu, setMessageContextMenu] = useState<{
+    x: number;
+    y: number;
+    messageId: string;
+    messageContent: string;
+  } | null>(null);
 
   // Clear stale file change data when switching conversations
   // Restore pending change previews from saved conversation if they exist
@@ -822,6 +894,72 @@ export const ChatPanel: React.FC = () => {
     }
   }, [conversationFileChanges]);
 
+  // Handle message context menu
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent, messageId: string, content: string | ContentBlock[] | null | undefined) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Extract text content from message
+    let textContent = '';
+    if (typeof content === 'string') {
+      textContent = content;
+    } else if (Array.isArray(content)) {
+      textContent = content
+        .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+        .map(block => block.text)
+        .join('');
+    }
+    
+    setMessageContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      messageId,
+      messageContent: textContent,
+    });
+  }, []);
+
+  // Handle copy message text
+  const handleCopyMessage = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+    setMessageContextMenu(null);
+  }, []);
+
+  // Handle select all - creates a temporary selection of the message content
+  const handleSelectAll = useCallback((messageId: string) => {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"] .chat-message-content`);
+    if (messageElement) {
+      const range = document.createRange();
+      range.selectNodeContents(messageElement);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+    setMessageContextMenu(null);
+  }, []);
+
+  // Build context menu items for a message
+  const buildMessageContextMenuItems = useCallback((messageId: string, content: string): ContextMenuItem[] => {
+    return [
+      {
+        id: 'copy',
+        label: 'Copy Text',
+        icon: <Copy size={14} />,
+        shortcut: '⌘C',
+        action: () => handleCopyMessage(content),
+      },
+      {
+        id: 'select-all',
+        label: 'Select All',
+        shortcut: '⌘A',
+        action: () => handleSelectAll(messageId),
+      },
+    ];
+  }, [handleCopyMessage, handleSelectAll]);
+
   // Get the active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId) || null;
 
@@ -866,6 +1004,7 @@ export const ChatPanel: React.FC = () => {
   // Extract conversation-specific state for the active conversation
   const messages = activeConversation?.messages || [];
   const streamingContent = activeConversation?.streamingContent || '';
+  const streamingReasoning = activeConversation?.streamingReasoning;
   const isProcessing = activeConversation?.isProcessing || false;
   const toolCalls = activeConversation?.toolCalls || [];
   const orchestrationStatus = activeConversation?.orchestrationStatus || null;
@@ -1201,6 +1340,18 @@ export const ChatPanel: React.FC = () => {
           }
           break;
 
+        case 'thinking_delta': {
+          const { accumulated } = agentEvent as { accumulated: string };
+          const currentConv = useAppStore.getState().conversations.find(c => c.id === conversationId);
+          const existingReasoning = currentConv?.streamingReasoning || '';
+          // Only append the delta (new content) not the full accumulated
+          const deltaText = accumulated.slice(existingReasoning.length);
+          if (deltaText) {
+            useAppStore.getState().appendConversationStreamingReasoning(conversationId, deltaText);
+          }
+          break;
+        }
+
         case 'turn_complete': {
           const msg = agentEvent.message as {
             id: string;
@@ -1223,6 +1374,7 @@ export const ChatPanel: React.FC = () => {
             metadata: msg.metadata as Record<string, unknown>,
           });
           setConversationStreaming(conversationId, '');
+          useAppStore.getState().clearConversationStreamingReasoning(conversationId);
 
           // Detect <plan>...</plan> block in architect mode responses
           const conv = useAppStore.getState().conversations.find(c => c.id === conversationId);
@@ -1604,6 +1756,11 @@ export const ChatPanel: React.FC = () => {
 
     const rawMessage = inputValue.trim();
     setInputValue('');
+    
+    // Reset textarea height after sending
+    if (inputRef.current) {
+      inputRef.current.style.height = '60px';
+    }
 
     // In architect mode with one-shot approach, instruct the agent to plan immediately
     const activeConv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
@@ -1696,7 +1853,14 @@ export const ChatPanel: React.FC = () => {
     if (!activeConversationId) return;
     setPendingPlan(activeConversationId, null);
     setInputValue('Please modify the plan: ');
-    setTimeout(() => inputRef.current?.focus(), 0);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      // Auto-resize after setting value
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto';
+        inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
+      }
+    }, 0);
   }, [activeConversationId, setPendingPlan]);
 
   const handlePlanReject = useCallback(() => {
@@ -1788,6 +1952,11 @@ export const ChatPanel: React.FC = () => {
     
     setInputValue(newValue);
     
+    // Auto-resize textarea based on content
+    const textarea = e.target;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 240) + 'px';
+    
     // Update mention query if we're in mention mode
     if (mentionQuery !== null && mentionStartIndex >= 0) {
       // Check if cursor is still after the @
@@ -1823,6 +1992,12 @@ export const ChatPanel: React.FC = () => {
     const newText = `${beforeMention}@${file.name} ${afterMention}`;
     setInputValue(newText);
     
+    // Auto-resize textarea after insertion
+    setTimeout(() => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 240) + 'px';
+    }, 0);
+    
     // Add to selected references
     const newRef: FileReference = {
       path: file.path,
@@ -1848,7 +2023,17 @@ export const ChatPanel: React.FC = () => {
     setSelectedReferences(prev => prev.filter(r => r.path !== refToRemove.path));
     // Also remove from input text
     const refText = `@${refToRemove.name}`;
-    setInputValue(prev => prev.replace(refText, '').replace(/\s+/g, ' ').trim());
+    setInputValue(prev => {
+      const newValue = prev.replace(refText, '').replace(/\s+/g, ' ').trim();
+      // Auto-resize after removing
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.style.height = 'auto';
+          inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
+        }
+      }, 0);
+      return newValue;
+    });
   }, []);
 
   // Process File objects into ImageAttachment entries
@@ -2220,9 +2405,33 @@ export const ChatPanel: React.FC = () => {
             <h3>Welcome to Omni Code</h3>
             <p>Ask me to help with coding, debugging, refactoring, or any software engineering task.</p>
             <div className="chat-suggestions">
-              <button onClick={() => setInputValue('Explain this codebase')}>Explain this codebase</button>
-              <button onClick={() => setInputValue('Refactor the selected code')}>Refactor selected code</button>
-              <button onClick={() => setInputValue('Find and fix bugs')}>Find and fix bugs</button>
+              <button onClick={() => {
+                setInputValue('Explain this codebase');
+                setTimeout(() => {
+                  if (inputRef.current) {
+                    inputRef.current.style.height = 'auto';
+                    inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
+                  }
+                }, 0);
+              }}>Explain this codebase</button>
+              <button onClick={() => {
+                setInputValue('Refactor the selected code');
+                setTimeout(() => {
+                  if (inputRef.current) {
+                    inputRef.current.style.height = 'auto';
+                    inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
+                  }
+                }, 0);
+              }}>Refactor selected code</button>
+              <button onClick={() => {
+                setInputValue('Find and fix bugs');
+                setTimeout(() => {
+                  if (inputRef.current) {
+                    inputRef.current.style.height = 'auto';
+                    inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
+                  }
+                }, 0);
+              }}>Find and fix bugs</button>
             </div>
           </div>
         )}
@@ -2234,13 +2443,31 @@ export const ChatPanel: React.FC = () => {
 
             // Tool-only messages are shown in the timeline via CollapsibleToolSummary, skip here
             if (isToolOnlyMessage(message.content)) {
+              // Still surface reasoning even for tool-use-only messages
+              if (showThinking && message.reasoning) {
+                return (
+                  <ThinkingSection key={message.id} thinking={message.reasoning} />
+                );
+              }
               return null;
             }
+
+            // Extract text content for copying
+            const messageTextContent = typeof message.content === 'string'
+              ? message.content
+              : Array.isArray(message.content)
+                ? message.content
+                    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+                    .map(block => block.text)
+                    .join('')
+                : '';
 
             return (
               <div
                 key={message.id}
+                data-message-id={message.id}
                 className={`chat-message ${message.role}`}
+                onContextMenu={(e) => handleMessageContextMenu(e, message.id, message.content)}
               >
                 <div className="chat-message-header">
                   {message.role === 'user'
@@ -2270,6 +2497,16 @@ export const ChatPanel: React.FC = () => {
                   )}
                   <MessageContent content={message.content} />
                 </div>
+                {/* Copy button - appears at bottom right of message bubble */}
+                {messageTextContent && (
+                  <button
+                    className="message-copy-btn"
+                    onClick={() => handleCopyMessage(messageTextContent)}
+                    title="Copy message"
+                  >
+                    <Copy size={14} />
+                  </button>
+                )}
                 {message.role === 'user' && (() => {
                   const assistantMsgId = userToAssistantMap.get(message.id);
                   const changes = assistantMsgId ? (messageFileChanges.get(assistantMsgId) || []) : [];
@@ -2342,6 +2579,11 @@ export const ChatPanel: React.FC = () => {
           }
         })}
 
+        {/* Streaming thinking — shown above streaming message when reasoning is available */}
+        {showThinking && streamingReasoning && !streamingContent && (
+          <ThinkingSection thinking={streamingReasoning} isStreaming={isProcessing} />
+        )}
+
         {/* Streaming message */}
         {streamingContent && (
           <div className="chat-message assistant streaming">
@@ -2350,8 +2592,23 @@ export const ChatPanel: React.FC = () => {
               <span>Assistant</span>
             </div>
             <div className="chat-message-content">
-              <MessageContent content={streamingContent} />
+              {showThinking && streamingReasoning && (
+                <ThinkingSection thinking={streamingReasoning} isStreaming={isProcessing} />
+              )}
+              <TypewriterMessage
+                content={streamingContent}
+                isStreaming={isProcessing}
+                charDelay={12}
+              />
             </div>
+            {/* Copy button for streaming message */}
+            <button
+              className="message-copy-btn"
+              onClick={() => handleCopyMessage(streamingContent)}
+              title="Copy message"
+            >
+              <Copy size={14} />
+            </button>
           </div>
         )}
 
@@ -2382,6 +2639,16 @@ export const ChatPanel: React.FC = () => {
         )}
 
         <div ref={messagesEndRef} />
+
+        {/* Message Context Menu */}
+        {messageContextMenu && (
+          <ContextMenu
+            x={messageContextMenu.x}
+            y={messageContextMenu.y}
+            items={buildMessageContextMenuItems(messageContextMenu.messageId, messageContextMenu.messageContent)}
+            onClose={() => setMessageContextMenu(null)}
+          />
+        )}
       </div>
       </div>
 
@@ -2513,16 +2780,19 @@ export const ChatPanel: React.FC = () => {
         )}
 
         <div className="chat-input-wrapper">
-          <textarea
-            ref={inputRef}
-            className="chat-input"
-            value={inputValue}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={isProcessing ? 'Processing...' : 'Type a message... Use @ to reference files'}
-            disabled={isProcessing || !activeConversation}
-            rows={1}
-          />
+          <div className="chat-input-terminal-wrapper">
+            <span className="chat-terminal-prompt">&gt;</span>
+            <textarea
+              ref={inputRef}
+              className="chat-input chat-input-terminal"
+              value={inputValue}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={isProcessing ? 'Processing...' : 'Type a message... Use @ to reference files'}
+              disabled={isProcessing || !activeConversation}
+              rows={1}
+            />
+          </div>
           <div className="chat-input-actions">
             {/* Image upload button */}
             {!isProcessing && (

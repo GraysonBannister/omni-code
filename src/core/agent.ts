@@ -180,6 +180,8 @@ export class AgentImpl implements Agent {
             case 'thinking':
               thinkingBuffer += delta.text || '';
               console.log(`[AgentImpl:run] Received thinking delta, buffer length now: ${thinkingBuffer.length}`);
+              // Emit thinking delta for real-time display in renderer
+              yield { type: 'thinking_delta', text: delta.text || '', accumulated: thinkingBuffer };
               break;
 
             case 'tool_use_start':

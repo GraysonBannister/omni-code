@@ -104,6 +104,7 @@ export interface Conversation {
   messages: Message[];
   isProcessing: boolean;
   streamingContent: string;
+  streamingReasoning?: string; // Live thinking content during streaming (for -thinking models)
   toolCalls: ToolCall[];
   orchestrationStatus: string | null;
   createdAt: number;
@@ -239,6 +240,9 @@ interface AppState {
   setConversationProcessing: (conversationId: string, processing: boolean) => void;
   setConversationStreaming: (conversationId: string, content: string) => void;
   appendConversationStreaming: (conversationId: string, content: string) => void;
+  setConversationStreamingReasoning: (conversationId: string, reasoning: string) => void;
+  appendConversationStreamingReasoning: (conversationId: string, delta: string) => void;
+  clearConversationStreamingReasoning: (conversationId: string) => void;
   addToolCallToConversation: (conversationId: string, toolCall: ToolCall) => void;
   updateToolCallInConversation: (conversationId: string, toolCallId: string, updates: Partial<ToolCall>) => void;
   setConversationOrchestrationStatus: (conversationId: string, status: string | null) => void;
@@ -266,6 +270,9 @@ interface AppState {
   setIsProcessing: (processing: boolean) => void;
   setStreamingContent: (content: string) => void;
   appendStreamingContent: (content: string) => void;
+  setStreamingReasoning: (reasoning: string) => void;
+  appendStreamingReasoning: (delta: string) => void;
+  clearStreamingReasoning: () => void;
   addToolCall: (toolCall: ToolCall) => void;
   updateToolCall: (id: string, updates: Partial<ToolCall>) => void;
   setOrchestrationStatus: (status: string | null) => void;
@@ -1170,6 +1177,30 @@ export const useAppStore = create<AppState>((set, get) => ({
         : c
     ),
   })),
+
+  setConversationStreamingReasoning: (conversationId, reasoning) => set(state => ({
+    conversations: state.conversations.map(c =>
+      c.id === conversationId
+        ? { ...c, streamingReasoning: reasoning, updatedAt: Date.now() }
+        : c
+    ),
+  })),
+
+  appendConversationStreamingReasoning: (conversationId, delta) => set(state => ({
+    conversations: state.conversations.map(c =>
+      c.id === conversationId
+        ? { ...c, streamingReasoning: (c.streamingReasoning || '') + delta, updatedAt: Date.now() }
+        : c
+    ),
+  })),
+
+  clearConversationStreamingReasoning: (conversationId) => set(state => ({
+    conversations: state.conversations.map(c =>
+      c.id === conversationId
+        ? { ...c, streamingReasoning: undefined, updatedAt: Date.now() }
+        : c
+    ),
+  })),
   
   addToolCallToConversation: (conversationId, toolCall) => set(state => ({
     conversations: state.conversations.map(c =>
@@ -1503,6 +1534,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     const activeId = state.activeConversationId;
     if (activeId) {
       get().appendConversationStreaming(activeId, content);
+    }
+  },
+
+  setStreamingReasoning: (reasoning) => {
+    const state = get();
+    const activeId = state.activeConversationId;
+    if (activeId) {
+      get().setConversationStreamingReasoning(activeId, reasoning);
+    }
+  },
+
+  appendStreamingReasoning: (delta) => {
+    const state = get();
+    const activeId = state.activeConversationId;
+    if (activeId) {
+      get().appendConversationStreamingReasoning(activeId, delta);
+    }
+  },
+
+  clearStreamingReasoning: () => {
+    const state = get();
+    const activeId = state.activeConversationId;
+    if (activeId) {
+      get().clearConversationStreamingReasoning(activeId);
     }
   },
   

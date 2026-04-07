@@ -8,6 +8,7 @@ import { getSettingsManager } from './settings.js';
 // Note: These will be resolved at runtime by the built dist-electron files
 type AgentEvent =
   | { type: 'stream_delta'; delta: { type: 'text'; text?: string } }
+  | { type: 'thinking_delta'; text: string; accumulated: string }
   | { type: 'turn_complete'; message: unknown }
   | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: { content: string; isError?: boolean } }

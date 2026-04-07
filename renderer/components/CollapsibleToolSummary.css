@@ -1,4 +1,5 @@
-/* Minimal cursor-style tool summary */
+/* ── Group header ─────────────────────────────────────────────────────────── */
+
 .collapsible-tool-summary {
   margin: var(--spacing-xs) 0;
 }
@@ -34,18 +35,229 @@
   color: var(--color-text-secondary);
 }
 
+/* ── Tool list ────────────────────────────────────────────────────────────── */
+
 .collapsible-tool-summary-content {
   padding-left: var(--spacing-md);
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .collapsible-tool-item {
-  padding: var(--spacing-xs) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Per-tool row ─────────────────────────────────────────────────────────── */
+
+.collapsible-tool-item-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.collapsible-tool-item-header.is-expandable {
+  cursor: pointer;
+}
+
+.collapsible-tool-item-header.is-expandable:hover .collapsible-tool-item-name {
+  color: var(--color-text-primary);
+}
+
+.tool-item-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+
+.collapsible-tool-item-name {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 
-.collapsible-tool-item-name {
+/* ── Status dot ───────────────────────────────────────────────────────────── */
+
+.tool-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tool-status-dot--completed {
+  background-color: var(--color-success, #22c55e);
+  opacity: 0.7;
+}
+
+.tool-status-dot--error {
+  background-color: var(--color-error, #ef4444);
+}
+
+.tool-status-dot--running {
+  background-color: var(--color-warning, #f59e0b);
+  animation: tool-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.tool-status-dot--pending {
+  background-color: var(--color-text-tertiary);
+  opacity: 0.4;
+}
+
+@keyframes tool-dot-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1; }
+}
+
+/* ── Detail panel ─────────────────────────────────────────────────────────── */
+
+.tool-detail {
+  margin: 4px 0 6px 18px;
+  border-left: 2px solid var(--color-border, rgba(255,255,255,0.08));
+  padding-left: var(--spacing-sm, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Section label row (contains "Input" / "Output" + optional duration) */
+.tool-detail-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  user-select: none;
+}
+
+.tool-detail-label-error {
+  color: var(--color-error, #ef4444);
+}
+
+.tool-detail-duration {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: var(--font-size-xs, 11px);
+  color: var(--color-text-tertiary);
+  opacity: 0.7;
+}
+
+/* ── Input key/value rows ─────────────────────────────────────────────────── */
+
+.tool-detail-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tool-detail-input-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm, 8px);
+  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+.tool-detail-input-row.is-long {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tool-detail-input-key {
+  flex-shrink: 0;
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  min-width: 60px;
+}
+
+.tool-detail-input-value {
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 11px;
   color: var(--color-text-secondary);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.tool-detail-input-pre {
+  margin: 0;
+  padding: 4px 6px;
+  background: var(--color-surface-elevated, rgba(0,0,0,0.2));
+  border-radius: 4px;
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* ── Output / error block ─────────────────────────────────────────────────── */
+
+.tool-detail-output {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--color-surface-elevated, rgba(0,0,0,0.2));
+  border-radius: 4px;
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.tool-detail-output.is-error {
+  background: var(--color-error-bg, rgba(239, 68, 68, 0.08));
+  color: var(--color-error, #ef4444);
+}
+
+/* ── Show more / less ─────────────────────────────────────────────────────── */
+
+.tool-detail-show-more {
+  align-self: flex-start;
+  padding: 0;
+  margin-top: 2px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-xs, 11px);
+  color: var(--color-accent, var(--color-text-tertiary));
+  opacity: 0.8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tool-detail-show-more:hover {
+  opacity: 1;
+}
+
+/* ── Running status text ──────────────────────────────────────────────────── */
+
+.tool-detail-running {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
