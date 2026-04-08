@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { settingsManager } from './settings.js';
 import { initializeWindowFocusTracking } from './notifications.js';
 import { setMainWindowForBrowser } from './ipc-handlers.js';
+import { trayNotificationManager } from './tray-notifications.js';
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
@@ -231,6 +232,9 @@ export async function createWindow(): Promise<BrowserWindow> {
   if (!mainWindow) {
     mainWindow = win;
     setMainWindowForBrowser(win);
+
+    // Initialize tray notifications for the main window
+    trayNotificationManager.initialize(win);
   }
 
   win.once('ready-to-show', () => {
@@ -251,6 +255,14 @@ export async function createWindow(): Promise<BrowserWindow> {
     if (mainWindow === win) {
       const remaining = BrowserWindow.getAllWindows();
       mainWindow = remaining.length > 0 ? remaining[0] : null;
+
+      // Clean up tray notifications when main window closes
+      trayNotificationManager.destroy();
+
+      // If there's a remaining window, initialize tray for it
+      if (remaining.length > 0) {
+        trayNotificationManager.initialize(remaining[0]);
+      }
     }
   });
 

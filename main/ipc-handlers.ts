@@ -7,6 +7,7 @@ import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
+import { remoteClientMode } from './remote-client-mode.js';
 import {
   createPlanFile,
   readPlanFile,
@@ -158,61 +159,102 @@ export function setupIpcHandlers(): void {
   console.log('[IPC] setupIpcHandlers() called');
   // Agent handlers - now conversation-scoped for multi-tab support
   ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.createConversation(conversationId, model, provider);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return agentRef.createConversation(conversationId, model, provider);
   });
 
   ipcMain.handle('agent:close-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.closeConversation(conversationId);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return agentRef.closeConversation(conversationId);
   });
 
   ipcMain.handle('agent:has-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.hasConversation(conversationId);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return agentRef.hasConversation(conversationId);
   });
 
   ipcMain.handle('agent:send-message', async (_: IpcMainInvokeEvent, conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) => {
+    if (remoteClientMode.isActive()) {
+      await remoteClientMode.getClient()!.sendMessage(conversationId, message, workingDirectory, fileReferences, images);
+      return;
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     await agentRef.sendMessage(conversationId, message, workingDirectory, fileReferences, images);
   });
 
   ipcMain.handle('agent:abort', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (remoteClientMode.isActive()) {
+      await remoteClientMode.getClient()!.abort(conversationId);
+      return;
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     agentRef.abort(conversationId);
   });
 
   ipcMain.handle('agent:switch-model', async (_: IpcMainInvokeEvent, conversationId: string, model: string, provider: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.switchModel(conversationId, model, provider);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return await agentRef.switchModel(conversationId, model, provider);
   });
 
   ipcMain.handle('agent:clear-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (remoteClientMode.isActive()) {
+      await remoteClientMode.getClient()!.clearConversation(conversationId);
+      return;
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     agentRef.clearConversation(conversationId);
   });
 
   ipcMain.handle('agent:get-token-count', async (_: IpcMainInvokeEvent, conversationId: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.getTokenCount(conversationId);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return await agentRef.getTokenCount(conversationId);
   });
 
   ipcMain.handle('agent:respond-permission', async (_: IpcMainInvokeEvent, toolId: string, decision: 'allow' | 'deny' | 'allowAlways') => {
+    if (remoteClientMode.isActive()) {
+      const success = await remoteClientMode.getClient()!.respondPermission(toolId, decision);
+      return { success };
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return { success: agentRef.respondPermission(toolId, decision) };
   });
 
   ipcMain.handle('agent:respond-user-input', async (_: IpcMainInvokeEvent, requestId: string, response: string, cancelled: boolean) => {
+    if (remoteClientMode.isActive()) {
+      const success = await remoteClientMode.getClient()!.respondUserInput(requestId, response, cancelled);
+      return { success };
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return { success: agentRef.respondUserInput(requestId, response, cancelled) };
   });
 
   ipcMain.handle('agent:set-mode', async (_: IpcMainInvokeEvent, conversationId: string, mode: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.setMode(conversationId, mode);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return await agentRef.setMode(conversationId, mode);
   });
 
   ipcMain.handle('agent:restore-history', async (_: IpcMainInvokeEvent, conversationId: string, messages: unknown[]) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.restoreHistory(conversationId, messages);
+    }
     if (!agentRef) throw new Error('Agent not initialized');
     return agentRef.restoreHistory(conversationId, messages);
   });
@@ -291,6 +333,9 @@ export function setupIpcHandlers(): void {
 
   // File handlers
   ipcMain.handle('file:read', async (_: IpcMainInvokeEvent, filePath: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.readFile(filePath);
+    }
     try {
       // Resolve relative paths using the current working directory
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
@@ -316,6 +361,9 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:write', async (_: IpcMainInvokeEvent, filePath: string, content: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.writeFile(filePath, content);
+    }
     try {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
       // Ensure directory exists
@@ -368,6 +416,9 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:edit', async (_: IpcMainInvokeEvent, filePath: string, oldString: string, newString: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.editFile(filePath, oldString, newString);
+    }
     try {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
       const content = await fs.readFile(resolvedPath, 'utf-8');
@@ -385,6 +436,9 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:list', async (_: IpcMainInvokeEvent, dirPath: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.listFiles(dirPath);
+    }
     console.log('[file:list] Listing directory:', dirPath);
     try {
       const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
@@ -421,6 +475,9 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:mkdir', async (_: IpcMainInvokeEvent, dirPath: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.mkdir(dirPath);
+    }
     console.log('[file:mkdir] Creating directory:', dirPath);
     try {
       const resolvedPath = path.isAbsolute(dirPath) ? dirPath : path.join(getWorkingDirectory(), dirPath);
@@ -448,6 +505,9 @@ export function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('file:delete', async (_: IpcMainInvokeEvent, filePath: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.deleteFile(filePath);
+    }
     console.log('[file:delete] Deleting:', filePath);
     try {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(getWorkingDirectory(), filePath);
@@ -566,6 +626,9 @@ export function setupIpcHandlers(): void {
 
   // Content search handler for search bar
   ipcMain.handle('file:searchContent', async (_: IpcMainInvokeEvent, projectPath: string, searchTerm: string) => {
+    if (remoteClientMode.isActive()) {
+      return remoteClientMode.getClient()!.searchContent(projectPath, searchTerm);
+    }
     try {
       const results: Array<{ path: string; lineNumber: number; preview: string }> = [];
       const MAX_RESULTS = 100;
@@ -1108,7 +1171,14 @@ export function setupIpcHandlers(): void {
   });
 
   // Terminal handlers
-  ipcMain.handle('terminal:create', (event: IpcMainInvokeEvent, id: string, cwd: string, cols: number, rows: number) => {
+  ipcMain.handle('terminal:create', async (event: IpcMainInvokeEvent, id: string, cwd: string, cols: number, rows: number) => {
+    if (remoteClientMode.isActive()) {
+      const result = await remoteClientMode.getClient()!.createTerminal(id, cwd, cols, rows);
+      if (result.success) {
+        remoteClientMode.subscribeTerminalStream(id);
+      }
+      return result;
+    }
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return { success: false, error: 'No window found' };
     try {
@@ -1120,15 +1190,28 @@ export function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('terminal:write', (_: IpcMainInvokeEvent, id: string, data: string) => {
+  ipcMain.handle('terminal:write', async (_: IpcMainInvokeEvent, id: string, data: string) => {
+    if (remoteClientMode.isActive()) {
+      await remoteClientMode.getClient()!.writeTerminal(id, data);
+      return;
+    }
     writeToTerminal(id, data);
   });
 
-  ipcMain.handle('terminal:resize', (_: IpcMainInvokeEvent, id: string, cols: number, rows: number) => {
+  ipcMain.handle('terminal:resize', async (_: IpcMainInvokeEvent, id: string, cols: number, rows: number) => {
+    if (remoteClientMode.isActive()) {
+      await remoteClientMode.getClient()!.resizeTerminal(id, cols, rows);
+      return;
+    }
     resizeTerminal(id, cols, rows);
   });
 
-  ipcMain.handle('terminal:destroy', (_: IpcMainInvokeEvent, id: string) => {
+  ipcMain.handle('terminal:destroy', async (_: IpcMainInvokeEvent, id: string) => {
+    if (remoteClientMode.isActive()) {
+      remoteClientMode.unsubscribeTerminalStream(id);
+      await remoteClientMode.getClient()!.destroyTerminal(id);
+      return;
+    }
     destroyTerminal(id);
   });
 
@@ -1272,6 +1355,43 @@ export function setupIpcHandlers(): void {
         qrCodeDataUrl,
         url: status.url,
       };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Remote client connection handlers
+  ipcMain.handle('remote-client:connect', async (_: IpcMainInvokeEvent, url: string, apiKey: string) => {
+    try {
+      // Persist credentials
+      const { settingsManager } = await import('./settings.js');
+      settingsManager.set('remoteClient.url', url);
+      settingsManager.set('remoteClient.apiKey', apiKey);
+
+      return await remoteClientMode.connect(url, apiKey);
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('remote-client:disconnect', async () => {
+    try {
+      await remoteClientMode.disconnect();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('remote-client:status', async () => {
+    return remoteClientMode.getStatus();
+  });
+
+  ipcMain.handle('remote-client:test-connection', async (_: IpcMainInvokeEvent, url: string, apiKey: string) => {
+    try {
+      const { RemoteClient } = await import('./remote-client.js');
+      const client = new RemoteClient({ baseUrl: url, apiKey });
+      return await client.testConnection();
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
@@ -1949,6 +2069,13 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('remote:status');
   ipcMain.removeHandler('remote:regenerate-api-key');
   ipcMain.removeHandler('remote:generate-qr');
+
+  // Remote client cleanup
+  ipcMain.removeHandler('remote-client:connect');
+  ipcMain.removeHandler('remote-client:disconnect');
+  ipcMain.removeHandler('remote-client:status');
+  ipcMain.removeHandler('remote-client:test-connection');
+  remoteClientMode.disconnect().catch(() => {});
 
   // Rules/Skills cleanup
   ipcMain.removeHandler('rules:list');

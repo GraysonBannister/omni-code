@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Plus, Trash2, Edit, Server, Eye, EyeOff } from 'lucide-react';
+import { X, Settings as SettingsIcon, Cpu, Check, CheckCircle2, Globe, Play, Square, RefreshCw, Copy, Plus, Trash2, Edit, Server, Eye, EyeOff, Link, Unlink, Wifi } from 'lucide-react';
 import { useSettingsStore, defaultSettings } from '../stores/settingsStore';
 import { useAppStore } from '../stores/appStore';
 import { SettingToggle } from './settings/SettingToggle';
@@ -10,7 +10,7 @@ import { RulesPanel } from './RulesPanel';
 import { SkillsPanel } from './SkillsPanel';
 import './Settings.css';
 
-type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'notifications' | 'rulesSkills';
+type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'connect' | 'notifications' | 'rulesSkills';
 
 interface SettingsPanelProps {
   isOpen?: boolean;
@@ -30,6 +30,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'privacy', label: 'Privacy' },
   { id: 'usage', label: 'Usage' },
   { id: 'remote', label: 'Remote' },
+  { id: 'connect', label: 'Connect' },
   { id: 'notifications', label: 'Notifications' },
 ];
 
@@ -56,6 +57,19 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
   // QR code state
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
+
+  // Remote client (connect to remote host) state
+  const [remoteClientStatus, setRemoteClientStatus] = useState<{
+    connected: boolean;
+    url: string | null;
+    serverInfo: { version?: string; name?: string; workspacePath?: string } | null;
+    error: string | null;
+  } | null>(null);
+  const [remoteClientLoading, setRemoteClientLoading] = useState(false);
+  const [remoteClientUrl, setRemoteClientUrl] = useState('');
+  const [remoteClientApiKey, setRemoteClientApiKey] = useState('');
+  const [remoteClientApiKeyVisible, setRemoteClientApiKeyVisible] = useState(false);
+  const [remoteClientTestResult, setRemoteClientTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // System sounds state
   const [systemSounds, setSystemSounds] = useState<Array<{ value: string; label: string }>>([
@@ -123,6 +137,78 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
       loadRemoteStatus();
     }
   }, [activeTab]);
+
+  // Load remote client status when connect tab is active
+  useEffect(() => {
+    if (activeTab === 'connect') {
+      loadRemoteClientStatus();
+    }
+  }, [activeTab]);
+
+  // Listen for remote client status changes pushed from main process
+  useEffect(() => {
+    const cleanup = window.electronAPI?.remoteClient?.onStatusChanged?.((status) => {
+      setRemoteClientStatus(status);
+    });
+    return cleanup;
+  }, []);
+
+  const loadRemoteClientStatus = async () => {
+    try {
+      const status = await window.electronAPI?.remoteClient?.status();
+      if (status) {
+        setRemoteClientStatus(status);
+        if (status.url) setRemoteClientUrl(status.url);
+      }
+    } catch (error) {
+      console.error('Failed to load remote client status:', error);
+    }
+  };
+
+  const handleRemoteClientTest = async () => {
+    if (!remoteClientUrl || !remoteClientApiKey) return;
+    setRemoteClientLoading(true);
+    setRemoteClientTestResult(null);
+    try {
+      const result = await window.electronAPI?.remoteClient?.testConnection(remoteClientUrl, remoteClientApiKey);
+      if (result?.success) {
+        setRemoteClientTestResult({ success: true, message: `Connected! ${result.serverInfo?.workspacePath ? `Workspace: ${result.serverInfo.workspacePath}` : ''}` });
+      } else {
+        setRemoteClientTestResult({ success: false, message: result?.error || 'Connection failed' });
+      }
+    } catch (error) {
+      setRemoteClientTestResult({ success: false, message: (error as Error).message });
+    }
+    setRemoteClientLoading(false);
+  };
+
+  const handleRemoteClientConnect = async () => {
+    if (!remoteClientUrl || !remoteClientApiKey) return;
+    setRemoteClientLoading(true);
+    setRemoteClientTestResult(null);
+    try {
+      const result = await window.electronAPI?.remoteClient?.connect(remoteClientUrl, remoteClientApiKey);
+      if (result?.success) {
+        setRemoteClientStatus({ connected: true, url: remoteClientUrl, serverInfo: result.serverInfo ?? null, error: null });
+      } else {
+        setRemoteClientStatus((prev) => ({ ...(prev ?? { connected: false, url: null, serverInfo: null }), error: result?.error ?? 'Connection failed' }));
+      }
+    } catch (error) {
+      setRemoteClientStatus((prev) => ({ ...(prev ?? { connected: false, url: null, serverInfo: null }), error: (error as Error).message }));
+    }
+    setRemoteClientLoading(false);
+  };
+
+  const handleRemoteClientDisconnect = async () => {
+    setRemoteClientLoading(true);
+    try {
+      await window.electronAPI?.remoteClient?.disconnect();
+      setRemoteClientStatus({ connected: false, url: null, serverInfo: null, error: null });
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+    }
+    setRemoteClientLoading(false);
+  };
 
   const loadRemoteStatus = async () => {
     try {
@@ -1723,6 +1809,147 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 >
                   Reset Remote Settings
                 </button>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && activeTab === 'connect' && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">
+                <Wifi size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                Connect to Remote Host
+              </h3>
+              <p className="settings-section-description">
+                Connect this desktop app to a remote machine running omni-code. When connected, all agent,
+                file, and terminal operations run on the remote host instead of your local machine.
+              </p>
+
+              {/* Connection status banner */}
+              {remoteClientStatus?.connected && (
+                <div className="remote-client-connected-banner" style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '12px 16px', borderRadius: '8px', marginBottom: '20px',
+                  background: 'var(--color-success-bg, rgba(34,197,94,0.1))',
+                  border: '1px solid var(--color-success, rgba(34,197,94,0.4))',
+                  color: 'var(--color-success-text, #16a34a)',
+                }}>
+                  <Check size={16} />
+                  <span>
+                    <strong>Connected</strong> to <code style={{ fontSize: '13px' }}>{remoteClientStatus.url}</code>
+                    {remoteClientStatus.serverInfo?.workspacePath && (
+                      <span style={{ marginLeft: '8px', opacity: 0.8, fontSize: '13px' }}>
+                        — workspace: {remoteClientStatus.serverInfo.workspacePath}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {remoteClientStatus?.error && !remoteClientStatus.connected && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: '8px', marginBottom: '16px',
+                  background: 'var(--color-error-bg, rgba(239,68,68,0.1))',
+                  border: '1px solid var(--color-error, rgba(239,68,68,0.4))',
+                  color: 'var(--color-error-text, #dc2626)',
+                  fontSize: '13px',
+                }}>
+                  {remoteClientStatus.error}
+                </div>
+              )}
+
+              {/* Server URL */}
+              <div className="api-key-row">
+                <SettingInput
+                  label="Server URL"
+                  description="URL of the remote omni-code host (e.g. http://192.168.1.10:3000 or https://xxx.ngrok.io)"
+                  value={remoteClientUrl}
+                  type="text"
+                  placeholder="http://hostname:3000"
+                  onChange={(value) => {
+                    setRemoteClientUrl(value);
+                    setRemoteClientTestResult(null);
+                  }}
+                />
+              </div>
+
+              {/* API Key */}
+              <div className="api-key-row" style={{ position: 'relative' }}>
+                <SettingInput
+                  label="API Key"
+                  description="API key shown in the Remote tab of the host machine's settings"
+                  value={remoteClientApiKey}
+                  type={remoteClientApiKeyVisible ? 'text' : 'password'}
+                  placeholder="Paste API key here"
+                  onChange={(value) => {
+                    setRemoteClientApiKey(value);
+                    setRemoteClientTestResult(null);
+                  }}
+                />
+                <button
+                  className="remote-copy-btn"
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)' }}
+                  onClick={() => setRemoteClientApiKeyVisible((v) => !v)}
+                  title={remoteClientApiKeyVisible ? 'Hide key' : 'Show key'}
+                >
+                  {remoteClientApiKeyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+
+              {/* Test result */}
+              {remoteClientTestResult && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: '8px', marginTop: '4px', marginBottom: '8px',
+                  background: remoteClientTestResult.success ? 'var(--color-success-bg, rgba(34,197,94,0.1))' : 'var(--color-error-bg, rgba(239,68,68,0.1))',
+                  border: `1px solid ${remoteClientTestResult.success ? 'var(--color-success, rgba(34,197,94,0.4))' : 'var(--color-error, rgba(239,68,68,0.4))'}`,
+                  color: remoteClientTestResult.success ? 'var(--color-success-text, #16a34a)' : 'var(--color-error-text, #dc2626)',
+                  fontSize: '13px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                }}>
+                  {remoteClientTestResult.success ? <Check size={14} /> : <X size={14} />}
+                  {remoteClientTestResult.message}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="remote-actions" style={{ marginTop: '16px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleRemoteClientTest}
+                  disabled={remoteClientLoading || !remoteClientUrl || !remoteClientApiKey}
+                >
+                  {remoteClientLoading && !remoteClientStatus?.connected ? 'Testing...' : 'Test Connection'}
+                </button>
+
+                {!remoteClientStatus?.connected ? (
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleRemoteClientConnect}
+                    disabled={remoteClientLoading || !remoteClientUrl || !remoteClientApiKey}
+                  >
+                    <Link size={16} style={{ marginRight: '8px' }} />
+                    {remoteClientLoading ? 'Connecting...' : 'Connect'}
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleRemoteClientDisconnect}
+                    disabled={remoteClientLoading}
+                    style={{ color: 'var(--color-error-text, #dc2626)' }}
+                  >
+                    <Unlink size={16} style={{ marginRight: '8px' }} />
+                    {remoteClientLoading ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                )}
+              </div>
+
+              <div className="settings-info-box" style={{ marginTop: '24px' }}>
+                <strong>How to connect:</strong>
+                <ol>
+                  <li>On the host machine, open Settings → Remote tab and start the remote server</li>
+                  <li>Copy the server URL and API key from the host's Remote tab</li>
+                  <li>Paste them above and click Connect</li>
+                  <li>All agent, file, and terminal operations will now run on the remote host</li>
+                </ol>
               </div>
             </div>
           )}

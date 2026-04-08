@@ -764,16 +764,24 @@ function setupAgentRoutes(app: express.Express): void {
   // Send message
   app.post('/api/agent/send-message', async (req, res) => {
     try {
-      const { conversationId, message, workingDirectory } = req.body;
+      const { conversationId, message, workingDirectory, fileReferences, images } = req.body;
 
       if (!conversationId || !message) {
         res.status(400).json({ error: 'Missing conversationId or message' });
         return;
       }
 
+      // Log incoming message details for debugging
+      console.log(`[RemoteServer] Send message: conversationId=${conversationId}, messageLength=${message?.length || 0}, fileReferences=${fileReferences?.length || 0}, images=${images?.length || 0}`);
+      if (images && images.length > 0) {
+        images.forEach((img: any, idx: number) => {
+          console.log(`[RemoteServer] Image ${idx}: mediaType=${img.mediaType}, dataLength=${img.data?.length || 0}`);
+        });
+      }
+
       // Start the message processing (events will stream via SSE)
       const resolvedCwd = workingDirectory || resolveWorkingDirectory(req);
-      agentBridge.sendMessage(conversationId, message, resolvedCwd).catch((error) => {
+      agentBridge.sendMessage(conversationId, message, resolvedCwd, fileReferences, images).catch((error) => {
         console.error(`[RemoteServer] Error sending message to ${conversationId}:`, error);
       });
 

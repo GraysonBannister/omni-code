@@ -174,6 +174,7 @@ export interface SettingsSchema {
     sound: 'default' | 'none' | string;
     playOnUserInput: boolean;
     playOnResponseComplete: boolean;
+    showTrayBadge: boolean;
   };
 
   // Remote Access
@@ -189,6 +190,13 @@ export interface SettingsSchema {
     rateLimitWindowMs: number;
     proxyEnabled: boolean;
     proxyAllowedPorts: number[];
+  };
+
+  // Remote Client (connecting to a remote omni-code host)
+  remoteClient: {
+    url: string;
+    apiKey: string;
+    autoConnect: boolean;
   };
 
   // ADB / Device Management
@@ -325,6 +333,7 @@ export const defaultSettings: SettingsSchema = {
     sound: 'default',
     playOnUserInput: true,
     playOnResponseComplete: true,
+    showTrayBadge: true,
   },
 
   remoteAccess: {
@@ -339,6 +348,12 @@ export const defaultSettings: SettingsSchema = {
     rateLimitWindowMs: 15 * 60 * 1000,  // 15 minutes
     proxyEnabled: true,
     proxyAllowedPorts: [],
+  },
+
+  remoteClient: {
+    url: '',
+    apiKey: '',
+    autoConnect: false,
   },
 
   adb: {

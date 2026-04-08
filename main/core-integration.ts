@@ -647,6 +647,28 @@ export async function initializeCore(): Promise<void> {
       // Don't fail core initialization if remote server fails
     }
 
+    // Auto-connect to remote host if configured
+    try {
+      const remoteClientUrl = settingsManager.get('remoteClient.url') as string;
+      const remoteClientApiKey = settingsManager.get('remoteClient.apiKey') as string;
+      const remoteClientAutoConnect = settingsManager.get('remoteClient.autoConnect') as boolean;
+
+      if (remoteClientAutoConnect && remoteClientUrl && remoteClientApiKey) {
+        console.log('[CoreIntegration] Auto-connecting to remote host:', remoteClientUrl);
+        const { remoteClientMode } = await import('./remote-client-mode.js');
+        const result = await remoteClientMode.connect(remoteClientUrl, remoteClientApiKey);
+
+        if (result.success) {
+          console.log('[CoreIntegration] Connected to remote host:', remoteClientUrl);
+        } else {
+          console.error('[CoreIntegration] Failed to connect to remote host:', result.error);
+        }
+      }
+    } catch (error) {
+      console.error('[CoreIntegration] Error auto-connecting to remote host:', error);
+      // Don't fail core initialization if remote client connection fails
+    }
+
     // Listen for API key changes and re-initialize providers
     settingsManager.onChange((key: string, value: any) => {
       if (key.startsWith('apiKeys.')) {

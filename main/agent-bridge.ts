@@ -3,6 +3,7 @@ import { BrowserWindow } from 'electron';
 import { getFileHistoryManager } from './file-history.js';
 import { getChangeReviewManager, type PendingToolCallChange } from './change-review-manager.js';
 import { getSettingsManager } from './settings.js';
+import { trayNotificationManager } from './tray-notifications.js';
 
 // Import types from the core
 // Note: These will be resolved at runtime by the built dist-electron files
@@ -569,7 +570,8 @@ export class AgentBridge {
 
         if (agentEvent.type === 'turn_complete') {
           const stopReason = (agentEvent.message as UnifiedMessage).metadata?.stopReason;
-          const assistantMessageId = (agentEvent.message as UnifiedMessage).id;
+          const assistantMessage = agentEvent.message as UnifiedMessage;
+          const assistantMessageId = assistantMessage.id;
 
           if (stopReason === 'tool_use') {
             state.currentAssistantMessageId = assistantMessageId;
@@ -577,6 +579,28 @@ export class AgentBridge {
             state.isRunning = false;
             state.currentAssistantMessageId = undefined;
             state.pendingFileChanges.clear();
+
+            // Notify tray when response completes (non-tool responses)
+            // Get message preview from the assistant's response content
+            const content = assistantMessage.content;
+            const messagePreview = typeof content === 'string'
+              ? content.slice(0, 100)
+              : 'New response';
+
+            // Get conversation title from agent messages (first user message or default)
+            const firstUserMessage = state.agent.messages.find(m => m.role === 'user');
+            const conversationTitle = firstUserMessage
+              ? (typeof firstUserMessage.content === 'string'
+                ? firstUserMessage.content.slice(0, 30)
+                : 'Chat')
+              : 'Chat';
+
+            trayNotificationManager.notifyResponseComplete(
+              conversationId,
+              conversationTitle,
+              messagePreview,
+              false // isConversationActive - will be determined by tray manager based on activeConversationId
+            );
           }
         }
 

@@ -249,6 +249,19 @@ type NotificationsAPI = {
   requestSound: (type: 'user_input' | 'response_complete') => Promise<void>;
 };
 
+// Tray API for notification badge and navigation
+type TrayAPI = {
+  onNavigateToChat: (callback: (conversationId: string) => void) => () => void;
+  onClearAll: (callback: () => void) => () => void;
+  onNotificationCleared: (callback: (conversationId: string) => void) => () => void;
+  onAllNotificationsCleared: (callback: () => void) => () => void;
+  updateActiveConversation: (conversationId: string | null) => Promise<void>;
+  updateRecentChats: (chats: Array<{ conversationId: string; title: string; lastActivity: number; messageCount: number; workspaceId?: string; projectPath?: string }>) => Promise<void>;
+  updateOpenProject: (project: { workspaceId?: string; projectPath?: string; isWorkspaceMode: boolean } | null) => Promise<void>;
+  clearNotification: (conversationId: string) => Promise<void>;
+  clearAllNotifications: () => Promise<void>;
+};
+
 // Dialogs API for file selection
 type DialogsAPI = {
   selectSoundFile: () => Promise<{ filePath: string | null; error?: string }>;
@@ -396,7 +409,7 @@ type GitAPI = {
   init: (cwd: string) => Promise<{ success: boolean; error?: string }>;
 };
 
-// Remote Access API
+// Remote Access API (hosting)
 type RemoteServerStatus = {
   running: boolean;
   url: string | null;
@@ -415,6 +428,40 @@ type RemoteAPI = {
   status: () => Promise<RemoteServerStatus>;
   regenerateApiKey: () => Promise<{ success: boolean; apiKey?: string; error?: string }>;
   generateQR: () => Promise<{ success: boolean; qrCodeDataUrl?: string; url?: string; error?: string }>;
+};
+
+// Remote Client API (connecting to a remote host)
+type RemoteClientServerInfo = {
+  version?: string;
+  name?: string;
+  workspacePath?: string;
+};
+
+type RemoteClientStatus = {
+  connected: boolean;
+  url: string | null;
+  serverInfo: RemoteClientServerInfo | null;
+  error: string | null;
+};
+
+type RemoteClientConnectResult = {
+  success: boolean;
+  error?: string;
+  serverInfo?: RemoteClientServerInfo;
+};
+
+type RemoteClientTestResult = {
+  success: boolean;
+  error?: string;
+  serverInfo?: RemoteClientServerInfo;
+};
+
+type RemoteClientAPI = {
+  connect: (url: string, apiKey: string) => Promise<RemoteClientConnectResult>;
+  disconnect: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<RemoteClientStatus>;
+  testConnection: (url: string, apiKey: string) => Promise<RemoteClientTestResult>;
+  onStatusChanged: (callback: (status: RemoteClientStatus) => void) => () => void;
 };
 
 // Custom Models API
@@ -440,10 +487,12 @@ type ElectronAPI = {
   usage: UsageAPI;
   indexing: IndexingAPI;
   notifications: NotificationsAPI;
+  tray: TrayAPI;
   dialogs: DialogsAPI;
   terminal: TerminalAPI;
   browser: BrowserAPI;
   remote: RemoteAPI;
+  remoteClient: RemoteClientAPI;
   project: ProjectAPI;
   customModels: CustomModelsAPI;
   plan: PlanAPI;
@@ -737,6 +786,22 @@ const api: ElectronAPI = {
     generateQR: () => ipcRenderer.invoke('remote:generate-qr'),
   },
 
+  remoteClient: {
+    connect: (url: string, apiKey: string) =>
+      ipcRenderer.invoke('remote-client:connect', url, apiKey),
+    disconnect: () =>
+      ipcRenderer.invoke('remote-client:disconnect'),
+    status: () =>
+      ipcRenderer.invoke('remote-client:status'),
+    testConnection: (url: string, apiKey: string) =>
+      ipcRenderer.invoke('remote-client:test-connection', url, apiKey),
+    onStatusChanged: (callback: (status: RemoteClientStatus) => void) => {
+      const handler = (_: IpcRendererEvent, status: RemoteClientStatus) => callback(status);
+      ipcRenderer.on('remote-client:status-changed', handler);
+      return () => ipcRenderer.off('remote-client:status-changed', handler);
+    },
+  },
+
   project: {
     scan: (dirs: string[]) => ipcRenderer.invoke('project:scan', dirs),
   },
@@ -816,6 +881,39 @@ const api: ElectronAPI = {
     install: (manifest: AddonManifest) => ipcRenderer.invoke('addons:install', manifest),
     uninstall: (id: string) => ipcRenderer.invoke('addons:uninstall', id),
   },
+
+  tray: {
+    onNavigateToChat: (callback: (conversationId: string) => void) => {
+      const handler = (_: IpcRendererEvent, conversationId: string) => callback(conversationId);
+      ipcRenderer.on('tray:navigate-to-chat', handler);
+      return () => ipcRenderer.off('tray:navigate-to-chat', handler);
+    },
+    onClearAll: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('tray:clear-all', handler);
+      return () => ipcRenderer.off('tray:clear-all', handler);
+    },
+    onNotificationCleared: (callback: (conversationId: string) => void) => {
+      const handler = (_: IpcRendererEvent, conversationId: string) => callback(conversationId);
+      ipcRenderer.on('tray:notification-cleared', handler);
+      return () => ipcRenderer.off('tray:notification-cleared', handler);
+    },
+    onAllNotificationsCleared: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('tray:all-notifications-cleared', handler);
+      return () => ipcRenderer.off('tray:all-notifications-cleared', handler);
+    },
+    updateActiveConversation: (conversationId: string | null) =>
+      ipcRenderer.invoke('tray:update-active', conversationId),
+    updateRecentChats: (chats: Array<{ conversationId: string; title: string; lastActivity: number; messageCount: number; workspaceId?: string; projectPath?: string }>) =>
+      ipcRenderer.invoke('tray:update-recent-chats', chats),
+    updateOpenProject: (project: { workspaceId?: string; projectPath?: string; isWorkspaceMode: boolean } | null) =>
+      ipcRenderer.invoke('tray:update-open-project', project),
+    clearNotification: (conversationId: string) =>
+      ipcRenderer.invoke('tray:clear-notification', conversationId),
+    clearAllNotifications: () =>
+      ipcRenderer.invoke('tray:clear-all-notifications'),
+  },
 };
 
 // Expose to window.electronAPI
@@ -848,7 +946,8 @@ declare global {
 
 export type {
   ElectronAPI, AgentAPI, FileAPI, ToolAPI, ConfigAPI, DialogAPI, AppAPI,
-  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TerminalAPI, BrowserAPI, RemoteAPI, ProjectAPI, PlanAPI, PlanFileData, GitAPI, GitStatusResult,
+  SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TrayAPI, TerminalAPI, BrowserAPI, RemoteAPI, RemoteClientAPI, ProjectAPI, PlanAPI, PlanFileData, GitAPI, GitStatusResult,
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
+  RemoteClientStatus, RemoteClientConnectResult, RemoteClientTestResult, RemoteClientServerInfo,
   RulesAPI, SkillsAPI, RuleData, SkillData,
 };

@@ -405,10 +405,17 @@ const MessageContent: React.FC<{ content: string | ContentBlock[] | null | undef
         }
 
         if (block.type === 'image') {
+          const dataUrl = `data:${block.source.mediaType};base64,${block.source.data}`;
           return (
-            <p key={`image-${index}`} className="message-text">
-              [Image content]
-            </p>
+            <div key={`image-${index}`} className="message-image-container">
+              <img
+                src={dataUrl}
+                alt="Attached image"
+                className="message-image"
+                onClick={() => window.open(dataUrl, '_blank')}
+                style={{ cursor: 'pointer' }}
+              />
+            </div>
           );
         }
 
@@ -724,6 +731,8 @@ export const ChatPanel: React.FC = () => {
     availableProviders,
     currentModel,
     projectPath,
+    currentWorkspace,
+    isWorkspaceMode,
     files,
     openFolder,
     openRecentWorkspace,
@@ -840,6 +849,81 @@ export const ChatPanel: React.FC = () => {
       }, 100);
     }
   }, [pendingUserInput]);
+
+  // Tray notification integration: listen for navigation requests from tray
+  useEffect(() => {
+    if (!window.electronAPI?.tray?.onNavigateToChat) return;
+
+    const unsubscribe = window.electronAPI.tray.onNavigateToChat((conversationId: string) => {
+      console.log('[ChatPanel] Navigating to conversation from tray:', conversationId);
+
+      // Check if conversation exists
+      const conversation = conversations.find(c => c.id === conversationId);
+      if (conversation) {
+        setActiveConversation(conversationId);
+      } else {
+        console.warn('[ChatPanel] Conversation not found for tray navigation:', conversationId);
+      }
+    });
+
+    return unsubscribe;
+  }, [conversations, setActiveConversation]);
+
+  // Tray notification integration: notify main when active conversation changes
+  useEffect(() => {
+    if (!window.electronAPI?.tray?.updateActiveConversation) return;
+
+    // Notify main process of the currently active conversation
+    window.electronAPI.tray.updateActiveConversation(activeConversationId)
+      .catch(err => console.error('[ChatPanel] Failed to update active conversation:', err));
+
+    // Clear notification for this conversation when it becomes active
+    if (activeConversationId && window.electronAPI?.tray?.clearNotification) {
+      window.electronAPI.tray.clearNotification(activeConversationId)
+        .catch(err => console.error('[ChatPanel] Failed to clear notification:', err));
+    }
+  }, [activeConversationId]);
+
+  // Tray notification integration: send recent chats and open project info to main for the tray menu
+  useEffect(() => {
+    if (!window.electronAPI?.tray?.updateRecentChats) return;
+
+    // Get open project/workspace info
+    const openProject = currentWorkspace
+      ? {
+          workspaceId: currentWorkspace.id,
+          isWorkspaceMode: true,
+        }
+      : projectPath
+        ? {
+            projectPath,
+            isWorkspaceMode: false,
+          }
+        : null;
+
+    // Update open project info first
+    if (window.electronAPI.tray.updateOpenProject) {
+      window.electronAPI.tray.updateOpenProject(openProject)
+        .catch(err => console.error('[ChatPanel] Failed to update open project:', err));
+    }
+
+    // Build recent chats info from conversations
+    // All conversations belong to the currently open project/workspace
+    const recentChats = conversations.map(conv => {
+      const lastMessage = conv.messages[conv.messages.length - 1];
+      return {
+        conversationId: conv.id,
+        title: conv.title || 'New Chat',
+        lastActivity: lastMessage?.timestamp || conv.createdAt || Date.now(),
+        messageCount: conv.messages.length,
+        workspaceId: currentWorkspace?.id,
+        projectPath: isWorkspaceMode ? undefined : projectPath,
+      };
+    }).slice(0, 10); // Limit to 10 recent chats
+
+    window.electronAPI.tray.updateRecentChats(recentChats)
+      .catch(err => console.error('[ChatPanel] Failed to update recent chats:', err));
+  }, [conversations, currentWorkspace, projectPath]);
 
   const loadMessageFileChanges = useCallback(async (messageId: string) => {
     if (!activeConversationId || !window.electronAPI) return;
@@ -1821,16 +1905,22 @@ export const ChatPanel: React.FC = () => {
           const alreadyExists = existingConv?.messages.some(m => m.id === userMsg.id);
           console.log('[ChatPanel] user_message: alreadyExists=', alreadyExists, 'msgId=', userMsg.id);
           if (!alreadyExists) {
-            const contentStr = typeof userMsg.content === 'string'
-              ? userMsg.content
-              : Array.isArray(userMsg.content)
-                ? (userMsg.content as ContentBlock[]).filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-                : String(userMsg.content);
-            console.log('[ChatPanel] user_message: adding to conversation, content preview=', contentStr.slice(0, 100));
+            // Preserve the full content block array if it contains images
+            const hasImages = Array.isArray(userMsg.content) &&
+              (userMsg.content as ContentBlock[]).some(b => b.type === 'image');
+            const contentForStorage = (typeof userMsg.content === 'string' || !hasImages)
+              ? (typeof userMsg.content === 'string'
+                  ? userMsg.content
+                  : Array.isArray(userMsg.content)
+                    ? (userMsg.content as ContentBlock[]).filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+                    : String(userMsg.content))
+              : userMsg.content; // Keep full content blocks when images are present
+            console.log('[ChatPanel] user_message: adding to conversation, hasImages=', hasImages, 'content preview=',
+              (typeof contentForStorage === 'string' ? contentForStorage.slice(0, 100) : '[Content with images]'));
             addMessageToConversation(conversationId, {
               id: userMsg.id,
               role: 'user',
-              content: contentStr,
+              content: contentForStorage,
               timestamp: userMsg.timestamp,
               fileReferences: userMsg.fileReferences,
             });
