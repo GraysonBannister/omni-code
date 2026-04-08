@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { watchFile, unwatchFile } from 'node:fs';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
@@ -85,13 +85,25 @@ async function restartElectron() {
     await waitForFile(electronEntry);
     await waitForRenderer(viteUrl);
     await stopElectron();
-    electronProcess = spawnProcess(electronBinary, ['.'], 'electron', {
+    electronProcess = spawnProcess(electronBinary, ['--max-old-space-size=8192', '.'], 'electron', {
       NODE_ENV: 'development',
       ELECTRON_RUN_AS_NODE: '',
     });
   } finally {
     launchingElectron = false;
   }
+}
+
+// Rebuild native modules for Electron before launching
+console.log('[electron-dev] Rebuilding native modules for Electron...');
+try {
+  execSync('npx electron-rebuild -m . -o better-sqlite3', {
+    cwd: projectRoot,
+    stdio: 'inherit',
+  });
+  console.log('[electron-dev] Native modules rebuilt for Electron.');
+} catch (e) {
+  console.error('[electron-dev] Warning: electron-rebuild failed:', e.message);
 }
 
 const viteProcess = spawnProcess('npm', ['run', 'dev:vite'], 'vite', {

@@ -503,23 +503,49 @@ export function setupIpcHandlers(): void {
       fileWatchers.set(resolvedPath, abortController);
       
       // Use fs.watch if available, otherwise fallback to polling
+      const IGNORED_DIRS = new Set([
+        'node_modules', '.git', 'dist', 'build', '.next', '.cache',
+        '.turbo', '.nuxt', '.output', '__pycache__', '.venv', 'venv',
+        '.expo', '.parcel-cache', 'coverage', '.svelte-kit',
+      ]);
+
       const { watch } = await import('node:fs');
+
+      // Debounce file change notifications to avoid IPC flooding
+      let pendingChanges = new Map<string, string>();
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const flushChanges = () => {
+        const changes = Array.from(pendingChanges.entries());
+        pendingChanges = new Map();
+        debounceTimer = null;
+        BrowserWindow.getAllWindows().forEach(window => {
+          for (const [fullPath, type] of changes) {
+            window.webContents.send('file:change', { type, path: fullPath });
+          }
+        });
+      };
+
       const watcher = watch(resolvedPath, { recursive: true }, (eventType, filename) => {
         if (!filename) return;
-        
+
+        // Skip ignored directories
+        const parts = filename.split(path.sep);
+        if (parts.some(p => IGNORED_DIRS.has(p))) return;
+
         const fullPath = path.join(resolvedPath, filename);
-        
-        // Send to all windows
-        BrowserWindow.getAllWindows().forEach(window => {
-          window.webContents.send('file:change', {
-            type: eventType === 'rename' ? 'unlink' : 'change',
-            path: fullPath,
-          });
-        });
+        const type = eventType === 'rename' ? 'unlink' : 'change';
+
+        pendingChanges.set(fullPath, type);
+        if (!debounceTimer) {
+          debounceTimer = setTimeout(flushChanges, 300);
+        }
       });
       
       // Store watcher reference
       abortController.signal.addEventListener('abort', () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        pendingChanges.clear();
         watcher.close();
       });
       
@@ -1253,12 +1279,22 @@ export function setupIpcHandlers(): void {
 
   // --- Git IPC Handlers ---
   console.log('[IPC:git] Registering git handlers...');
+  const GIT_MANAGER_CACHE_MAX = 10;
   const gitManagerCache = new Map<string, GitManager>();
   function getGitManager(cwd: string): GitManager {
     let mgr = gitManagerCache.get(cwd);
-    if (!mgr) {
-      mgr = new GitManager(cwd);
+    if (mgr) {
+      // Move to end (most recently used)
+      gitManagerCache.delete(cwd);
       gitManagerCache.set(cwd, mgr);
+      return mgr;
+    }
+    mgr = new GitManager(cwd);
+    gitManagerCache.set(cwd, mgr);
+    // Evict oldest entry if cache exceeds limit
+    if (gitManagerCache.size > GIT_MANAGER_CACHE_MAX) {
+      const oldest = gitManagerCache.keys().next().value;
+      if (oldest) gitManagerCache.delete(oldest);
     }
     return mgr;
   }
