@@ -166,6 +166,7 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 /* Messages */
@@ -265,6 +266,16 @@
   border-color: var(--color-error, #dc2626);
 }
 
+.chat-message.error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: var(--color-error, #dc2626);
+  border-left: 3px solid var(--color-error, #dc2626);
+}
+
+.chat-message.error .chat-message-header {
+  color: var(--color-error, #dc2626);
+}
+
 .chat-message.streaming {
   border-left: 2px solid var(--color-accent);
 }
@@ -292,6 +303,34 @@
   font-size: var(--font-size-md);
   line-height: 1.6;
   color: var(--color-text-primary);
+}
+
+/* Error message content styling */
+.error-message-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.error-message-title {
+  font-weight: 600;
+  font-size: var(--font-size-md);
+  color: var(--color-error, #dc2626);
+  margin-bottom: 4px;
+}
+
+.error-message-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.error-message-suggestion {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
 }
 
 /* Message copy button - appears at bottom right of message bubble */
@@ -643,6 +682,32 @@
 
 .chat-image-thumb:hover .chat-image-remove {
   opacity: 1;
+}
+
+/* Scroll to bottom button */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s ease;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .chat-input {

@@ -1507,7 +1507,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
               </h3>
               <p className="settings-section-description">
                 Enable remote access to control omni-code from your mobile device anywhere.
-                Requires an ngrok account (free tier works).
+                Choose a tunnel provider below — ngrok, Cloudflare Tunnel, or Localtunnel.
               </p>
 
               <SettingToggle
@@ -1517,15 +1517,42 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 onChange={(checked) => setSetting('remoteAccess.enabled', checked)}
               />
 
-              <div className="api-key-row">
-                <SettingInput
-                  label="ngrok Auth Token"
-                  description="Your ngrok authentication token (get one at ngrok.com)"
-                  value={currentSettings.remoteAccess?.ngrokAuthToken || ''}
-                  type="password"
-                  onChange={(value) => setSetting('remoteAccess.ngrokAuthToken', value)}
-                />
-              </div>
+              <SettingSelect
+                label="Tunnel Provider"
+                description="Service used to expose your local server to the internet"
+                value={currentSettings.remoteAccess?.tunnelProvider || 'ngrok'}
+                options={[
+                  { value: 'ngrok', label: 'ngrok (requires free account)' },
+                  { value: 'cloudflared', label: 'Cloudflare Tunnel (no account required)' },
+                  { value: 'localtunnel', label: 'Localtunnel (no account required)' },
+                  { value: 'none', label: 'None (local network only)' },
+                ]}
+                onChange={(value) => setSetting('remoteAccess.tunnelProvider', value)}
+              />
+
+              {(currentSettings.remoteAccess?.tunnelProvider ?? 'ngrok') === 'ngrok' && (
+                <div className="api-key-row">
+                  <SettingInput
+                    label="ngrok Auth Token"
+                    description="Your ngrok authentication token (get one at ngrok.com)"
+                    value={currentSettings.remoteAccess?.ngrokAuthToken || ''}
+                    type="password"
+                    onChange={(value) => setSetting('remoteAccess.ngrokAuthToken', value)}
+                  />
+                </div>
+              )}
+
+              {(currentSettings.remoteAccess?.tunnelProvider) === 'cloudflared' && (
+                <div className="api-key-row">
+                  <SettingInput
+                    label="Cloudflare Tunnel Token (optional)"
+                    description="Leave blank for a free quick tunnel. Enter a token for a named tunnel with a fixed URL (requires Cloudflare account)."
+                    value={currentSettings.remoteAccess?.cloudflaredToken || ''}
+                    type="password"
+                    onChange={(value) => setSetting('remoteAccess.cloudflaredToken', value)}
+                  />
+                </div>
+              )}
 
               <SettingInput
                 label="Server Port"
@@ -1596,7 +1623,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                   <button
                     className="btn btn-primary"
                     onClick={handleRemoteStart}
-                    disabled={remoteLoading || !currentSettings.remoteAccess?.ngrokAuthToken}
+                    disabled={
+                      remoteLoading ||
+                      ((currentSettings.remoteAccess?.tunnelProvider ?? 'ngrok') === 'ngrok' &&
+                        !currentSettings.remoteAccess?.ngrokAuthToken)
+                    }
                   >
                     <Play size={16} style={{ marginRight: '8px' }} />
                     {remoteLoading ? 'Starting...' : 'Start Server'}
@@ -1680,7 +1711,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 <ol>
                   <li>Copy the Public URL and API Key above</li>
                   <li>In your mobile app, create a connection using these credentials</li>
-                  <li>All communication is encrypted via ngrok's HTTPS tunnel</li>
+                  <li>All communication is encrypted via the HTTPS tunnel provided by your chosen tunnel provider</li>
                   <li>Rate limiting is active (100 requests per 15 minutes by default)</li>
                 </ol>
               </div>

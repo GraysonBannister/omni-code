@@ -1,11 +1,12 @@
-// Remote Access Server - Express HTTP server with ngrok tunnel
+// Remote Access Server - Express HTTP server with pluggable tunnel provider
 // Provides REST API for mobile app access to omni-code
 
 import express from 'express';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import * as ngrok from '@ngrok/ngrok';
+import { createTunnelProvider } from './tunnel-providers.js';
+import type { TunnelProvider } from './tunnel-providers.js';
 import { settingsManager } from './settings.js';
 import { agentBridge } from './agent-bridge.js';
 import type { UnifiedMessage } from './agent-bridge.js';
@@ -115,7 +116,7 @@ function sendRouteError(res: Response, error: unknown): void {
 // Server state
 let app: express.Express | null = null;
 let server: ReturnType<express.Express['listen']> | null = null;
-let ngrokListener: ngrok.Listener | null = null;
+let tunnelProvider: TunnelProvider | null = null;
 let isRunning = false;
 let publicUrl: string | null = null;
 let port: number = 3000;
@@ -170,7 +171,9 @@ export async function initializeRemoteServer(): Promise<{
   try {
     // Get configuration from settings
     port = (settingsManager.get('remoteAccess.port') as number) || 3000;
+    const providerType = (settingsManager.get('remoteAccess.tunnelProvider') as string) || 'ngrok';
     const ngrokAuthToken = settingsManager.get('remoteAccess.ngrokAuthToken') as string;
+    const cloudflaredToken = settingsManager.get('remoteAccess.cloudflaredToken') as string;
 
     // Ensure we have an API key
     const apiKey = ensureApiKey();
@@ -230,24 +233,20 @@ export async function initializeRemoteServer(): Promise<{
       });
     });
 
-    // Setup ngrok tunnel
-    if (ngrokAuthToken) {
-      try {
-        ngrokListener = await ngrok.forward({
-          addr: port,
-          authtoken: ngrokAuthToken,
-        });
-
-        publicUrl = ngrokListener.url() || null;
-        console.log(`[RemoteServer] Ngrok tunnel established: ${publicUrl}`);
-      } catch (error) {
-        console.error('[RemoteServer] Failed to create ngrok tunnel:', error);
-        // Continue without ngrok - local network access still works
-        publicUrl = `http://localhost:${port}`;
-      }
-    } else {
-      console.warn('[RemoteServer] No ngrok auth token configured. Only local access available.');
+    // Setup tunnel
+    try {
+      tunnelProvider = createTunnelProvider({
+        tunnelProvider: providerType as import('./tunnel-providers.js').TunnelProviderType,
+        ngrokAuthToken: ngrokAuthToken || undefined,
+        cloudflaredToken: cloudflaredToken || undefined,
+      });
+      publicUrl = await tunnelProvider.start(port);
+      console.log(`[RemoteServer] Tunnel established via ${providerType}: ${publicUrl}`);
+    } catch (error) {
+      console.error(`[RemoteServer] Failed to create ${providerType} tunnel:`, error);
+      // Continue without tunnel — local network access still works
       publicUrl = `http://localhost:${port}`;
+      tunnelProvider = null;
     }
 
     // Initialize event emitter for SSE
@@ -332,14 +331,10 @@ async function cleanup(): Promise<void> {
   // Cleanup event emitter
   cleanupEventEmitter();
 
-  // Close ngrok tunnel
-  if (ngrokListener) {
-    try {
-      await ngrokListener.close();
-    } catch {
-      // Ignore errors on close
-    }
-    ngrokListener = null;
+  // Stop tunnel provider
+  if (tunnelProvider) {
+    await tunnelProvider.stop();
+    tunnelProvider = null;
   }
 
   // Close Express server
@@ -1682,7 +1677,7 @@ function setupGitRoutes(app: express.Express): void {
 
 /**
  * Reverse proxy routes — forward requests to localhost services through the
- * existing ngrok tunnel so remote clients can view dev servers, etc.
+ * active tunnel so remote clients can view dev servers, etc.
  */
 function setupProxyRoutes(app: express.Express): void {
   // Register a port for proxying

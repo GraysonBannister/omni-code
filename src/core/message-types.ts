@@ -42,6 +42,8 @@ export interface MessageMetadata {
   latencyMs?: number;
   stopReason?: StopReason;
   cost?: number;
+  isError?: boolean;
+  errorType?: 'quota_exceeded' | 'unsupported_model' | 'auth_error' | 'network_error' | 'unknown_error';
 }
 
 export interface UnifiedMessage {

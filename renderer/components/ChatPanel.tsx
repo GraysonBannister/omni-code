@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy, AlertTriangle } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -59,6 +59,97 @@ function stripPlanBlock(text: string): string {
   if (!text.includes('<plan>')) return text;
   // Strip preamble + the plan block; preserve any content after </plan>
   return text.replace(/[\s\S]*<plan>[\s\S]*?<\/plan>\n?/g, '').trim();
+}
+
+// Error classification types
+interface ErrorDetails {
+  type: 'quota_exceeded' | 'unsupported_model' | 'auth_error' | 'network_error' | 'unknown_error';
+  title: string;
+  message: string;
+  suggestion: string;
+}
+
+function classifyError(error: { message?: string } | Error | undefined): ErrorDetails {
+  const message = (error && 'message' in error) ? error.message : String(error);
+  const errorMessage = (message || '').toLowerCase();
+  const errorStack = (error && 'stack' in error && error.stack ? error.stack : '').toLowerCase();
+  const fullError = errorMessage + ' ' + errorStack;
+
+  // Monthly spend / quota exceeded
+  if (
+    fullError.includes('monthly spend') ||
+    fullError.includes('limit reached') ||
+    fullError.includes('quota exceeded') ||
+    fullError.includes('rate limit') ||
+    fullError.includes('too many requests') ||
+    fullError.includes('429')
+  ) {
+    return {
+      type: 'quota_exceeded',
+      title: 'Usage Limit Reached',
+      message: message || 'Usage limit reached',
+      suggestion: 'Check your provider settings to increase the limit or wait until your quota resets.',
+    };
+  }
+
+  // Unsupported model
+  if (
+    fullError.includes('model') &&
+    (fullError.includes('not supported') ||
+      fullError.includes('not found') ||
+      fullError.includes('does not support') ||
+      fullError.includes('invalid model') ||
+      fullError.includes('thinking') && fullError.includes('not supported'))
+  ) {
+    return {
+      type: 'unsupported_model',
+      title: 'Model Not Available',
+      message: message || 'Model not supported',
+      suggestion: 'Try switching to a different model in Settings > Providers.',
+    };
+  }
+
+  // Authentication / API key issues
+  if (
+    fullError.includes('authentication') ||
+    fullError.includes('api key') ||
+    fullError.includes('unauthorized') ||
+    fullError.includes('invalid key') ||
+    fullError.includes('401') ||
+    fullError.includes('403')
+  ) {
+    return {
+      type: 'auth_error',
+      title: 'Authentication Failed',
+      message: message || 'Authentication failed',
+      suggestion: 'Check your API key in Settings > Providers and ensure it\'s valid.',
+    };
+  }
+
+  // Network errors
+  if (
+    fullError.includes('network') ||
+    fullError.includes('connection') ||
+    fullError.includes('timeout') ||
+    fullError.includes('econnrefused') ||
+    fullError.includes('ENOTFOUND') ||
+    fullError.includes('socket hang up')
+  ) {
+    return {
+      type: 'network_error',
+      title: 'Connection Failed',
+      message: message || 'Connection failed',
+      suggestion: 'Check your internet connection and try again.',
+    };
+  }
+
+  // Unknown / default
+  return {
+    type: 'unknown_error',
+    title: 'An Error Occurred',
+    message: message || 'Unknown error occurred',
+    suggestion: 'Please try again or check the console for more details.',
+  };
 }
 
 function renderTextContent(content: string, keyPrefix: string, trailingNode?: React.ReactNode): React.ReactNode[] {
@@ -674,7 +765,7 @@ export const ChatPanel: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const isAtBottomRef = useRef(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const pastChatsPanelRef = useRef<HTMLDivElement>(null);
   const projectPickerRef = useRef<HTMLDivElement>(null);
@@ -1170,19 +1261,29 @@ export const ChatPanel: React.FC = () => {
     if (!container) return true;
     const threshold = 100;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    return distanceFromBottom < threshold;
+    const atBottom = distanceFromBottom < threshold;
+    setIsAtBottom(atBottom);
+    return atBottom;
   }, []);
+
+  // Scroll to bottom when conversation is loaded/changed
+  useEffect(() => {
+    if (activeConversation && messages.length > 0 && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
+      setIsAtBottom(true);
+    }
+  }, [activeConversation?.id]); // Only trigger when conversation ID changes
 
   // Scroll to bottom when messages change — only if user is already near bottom
   useEffect(() => {
-    if (isAtBottomRef.current && messagesEndRef.current) {
+    if (isAtBottom && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
     }
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, isAtBottom]);
 
   // Handle scroll events to detect when user scrolls up/down
   const handleMessagesScroll = useCallback(() => {
-    isAtBottomRef.current = checkIsAtBottom();
+    checkIsAtBottom();
   }, [checkIsAtBottom]);
 
   // Auto-save conversations when dirty (debounced)
@@ -1738,10 +1839,25 @@ export const ChatPanel: React.FC = () => {
           break;
         }
 
-        case 'error':
+        case 'error': {
+          const errorDetails = classifyError(agentEvent.error);
           console.error('Agent error:', agentEvent.error);
+          
+          // Add error message to conversation
+          addMessageToConversation(conversationId, {
+            id: `error-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            role: 'system',
+            content: JSON.stringify(errorDetails),
+            timestamp: Date.now(),
+            metadata: { 
+              isError: true, 
+              errorType: errorDetails.type,
+            },
+          });
+          
           setConversationProcessing(conversationId, false);
           break;
+        }
       }
     });
 
@@ -2462,19 +2578,40 @@ export const ChatPanel: React.FC = () => {
                     .join('')
                 : '';
 
+            // Check if this is an error message
+            const isErrorMessage = message.metadata?.isError === true;
+            
+            // Parse error details for system error messages
+            let errorDetails: { title: string; message: string; suggestion: string } | null = null;
+            if (isErrorMessage && typeof message.content === 'string') {
+              try {
+                errorDetails = JSON.parse(message.content);
+              } catch {
+                errorDetails = {
+                  title: 'Error',
+                  message: message.content,
+                  suggestion: 'Please try again or check the console for more details.',
+                };
+              }
+            }
+
             return (
               <div
                 key={message.id}
                 data-message-id={message.id}
-                className={`chat-message ${message.role}`}
+                className={`chat-message ${message.role} ${isErrorMessage ? 'error' : ''}`}
                 onContextMenu={(e) => handleMessageContextMenu(e, message.id, message.content)}
               >
                 <div className="chat-message-header">
-                  {message.role === 'user'
-                    ? <User size={14} />
-                    : <Bot size={14} />}
+                  {isErrorMessage ? (
+                    <AlertTriangle size={14} />
+                  ) : message.role === 'user' ? (
+                    <User size={14} />
+                  ) : (
+                    <Bot size={14} />
+                  )}
                   <span>
-                    {message.role === 'user' ? 'You' : 'Assistant'}
+                    {isErrorMessage ? 'Error' : message.role === 'user' ? 'You' : 'Assistant'}
                   </span>
                   {message.metadata?.model && (
                     <span className="chat-message-model">
@@ -2482,7 +2619,7 @@ export const ChatPanel: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="chat-message-content">
+                <div className={`chat-message-content ${isErrorMessage ? 'error' : ''}`}>
                   {message.role === 'user' && message.fileReferences && message.fileReferences.length > 0 && (
                     <FileReferenceChipRow references={message.fileReferences} compact readonly />
                   )}
@@ -2495,10 +2632,22 @@ export const ChatPanel: React.FC = () => {
                   {message.role === 'assistant' && showThinking && message.reasoning && (
                     <ThinkingSection thinking={message.reasoning} />
                   )}
-                  <MessageContent content={message.content} />
+                  {isErrorMessage && errorDetails ? (
+                    <div className="error-message-content">
+                      <div className="error-message-title">{errorDetails.title}</div>
+                      <div className="error-message-text">{errorDetails.message}</div>
+                      {errorDetails.suggestion && (
+                        <div className="error-message-suggestion">
+                          <strong>Suggestion:</strong> {errorDetails.suggestion}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <MessageContent content={message.content} />
+                  )}
                 </div>
                 {/* Copy button - appears at bottom right of message bubble */}
-                {messageTextContent && (
+                {messageTextContent && !isErrorMessage && (
                   <button
                     className="message-copy-btn"
                     onClick={() => handleCopyMessage(messageTextContent)}
@@ -2650,6 +2799,22 @@ export const ChatPanel: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Scroll to bottom button - shown when user scrolls up */}
+      {!isAtBottom && (
+        <button
+          className="scroll-to-bottom-btn"
+          onClick={() => {
+            if (messagesEndRef.current) {
+              messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+              setIsAtBottom(true);
+            }
+          }}
+          title="Scroll to bottom"
+        >
+          <ChevronDown size={20} />
+        </button>
+      )}
       </div>
 
       {/* Context Usage Indicator */}

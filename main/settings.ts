@@ -179,7 +179,9 @@ export interface SettingsSchema {
   // Remote Access
   remoteAccess: {
     enabled: boolean;
+    tunnelProvider: 'ngrok' | 'cloudflared' | 'localtunnel' | 'none';
     ngrokAuthToken: string;
+    cloudflaredToken: string;
     apiKey: string | null;
     port: number;
     allowedOrigins: string[];
@@ -327,7 +329,9 @@ export const defaultSettings: SettingsSchema = {
 
   remoteAccess: {
     enabled: false,
+    tunnelProvider: 'ngrok',
     ngrokAuthToken: '',
+    cloudflaredToken: '',
     apiKey: null,
     port: 3000,
     allowedOrigins: [],

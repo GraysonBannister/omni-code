@@ -19,6 +19,38 @@ export interface AgentLimitCheck {
   onLimitExceeded?: () => void;
 }
 
+/**
+ * Helper to enhance error messages with actionable context
+ */
+function enhanceErrorMessage(error: Error, model?: string): string {
+  const message = error.message || '';
+  const lowerMsg = message.toLowerCase();
+  const context = model ? `[Model: ${model}] ` : '';
+
+  // Check for specific error patterns and add suggestions
+  if (lowerMsg.includes('rate limit') || lowerMsg.includes('too many requests')) {
+    return `${context}${message}. Suggestion: Wait a moment and try again, or switch to a different model.`;
+  }
+  
+  if (lowerMsg.includes('unauthorized') || lowerMsg.includes('api key') || lowerMsg.includes('authentication')) {
+    return `${context}${message}. Suggestion: Check your API key in Settings > Providers.`;
+  }
+
+  if (lowerMsg.includes('model') && (lowerMsg.includes('not found') || lowerMsg.includes('not supported'))) {
+    return `${context}${message}. Suggestion: Try a different model in Settings > Providers.`;
+  }
+
+  if (lowerMsg.includes('context length') || lowerMsg.includes('token') && lowerMsg.includes('exceed')) {
+    return `${context}${message}. Suggestion: Try clearing conversation history or use a model with larger context window.`;
+  }
+
+  if (lowerMsg.includes('network') || lowerMsg.includes('connection') || lowerMsg.includes('timeout')) {
+    return `${context}${message}. Suggestion: Check your internet connection and try again.`;
+  }
+
+  return `${context}${message}`;
+}
+
 export class AgentImpl implements Agent {
   readonly id: string;
   readonly config: AgentConfig;
@@ -234,8 +266,13 @@ export class AgentImpl implements Agent {
               break;
 
             case 'error':
-              yield { type: 'error', error: delta.error || new Error('Unknown streaming error') };
-              return;
+              {
+                const streamError = delta.error || new Error('Unknown streaming error');
+                // Enhance error with context if it's a model/provider error
+                const enhancedMessage = enhanceErrorMessage(streamError, this.config.model); 
+                yield { type: 'error', error: new Error(enhancedMessage) };
+                return;
+              }
           }
         }
       } catch (error) {
@@ -294,17 +331,23 @@ export class AgentImpl implements Agent {
                   }
                   break;
                 case 'error':
-                  yield { type: 'error', error: delta.error || new Error('Unknown streaming error') };
-                  return;
+                  {
+                    const streamError = delta.error || new Error('Unknown streaming error');
+                    const enhancedMessage = enhanceErrorMessage(streamError, this.config.model);
+                    yield { type: 'error', error: new Error(enhancedMessage) };
+                    return;
+                  }
               }
             }
             // Continue to message assembly below
           } catch (retryError) {
-            yield { type: 'error', error: retryError as Error };
+            const enhancedMessage = enhanceErrorMessage(retryError as Error, this.config.model);
+            yield { type: 'error', error: new Error(enhancedMessage) };
             return;
           }
         } else {
-          yield { type: 'error', error: error as Error };
+          const enhancedMessage = enhanceErrorMessage(error as Error, this.config.model);
+          yield { type: 'error', error: new Error(enhancedMessage) };
           return;
         }
       }

@@ -614,6 +614,106 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     pricing: { inputPerMillion: 2, outputPerMillion: 10 },
   },
 
+  // Grok 4 — latest generation with large context window
+  {
+    id: 'grok-4.20-0309-reasoning',
+    provider: 'xai',
+    displayName: 'Grok 4.20 Reasoning',
+    aliases: ['grok-4.20-reasoning', 'grok-4-20-reasoning'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 6, cacheReadPerMillion: 0.2 },
+  },
+  {
+    id: 'grok-4.20-0309-non-reasoning',
+    provider: 'xai',
+    displayName: 'Grok 4.20',
+    aliases: ['grok-4.20', 'grok-4-20', 'grok-4.20-non-reasoning'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 6, cacheReadPerMillion: 0.2 },
+  },
+  {
+    id: 'grok-4-1-fast-reasoning',
+    provider: 'xai',
+    displayName: 'Grok 4.1 Fast Reasoning',
+    aliases: ['grok-4.1-reasoning', 'grok-4-1-reasoning'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
+  },
+  {
+    id: 'grok-4-1-fast-non-reasoning',
+    provider: 'xai',
+    displayName: 'Grok 4.1 Fast',
+    aliases: ['grok-4.1', 'grok-4-1', 'grok-4.1-fast'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
+  },
+  {
+    id: 'grok-4.20-multi-agent-0309',
+    provider: 'xai',
+    displayName: 'Grok 4.20 Multi-Agent',
+    aliases: ['grok-4.20-multi-agent', 'grok-multi-agent'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 6, cacheReadPerMillion: 0.2 },
+  },
+  // Grok Image Generation Models
+  {
+    id: 'grok-imagine-image-pro',
+    provider: 'xai',
+    displayName: 'Grok Image Pro',
+    aliases: ['grok-image-pro', 'grok-imagine-pro'],
+    capabilities: {
+      streaming: false, toolUse: false, vision: true, jsonMode: false,
+      systemPrompt: false, caching: false, extendedThinking: false,
+      maxContextWindow: 8_192, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0, outputPerMillion: 0 },
+  },
+  {
+    id: 'grok-imagine-image',
+    provider: 'xai',
+    displayName: 'Grok Image',
+    aliases: ['grok-image', 'grok-imagine'],
+    capabilities: {
+      streaming: false, toolUse: false, vision: true, jsonMode: false,
+      systemPrompt: false, caching: false, extendedThinking: false,
+      maxContextWindow: 8_192, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0, outputPerMillion: 0 },
+  },
+  // Grok Video Generation Model
+  {
+    id: 'grok-imagine-video',
+    provider: 'xai',
+    displayName: 'Grok Video',
+    aliases: ['grok-video', 'grok-imagine-video'],
+    capabilities: {
+      streaming: false, toolUse: false, vision: true, jsonMode: false,
+      systemPrompt: false, caching: false, extendedThinking: false,
+      maxContextWindow: 8_192, maxOutputTokens: 4_096,
+    },
+    pricing: { inputPerMillion: 0, outputPerMillion: 0 },
+  },
+
   // ── Moonshot / Kimi ──
   {
     id: 'kimi-k2.5',
