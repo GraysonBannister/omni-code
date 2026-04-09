@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
-import { setWorkingDirectory, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
+import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
 import { remoteClientMode } from './remote-client-mode.js';
 import {
   createPlanFile,
@@ -38,6 +38,9 @@ let mainWindowRef: BrowserWindow | null = null;
 
 // Per-window working directory map (webContents ID -> cwd)
 const windowCwdMap = new Map<number, string>();
+
+// Per-window conversation tracking (webContents ID -> Set of conversationIds)
+const windowConversationsMap = new Map<number, Set<string>>();
 import {
   DEFAULT_CHUNK_THRESHOLD_BYTES,
   writeLargeFile,
@@ -57,7 +60,7 @@ import type { MemoryChunk } from '../src/memory/persistent-store.js';
 // Store references to be set by agent-bridge
 // Updated to support multiple conversations per the multi-tab chat feature
 let agentRef: {
-  createConversation: (conversationId: string, model?: string, provider?: string) => boolean;
+  createConversation: (conversationId: string, model?: string, provider?: string, workingDirectory?: string) => boolean;
   closeConversation: (conversationId: string) => boolean;
   hasConversation: (conversationId: string) => boolean;
   sendMessage: (conversationId: string, message: string, workingDirectory?: string, fileReferences?: Array<{ path: string; name: string; isDirectory: boolean; content?: string }>, images?: Array<{ mediaType: string; data: string }>) => Promise<void>;
@@ -158,15 +161,23 @@ export function getConfigProviders(): Array<{ name: string; available: boolean; 
 export function setupIpcHandlers(): void {
   console.log('[IPC] setupIpcHandlers() called');
   // Agent handlers - now conversation-scoped for multi-tab support
-  ipcMain.handle('agent:create-conversation', async (_: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
+  ipcMain.handle('agent:create-conversation', async (event: IpcMainInvokeEvent, conversationId: string, model?: string, provider?: string) => {
+    const windowId = event.sender.id;
+    if (!windowConversationsMap.has(windowId)) windowConversationsMap.set(windowId, new Set());
+    windowConversationsMap.get(windowId)!.add(conversationId);
+
     if (remoteClientMode.isActive()) {
       return remoteClientMode.getClient()!.createConversation(conversationId, model, provider);
     }
     if (!agentRef) throw new Error('Agent not initialized');
-    return agentRef.createConversation(conversationId, model, provider);
+    const cwd = windowCwdMap.get(windowId);
+    return agentRef.createConversation(conversationId, model, provider, cwd);
   });
 
-  ipcMain.handle('agent:close-conversation', async (_: IpcMainInvokeEvent, conversationId: string) => {
+  ipcMain.handle('agent:close-conversation', async (event: IpcMainInvokeEvent, conversationId: string) => {
+    const windowId = event.sender.id;
+    windowConversationsMap.get(windowId)?.delete(conversationId);
+
     if (remoteClientMode.isActive()) {
       return remoteClientMode.getClient()!.closeConversation(conversationId);
     }
@@ -895,8 +906,10 @@ export function setupIpcHandlers(): void {
 
   // Working directory handler
   ipcMain.handle('config:set-cwd', async (event: IpcMainInvokeEvent, cwd: string) => {
-    windowCwdMap.set(event.sender.id, cwd);
-    await setWorkingDirectory(cwd);
+    const windowId = event.sender.id;
+    windowCwdMap.set(windowId, cwd);
+    const conversationIds = [...(windowConversationsMap.get(windowId) ?? [])];
+    await setWorkingDirectoryForWindow(cwd, conversationIds);
     
     // Add the opened folder as a shared workspace so it appears in the Flutter app
     const sharedManager = getSharedWorkspaceManager();

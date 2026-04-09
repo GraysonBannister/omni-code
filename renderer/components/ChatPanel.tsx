@@ -1052,6 +1052,15 @@ export const ChatPanel: React.FC = () => {
     return false;
   }, [messageChangePreviews, reviewedToolCallIds]);
 
+  // Flat lookup: toolCallId → ChangePreviewData, used to render previews inline after tool call cards
+  const toolCallPreviewMap = useMemo(() => {
+    const map = new Map<string, ChangePreviewData>();
+    messageChangePreviews.forEach(previews =>
+      previews.forEach(p => map.set(p.toolCallId, p))
+    );
+    return map;
+  }, [messageChangePreviews]);
+
   // Handle file review from the file history panel
   const handleReviewFile = useCallback((filePath: string, messageId?: string) => {
     // Open the file in the editor
@@ -1600,26 +1609,20 @@ export const ChatPanel: React.FC = () => {
             // Request notification sound for completed response
             window.electronAPI!.notifications.requestSound('response_complete').catch(console.error);
 
-            // Flush any buffered change previews into messageChangePreviews keyed
-            // under this final assistant message ID (the one actually rendered in the timeline).
+            // Flush fallback buffer — only contains previews that arrived without a
+            // message ID (rare edge case). Normal previews are placed in real time in
+            // the change_preview handler above, so this buffer is usually empty.
             if (pendingChangePreviewsRef.current.length > 0) {
               const buffered = pendingChangePreviewsRef.current;
               pendingChangePreviewsRef.current = [];
-              console.log(`[ChangeReview DEBUG] Flushing ${buffered.length} buffered preview(s) to messageId=${msg.id}`);
+              console.log(`[ChangeReview DEBUG] Flushing ${buffered.length} fallback-buffered preview(s) to messageId=${msg.id}`);
               setMessageChangePreviews(prev => {
                 const next = new Map(prev);
                 const existing = next.get(msg.id) || [];
-                const merged = [...existing];
-                for (const preview of buffered) {
-                  if (!merged.some(p => p.toolCallId === preview.toolCallId)) {
-                    merged.push(preview);
-                  }
-                }
+                const merged = [...existing, ...buffered.filter(b => !existing.some(p => p.toolCallId === b.toolCallId))];
                 next.set(msg.id, merged);
                 return next;
               });
-              // Also register each preview in the app store so the editor can
-              // show inline diff decorations for the changed files.
               for (const preview of buffered) {
                 useAppStore.getState().setFilePendingPreview(preview.filePath, preview);
               }
@@ -1819,15 +1822,26 @@ export const ChatPanel: React.FC = () => {
               deletions: (agentEvent as any).deletions || 0,
               status: 'pending',
             };
-            // Buffer the preview — it will be flushed into messageChangePreviews once
-            // the final turn_complete (stopReason=end_turn) arrives and we know the
-            // real assistant message ID that appears in the rendered timeline.
-            const alreadyBuffered = pendingChangePreviewsRef.current.some(p => p.toolCallId === toolId);
-            if (!alreadyBuffered) {
-              pendingChangePreviewsRef.current = [...pendingChangePreviewsRef.current, preview];
-              console.log(`[ChangeReview DEBUG] Buffered preview: toolId=${toolId}, buffer size=${pendingChangePreviewsRef.current.length}`);
+            if (msgId) {
+              // Immediately place the preview under the correct tool-use message bubble.
+              // By the time change_preview arrives, turn_complete (tool_use) has already
+              // fired and that assistant message is in the conversation, so msgId is valid.
+              setMessageChangePreviews(prev => {
+                const next = new Map(prev);
+                const existing = next.get(msgId) || [];
+                if (!existing.some(p => p.toolCallId === toolId)) {
+                  next.set(msgId, [...existing, preview]);
+                }
+                return next;
+              });
+              useAppStore.getState().setFilePendingPreview(preview.filePath, preview);
+              console.log(`[ChangeReview DEBUG] Immediately placed preview: toolId=${toolId}, messageId=${msgId}`);
             } else {
-              console.log(`[ChangeReview DEBUG] Duplicate preview skipped in buffer: toolId=${toolId}`);
+              // Fallback: buffer for flush on final turn_complete if msgId is missing
+              if (!pendingChangePreviewsRef.current.some(p => p.toolCallId === toolId)) {
+                pendingChangePreviewsRef.current = [...pendingChangePreviewsRef.current, preview];
+                console.log(`[ChangeReview DEBUG] Buffered preview (no msgId): toolId=${toolId}, buffer size=${pendingChangePreviewsRef.current.length}`);
+              }
             }
           } else {
             console.warn('[ChangeReview] change_preview missing toolId — event dropped', agentEvent);
@@ -2760,46 +2774,61 @@ export const ChatPanel: React.FC = () => {
                     </div>
                   ) : null;
                 })()}
-                {message.role === 'assistant' && (messageChangePreviews.get(message.id) || []).length > 0 && (
-                  <div className="change-review-previews">
-                    {(messageChangePreviews.get(message.id) || []).map((preview) => {
-                      // Override the status with the shared store value so that
-                      // accepting/rejecting from the editor is immediately reflected here.
-                      const effectiveStatus = reviewedToolCallIds.get(preview.toolCallId) ?? preview.status;
-                      return (
-                        <DiffPreviewCard
-                          key={preview.toolCallId}
-                          preview={{ ...preview, status: effectiveStatus }}
-                          onAccept={() => handleAcceptChange(activeConversationId!, preview.messageId, preview.toolCallId)}
-                          onReject={() => handleRejectChange(activeConversationId!, preview.messageId, preview.toolCallId)}
-                          onOpenFile={(filePath, lineNumber) => {
-                            useAppStore.getState().openFile(filePath);
-                            // Note: scrolling to line would require additional editor integration
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             );
           } else if (item.type === 'tool-group') {
+            const groupPreviews = (item.data as ToolCall[])
+              .map(t => toolCallPreviewMap.get(t.id))
+              .filter((p): p is ChangePreviewData => p !== undefined);
             return (
-              <CollapsibleToolSummary
-                key={`tool-group-${index}`}
-                tools={item.data}
-                now={now}
-              />
+              <React.Fragment key={`tool-group-${index}`}>
+                <CollapsibleToolSummary
+                  tools={item.data}
+                  now={now}
+                />
+                {groupPreviews.map(preview => {
+                  const effectiveStatus = reviewedToolCallIds.get(preview.toolCallId) ?? preview.status;
+                  return (
+                    <div className="timeline-change-preview" key={preview.toolCallId}>
+                      <DiffPreviewCard
+                        preview={{ ...preview, status: effectiveStatus }}
+                        onAccept={() => handleAcceptChange(activeConversationId!, preview.messageId, preview.toolCallId)}
+                        onReject={() => handleRejectChange(activeConversationId!, preview.messageId, preview.toolCallId)}
+                        onOpenFile={(filePath) => {
+                          useAppStore.getState().openFile(filePath);
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </React.Fragment>
             );
           } else if (item.type === 'tool-single') {
             // Single non-SAFE tool - wrap in CollapsibleToolSummary for consistent minimized display
-            const tool = item.data;
+            const tool = item.data as ToolCall;
+            const singlePreview = toolCallPreviewMap.get(tool.id);
             return (
-              <CollapsibleToolSummary
-                key={`tool-single-${index}-${tool.id}`}
-                tools={[tool]}
-                now={now}
-              />
+              <React.Fragment key={`tool-single-${index}-${tool.id}`}>
+                <CollapsibleToolSummary
+                  tools={[tool]}
+                  now={now}
+                />
+                {singlePreview && (() => {
+                  const effectiveStatus = reviewedToolCallIds.get(singlePreview.toolCallId) ?? singlePreview.status;
+                  return (
+                    <div className="timeline-change-preview">
+                      <DiffPreviewCard
+                        preview={{ ...singlePreview, status: effectiveStatus }}
+                        onAccept={() => handleAcceptChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId)}
+                        onReject={() => handleRejectChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId)}
+                        onOpenFile={(filePath) => {
+                          useAppStore.getState().openFile(filePath);
+                        }}
+                      />
+                    </div>
+                  );
+                })()}
+              </React.Fragment>
             );
           } else {
             // plan-card — inline plan card injected after the source message
@@ -2958,51 +2987,53 @@ export const ChatPanel: React.FC = () => {
         )}
         
         {/* File History Toggle Toolbar */}
-        {conversationFileChanges.length > 0 && (
+        {(conversationFileChanges.length > 0 || hasPendingChanges) && (
           <div className="chat-input-toolbar file-history-toolbar">
-            <div className="file-history-toggle-container">
-              <button
-                className={`file-history-toggle-btn ${fileHistoryPopupVisible ? 'active' : ''}`}
-                onClick={toggleFileHistoryPopup}
-                type="button"
-              >
-                <Files size={14} />
-                <span>{conversationFileChanges.length} Files</span>
-                {(() => {
-                  const totalAdditions = conversationFileChanges.reduce((sum, f) => sum + f.additions, 0);
-                  const totalDeletions = conversationFileChanges.reduce((sum, f) => sum + f.deletions, 0);
-                  return (
-                    <>
-                      {totalAdditions > 0 && (
-                        <span className="file-history-toggle-additions">+{totalAdditions}</span>
-                      )}
-                      {totalDeletions > 0 && (
-                        <span className="file-history-toggle-deletions">-{totalDeletions}</span>
-                      )}
-                    </>
-                  );
-                })()}
-              </button>
-              
-              {/* File History Popup - positioned below the button */}
-              {fileHistoryPopupVisible && (
-                <FileHistoryPopup
-                  files={conversationFileChanges.map(change => ({
-                    filePath: change.filePath,
-                    fileName: change.fileName || change.filePath.split('/').pop() || change.filePath,
-                    extension: change.extension || change.filePath.split('.').pop() || '',
-                    changeType: change.changeType,
-                    additions: change.additions,
-                    deletions: change.deletions,
-                  }))}
-                  isPinned={fileHistoryPopupPinned}
-                  onClose={hideFileHistoryPopup}
-                  onPinToggle={pinFileHistoryPopup}
-                  onReviewFile={handleReviewFile}
-                  onReviewAll={handleReviewAll}
-                />
-              )}
-            </div>
+            {conversationFileChanges.length > 0 && (
+              <div className="file-history-toggle-container">
+                <button
+                  className={`file-history-toggle-btn ${fileHistoryPopupVisible ? 'active' : ''}`}
+                  onClick={toggleFileHistoryPopup}
+                  type="button"
+                >
+                  <Files size={14} />
+                  <span>{conversationFileChanges.length} Files</span>
+                  {(() => {
+                    const totalAdditions = conversationFileChanges.reduce((sum, f) => sum + f.additions, 0);
+                    const totalDeletions = conversationFileChanges.reduce((sum, f) => sum + f.deletions, 0);
+                    return (
+                      <>
+                        {totalAdditions > 0 && (
+                          <span className="file-history-toggle-additions">+{totalAdditions}</span>
+                        )}
+                        {totalDeletions > 0 && (
+                          <span className="file-history-toggle-deletions">-{totalDeletions}</span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </button>
+                
+                {/* File History Popup - positioned below the button */}
+                {fileHistoryPopupVisible && (
+                  <FileHistoryPopup
+                    files={conversationFileChanges.map(change => ({
+                      filePath: change.filePath,
+                      fileName: change.fileName || change.filePath.split('/').pop() || change.filePath,
+                      extension: change.extension || change.filePath.split('.').pop() || '',
+                      changeType: change.changeType,
+                      additions: change.additions,
+                      deletions: change.deletions,
+                    }))}
+                    isPinned={fileHistoryPopupPinned}
+                    onClose={hideFileHistoryPopup}
+                    onPinToggle={pinFileHistoryPopup}
+                    onReviewFile={handleReviewFile}
+                    onReviewAll={handleReviewAll}
+                  />
+                )}
+              </div>
+            )}
             {hasPendingChanges && (
               <div className="file-history-toolbar-actions">
                 <button className="btn-reject-all" onClick={handleRejectAll} type="button">

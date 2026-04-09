@@ -1,13 +1,339 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, File as FileIcon, Circle, Settings, Globe, Check, XCircle, Code, Eye, Columns } from 'lucide-react';
+import { X, File as FileIcon, Circle, Settings, Globe, Check, XCircle, Code, Eye, Columns, ChevronRight, Folder } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { SettingsPanel } from './Settings';
 import { BrowserPanel } from './BrowserPanel';
 import { HtmlPreviewPanel } from './HtmlPreviewPanel';
 import { ResizableSplitPane } from './ResizableSplitPane';
 import { ImageViewer } from './ImageViewer';
+import { FileIcon as FileTypeIcon } from './FileIcon';
 import './Editor.css';
+
+// Breadcrumb dropdown component
+interface BreadcrumbDropdownProps {
+  items: Array<{ name: string; path: string; isDirectory: boolean }>;
+  isOpen: boolean;
+  onSelect: (path: string) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLButtonElement>;
+}
+
+const BreadcrumbDropdown: React.FC<BreadcrumbDropdownProps> = ({
+  items,
+  isOpen,
+  onSelect,
+  onClose,
+  anchorRef,
+}) => {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (isOpen && anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+      });
+    }
+  }, [isOpen, anchorRef]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(event.target as Node)
+      ) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose, anchorRef]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="editor-breadcrumb-dropdown"
+      style={{
+        position: 'fixed',
+        top: position.top,
+        left: position.left,
+        zIndex: 1000,
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.path}
+          className={`editor-breadcrumb-dropdown-item ${item.isDirectory ? 'folder' : 'file'}`}
+          onClick={() => onSelect(item.path)}
+        >
+          {item.isDirectory ? (
+            <Folder size={14} />
+          ) : (
+            <FileTypeIcon filename={item.name} size={14} />
+          )}
+          <span>{item.name}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
+// Main Editor Breadcrumb Component
+interface EditorBreadcrumbProps {
+  filePath: string;
+  projectPath: string;
+  files: Array<{ name: string; isDirectory: boolean; path: string }>;
+  onFileSelect: (path: string) => Promise<void>;
+  onFolderSelect: (path: string) => void;
+}
+
+const EditorBreadcrumb: React.FC<EditorBreadcrumbProps> = ({
+  filePath,
+  projectPath,
+  files,
+  onFileSelect,
+  onFolderSelect,
+}) => {
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  // Get the relative path from project root
+  const getRelativePath = (fullPath: string): string => {
+    if (!projectPath) return fullPath;
+    // Normalize paths for comparison
+    const normalizedPath = fullPath.replace(/\\/g, '/');
+    const normalizedProject = projectPath.replace(/\\/g, '/');
+
+    if (normalizedPath.startsWith(normalizedProject)) {
+      const relative = normalizedPath.slice(normalizedProject.length);
+      return relative.startsWith('/') ? relative.slice(1) : relative;
+    }
+
+    // Try to find a matching folder in the file tree
+    const fileEntry = files.find(f => f.path === fullPath);
+    if (fileEntry) {
+      // Find the project root from the file tree structure
+      const parts = normalizedPath.split('/');
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const testPath = parts.slice(0, i).join('/');
+        const matchingFolder = files.find(
+          f => f.isDirectory && f.path === testPath && f.name === parts[i - 1]
+        );
+        if (matchingFolder) {
+          // Check if this looks like a project root (contains typical project files)
+          const rootFiles = files.filter(
+            f => !f.isDirectory && f.path.startsWith(testPath + '/') && f.path.split('/').length === i + 1
+          );
+          if (rootFiles.some(f => f.name === 'package.json' || f.name === '.gitignore' || f.name === 'README.md')) {
+            const relative = normalizedPath.slice(testPath.length);
+            return relative.startsWith('/') ? relative.slice(1) : relative;
+          }
+        }
+      }
+    }
+
+    return normalizedPath;
+  };
+
+  // Normalize path for consistent comparison
+  const normalizePath = (p: string): string => p.replace(/\\/g, '/');
+
+  // Get sibling folders at a specific path level
+  // clickedPath is the full path of the folder that was clicked - we want siblings in its parent directory
+  const getSiblingFolders = (clickedPath: string): Array<{ name: string; path: string; isDirectory: boolean }> => {
+    const normalizedClicked = normalizePath(clickedPath);
+
+    // Get the parent directory of the clicked folder
+    const clickedParts = normalizedClicked.split('/');
+    clickedParts.pop(); // Remove the clicked folder name to get its parent
+    const parentDir = clickedParts.join('/');
+
+    // Expected depth for siblings: children of the parent directory
+    const expectedDepth = parentDir === '' ? 1 : parentDir.split('/').length + 1;
+
+    const siblings = files
+      .filter(f => {
+        if (!f.isDirectory) return false;
+        const normalizedFilePath = normalizePath(f.path);
+        const fileParts = normalizedFilePath.split('/');
+        const fileDepth = fileParts.length;
+
+        if (parentDir === '') {
+          // Top-level folders have depth 1 and no slashes in their path
+          return fileDepth === 1 && !normalizedFilePath.includes('/');
+        } else {
+          // Child folders must start with parent + '/' and be exactly one level deeper
+          return normalizedFilePath.startsWith(parentDir + '/') && fileDepth === expectedDepth;
+        }
+      })
+      .map(f => ({
+        name: f.name,
+        path: f.path,
+        isDirectory: true,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return siblings;
+  };
+
+  // Get sibling files in the same directory
+  // dirPath is the directory containing the file
+  const getSiblingFiles = (dirPath: string): Array<{ name: string; path: string; isDirectory: boolean }> => {
+    const normalizedDir = normalizePath(dirPath);
+    const expectedDepth = normalizedDir === '' ? 1 : normalizedDir.split('/').length + 1;
+
+    return files
+      .filter(f => {
+        if (f.isDirectory) return false;
+        const normalizedFilePath = normalizePath(f.path);
+        const fileParts = normalizedFilePath.split('/');
+        const fileDepth = fileParts.length;
+
+        if (normalizedDir === '') {
+          // Top-level files have depth 1
+          return fileDepth === 1;
+        } else {
+          return normalizedFilePath.startsWith(normalizedDir + '/') && fileDepth === expectedDepth;
+        }
+      })
+      .map(f => ({
+        name: f.name,
+        path: f.path,
+        isDirectory: false,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const relativePath = getRelativePath(filePath);
+  const pathParts = relativePath.split('/');
+  const fileName = pathParts.pop() || '';
+
+  // Build breadcrumb segments
+  const segments: Array<{ name: string; fullPath: string; isFile: boolean }> = [];
+
+  // If we have a project path, add the root folder as the first segment
+  if (projectPath) {
+    const projectParts = normalizePath(projectPath).split('/');
+    const rootFolderName = projectParts[projectParts.length - 1] || projectParts[0];
+    segments.push({
+      name: rootFolderName,
+      fullPath: projectPath,
+      isFile: false,
+    });
+  }
+
+  // Add intermediate folders and the file's immediate parent
+  let currentPath = projectPath || '';
+  pathParts.forEach((part) => {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    segments.push({
+      name: part,
+      fullPath: currentPath,
+      isFile: false,
+    });
+  });
+
+  // Add the file as the last segment
+  segments.push({
+    name: fileName,
+    fullPath: filePath,
+    isFile: true,
+  });
+
+  // Get items for dropdown based on segment type
+  const getDropdownItems = (segment: { name: string; fullPath: string; isFile: boolean }, index: number) => {
+    if (segment.isFile) {
+      // Get sibling files in the same directory as this file
+      const parentPath = segment.fullPath.split('/').slice(0, -1).join('/');
+      return getSiblingFiles(parentPath);
+    } else {
+      // Get sibling folders - pass the full path of this folder
+      return getSiblingFolders(segment.fullPath);
+    }
+  };
+
+  const handleSegmentClick = (segment: { name: string; fullPath: string; isFile: boolean }, index: number) => {
+    const dropdownId = `${segment.name}-${index}`;
+
+    if (openDropdown === dropdownId) {
+      setOpenDropdown(null);
+    } else {
+      setOpenDropdown(dropdownId);
+    }
+  };
+
+  const handleSelect = (path: string, isDirectory: boolean) => {
+    setOpenDropdown(null);
+    if (isDirectory) {
+      onFolderSelect(path);
+    } else {
+      onFileSelect(path);
+    }
+  };
+
+  if (!projectPath && !files.length) {
+    // Fallback to simple display if no project context
+    return (
+      <div className="editor-breadcrumb">
+        <span className="editor-breadcrumb-filename">{filePath.split('/').pop()}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="editor-breadcrumb">
+      {segments.map((segment, index) => {
+        const buttonRef = React.createRef<HTMLButtonElement>();
+        const dropdownId = `${segment.name}-${index}`;
+        const dropdownItems = getDropdownItems(segment, index);
+        const isCurrentFile = segment.isFile;
+
+        return (
+          <React.Fragment key={dropdownId}>
+            {index > 0 && (
+              <ChevronRight size={12} className="editor-breadcrumb-separator" />
+            )}
+            <button
+              ref={buttonRef}
+              className={`editor-breadcrumb-segment ${isCurrentFile ? 'file' : 'folder'} ${segment.name === pathParts[index] && !isCurrentFile ? 'current' : ''}`}
+              onClick={() => handleSegmentClick(segment, index)}
+            >
+              {isCurrentFile ? (
+                <>
+                  <span className="editor-breadcrumb-file-icon">
+                    <FileTypeIcon filename={segment.name} size={14} />
+                  </span>
+                  <span>{segment.name}</span>
+                </>
+              ) : (
+                <>
+                  <Folder size={14} />
+                  <span>{segment.name}</span>
+                </>
+              )}
+            </button>
+            <BreadcrumbDropdown
+              items={dropdownItems}
+              isOpen={openDropdown === dropdownId}
+              onSelect={(path) => handleSelect(path, !isCurrentFile)}
+              onClose={() => setOpenDropdown(null)}
+              anchorRef={buttonRef}
+            />
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
 
 // TypeScript type for the Monaco editor
 import type { editor } from 'monaco-editor';
@@ -102,6 +428,9 @@ export const CodeEditor: React.FC = () => {
     setFileViewMode,
     setSplitRatio,
     setSplitOrientation,
+    projectPath,
+    files,
+    loadFile,
   } = useAppStore();
 
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
@@ -442,6 +771,20 @@ export const CodeEditor: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* File Path Breadcrumb */}
+      {activeFile && activeFile.type !== 'settings' && activeFile.type !== 'browser' && (
+        <EditorBreadcrumb
+          filePath={activeFile.path}
+          projectPath={projectPath}
+          files={files}
+          onFileSelect={loadFile}
+          onFolderSelect={(path) => {
+            // Load directory or handle folder navigation
+            console.log('Navigate to folder:', path);
+          }}
+        />
+      )}
 
       {/* HTML View Mode Toggle - Only shown for HTML files */}
       {activeFile && activeFile.type !== 'settings' && activeFile.type !== 'browser' && isHtmlFile(activeFile.path) && (

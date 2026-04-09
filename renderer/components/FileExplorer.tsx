@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Folder, FolderOpen, File, ChevronRight, ChevronDown,
+  Folder, FolderOpen, ChevronRight, ChevronDown,
   RefreshCw, FolderOpen as FolderOpenIcon, FilePlus, FolderPlus,
   Copy, Eye, Pencil, Trash2, Terminal,
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
+import { FileIcon } from './FileIcon';
 import './FileExplorer.css';
 
 interface FileNodeProps {
@@ -192,7 +193,7 @@ const FileNode: React.FC<FileNodeProps> = ({
       {
         id: 'open',
         label: 'Open',
-        icon: <File size={14} />,
+        icon: <FileIcon filename={name} size={14} />,
         action: () => {
           console.log('[FileNode] Context: Open', path);
           openFile(path);
@@ -266,7 +267,7 @@ const FileNode: React.FC<FileNodeProps> = ({
           {isDirectory ? (
             isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />
           ) : (
-            <File size={16} />
+            <FileIcon filename={name} size={16} />
           )}
         </span>
         {isRenaming ? (
@@ -295,7 +296,7 @@ const FileNode: React.FC<FileNodeProps> = ({
           {showCreateInput && (
             <div className="file-explorer-new-item" style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}>
               <span className="file-node-icon">
-                {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
+                {isCreatingFile ? <FileIcon filename={newItemName || 'file'} size={16} /> : <Folder size={16} />}
               </span>
               <input
                 type="text"
@@ -745,7 +746,7 @@ export const FileExplorer: React.FC = () => {
                 {(isCreatingFile || isCreatingFolder) && !selectedFolderPath && (
                   <div className="file-explorer-new-item" style={{ paddingLeft: '8px' }}>
                     <span className="file-node-icon">
-                      {isCreatingFile ? <File size={16} /> : <Folder size={16} />}
+                      {isCreatingFile ? <FileIcon filename={newItemName || 'file'} size={16} /> : <Folder size={16} />}
                     </span>
                     <input
                       type="text"

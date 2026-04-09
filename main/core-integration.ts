@@ -120,6 +120,21 @@ export async function setWorkingDirectory(cwd: string): Promise<void> {
   }
 }
 
+// Per-window variant: only updates the conversations that belong to the requesting window,
+// so that opening a folder in window B does not clobber window A's agent context.
+export async function setWorkingDirectoryForWindow(cwd: string, conversationIds: string[]): Promise<void> {
+  console.log(`Working directory updated for window (${conversationIds.length} conversations):`, cwd);
+
+  // Load rules and skills for this workspace path
+  await Promise.all([
+    rulesManager.loadRules(cwd),
+    skillsManager.loadSkills(cwd),
+  ]);
+
+  const newSystemPrompt = buildSystemPrompt(cwd);
+  agentBridge.updateWorkspaceContextForConversations(cwd, newSystemPrompt, conversationIds);
+}
+
 export function refreshSystemPrompt(): void {
   const newSystemPrompt = buildSystemPrompt(currentWorkingDirectory);
   agentBridge.updateWorkspaceContext(currentWorkingDirectory, newSystemPrompt);

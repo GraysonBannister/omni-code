@@ -139,6 +139,234 @@
   flex-shrink: 0;
 }
 
+/* File Type Icons */
+.file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: -0.5px;
+}
+
+/* TypeScript - Blue */
+.file-icon-typescript {
+  background: #3178c6;
+  color: #fff;
+}
+
+/* JavaScript - Yellow */
+.file-icon-javascript {
+  background: #f7df1e;
+  color: #000;
+}
+
+/* JSON - Dark yellow/brown */
+.file-icon-json {
+  color: #f7df1e;
+}
+
+/* Markdown - Blue */
+.file-icon-markdown {
+  background: #1976d2;
+  color: #fff;
+}
+
+/* CSS - Blue */
+.file-icon-css {
+  background: #264de4;
+  color: #fff;
+}
+
+/* SCSS/Sass - Pink */
+.file-icon-scss {
+  background: #cc6699;
+  color: #fff;
+}
+
+/* LESS - Blue */
+.file-icon-less {
+  background: #1d365d;
+  color: #fff;
+}
+
+/* HTML - Orange */
+.file-icon-html {
+  background: #e34c26;
+  color: #fff;
+}
+
+/* Python - Blue/Yellow */
+.file-icon-python {
+  background: #3776ab;
+  color: #ffd43b;
+}
+
+/* Go - Cyan */
+.file-icon-go {
+  background: #00add8;
+  color: #fff;
+}
+
+/* Rust - Brown/Orange */
+.file-icon-rust {
+  background: #dea584;
+  color: #000;
+}
+
+/* Java - Red */
+.file-icon-java {
+  background: #b07219;
+  color: #fff;
+}
+
+/* C/C++ - Blue */
+.file-icon-c {
+  background: #555555;
+  color: #fff;
+}
+
+/* C# - Purple */
+.file-icon-csharp {
+  background: #178600;
+  color: #fff;
+}
+
+/* Ruby - Red */
+.file-icon-ruby {
+  background: #701516;
+  color: #fff;
+}
+
+/* PHP - Purple */
+.file-icon-php {
+  background: #4F5D95;
+  color: #fff;
+}
+
+/* Swift - Orange */
+.file-icon-swift {
+  background: #ffac45;
+  color: #000;
+}
+
+/* Kotlin - Purple */
+.file-icon-kotlin {
+  background: #A97BFF;
+  color: #000;
+}
+
+/* Dart - Teal */
+.file-icon-dart {
+  background: #00B4AB;
+  color: #fff;
+}
+
+/* SQL - Orange */
+.file-icon-sql {
+  background: #f29111;
+  color: #fff;
+}
+
+/* GraphQL - Pink */
+.file-icon-graphql {
+  background: #e10098;
+  color: #fff;
+}
+
+/* Vue - Green */
+.file-icon-vue {
+  background: #41b883;
+  color: #fff;
+}
+
+/* Svelte - Orange */
+.file-icon-svelte {
+  background: #ff3e00;
+  color: #fff;
+}
+
+/* Test - Green */
+.file-icon-test {
+  background: #45a045;
+  color: #fff;
+}
+
+/* Environment - Yellow */
+.file-icon-env {
+  background: #f0db4f;
+  color: #000;
+  font-size: 7px;
+}
+
+/* NPM - Red */
+.file-icon-npm {
+  background: #cb3837;
+  color: #fff;
+  font-size: 8px;
+}
+
+/* License - Gold */
+.file-icon-license {
+  font-size: 12px;
+}
+
+/* Readme - Blue */
+.file-icon-readme {
+  font-size: 12px;
+}
+
+/* Shell - Gray */
+.file-icon-shell {
+  color: var(--color-text-secondary);
+}
+
+/* Config - Gray */
+.file-icon-config {
+  color: var(--color-text-secondary);
+}
+
+/* Image - Purple */
+.file-icon-image {
+  color: #b084ff;
+}
+
+/* XML - Orange */
+.file-icon-xml {
+  color: #ff6600;
+}
+
+/* Lock - Yellow */
+.file-icon-lock {
+  color: #f0db4f;
+}
+
+/* Log - Gray */
+.file-icon-log {
+  color: var(--color-text-tertiary);
+}
+
+/* Text - Gray */
+.file-icon-text {
+  color: var(--color-text-secondary);
+}
+
+/* Git - Orange */
+.file-icon-git {
+  color: #f05032;
+}
+
+/* Default - Gray */
+.file-icon-default {
+  color: var(--color-text-secondary);
+}
+
 .file-node-name {
   flex: 1;
   overflow: hidden;

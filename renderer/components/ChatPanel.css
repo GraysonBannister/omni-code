@@ -788,6 +788,7 @@
   padding: 3px 9px;
   font-size: 11px;
   font-weight: 500;
+  font-family: var(--font-family);
   background: transparent;
   border: none;
   color: var(--color-text-muted, #888);
@@ -803,7 +804,7 @@
 
 .approach-btn.active {
   background: var(--color-accent, #6366f1);
-  color: #fff;
+  color: var(--color-bg-primary);
 }
 
 .approach-btn:disabled {
@@ -942,9 +943,9 @@
 }
 
 .file-history-toggle-btn.active {
-  background: var(--color-accent-bg);
+  background: var(--color-accent);
   border-color: var(--color-accent);
-  color: var(--color-accent);
+  color: var(--color-bg-primary);
 }
 
 .file-history-toggle-additions {
@@ -983,6 +984,7 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+  font-family: var(--font-family);
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -1047,6 +1049,7 @@
   background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+  font-family: var(--font-family);
   cursor: pointer;
   text-align: left;
   transition: all 0.1s ease;
@@ -1058,8 +1061,8 @@
 }
 
 .chat-model-option.active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
   font-weight: 500;
 }
 
@@ -1357,11 +1360,9 @@
 
 /* Change Review Diff Preview Cards */
 
-.change-review-previews {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+/* Standalone timeline row wrapper — sits below CollapsibleToolSummary */
+.timeline-change-preview {
+  margin: 4px 0 4px;
 }
 
 .diff-preview-card {

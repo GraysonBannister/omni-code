@@ -280,6 +280,17 @@ export class AgentBridge {
     }
   }
 
+  // Targeted variant: only updates the specified conversations so that a folder
+  // change in one window does not overwrite another window's agent context.
+  updateWorkspaceContextForConversations(workspacePath: string, systemPrompt: string, conversationIds: string[]): void {
+    for (const conversationId of conversationIds) {
+      const state = this.conversations.get(conversationId);
+      if (state) {
+        state.agent.updateConfig({ cwd: workspacePath, systemPrompt });
+      }
+    }
+  }
+
   // Set the provider registry for model switching
   setProviderRegistry(registry: ProviderRegistry): void {
     this.providerRegistry = registry;

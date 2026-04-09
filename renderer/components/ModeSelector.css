@@ -1,29 +1,31 @@
-/* Compact Mode Selector Dropdown */
+/* Compact Mode Selector Dropdown - Omni Code Theme */
 .mode-selector {
   position: relative;
   display: inline-block;
 }
 
-/* Trigger button - pill shaped */
+/* Trigger button - brutalist/terminal style */
 .mode-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-tertiary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
-  color: var(--text-primary, #d4d4d4);
-  font-size: 13px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
   min-width: fit-content;
+  letter-spacing: 0.03em;
 }
 
 .mode-trigger:hover:not(:disabled) {
-  background: var(--bg-hover, #2d2d2d);
-  border-color: var(--border-hover, #5a5a5a);
+  background: var(--color-bg-hover);
+  border-color: var(--color-text-secondary);
 }
 
 .mode-trigger:disabled {
@@ -32,8 +34,8 @@
 }
 
 .mode-trigger.open {
-  background: var(--bg-hover, #2d2d2d);
-  border-color: var(--color-accent, #3b82f6);
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
 }
 
 /* Trigger icon */
@@ -41,7 +43,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--color-text-secondary);
 }
 
 .mode-trigger-icon svg {
@@ -56,13 +58,13 @@
 
 /* Keyboard shortcut hint */
 .mode-trigger-shortcut {
-  font-size: 11px;
-  color: var(--text-muted, #888);
-  padding: 2px 4px;
-  background: var(--bg-secondary, #1e1e1e);
-  border-radius: 3px;
-  border: 1px solid var(--border-color, #3c3c3c);
-  font-family: var(--font-monospace, 'Menlo', 'Monaco', monospace);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  padding: var(--spacing-xs);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-family-mono);
 }
 
 /* Dropdown arrow / checkmark */
@@ -70,8 +72,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted, #888);
-  margin-left: 4px;
+  color: var(--color-text-tertiary);
+  margin-left: var(--spacing-xs);
 }
 
 .mode-trigger-arrow svg {
@@ -82,16 +84,16 @@
 /* Dropdown menu - expands upward */
 .mode-dropdown {
   position: absolute;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + var(--spacing-xs));
   left: 0;
   z-index: 1000;
   min-width: 180px;
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 8px;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
-  animation: dropdownFadeInUp 0.15s ease-out;
+  animation: dropdownFadeInUp var(--transition-fast);
 }
 
 @keyframes dropdownFadeInUp {
@@ -109,21 +111,23 @@
 .mode-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-sm);
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--spacing-sm);
   background: transparent;
   border: none;
-  color: var(--text-secondary, #a0a0a0);
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
   text-align: left;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  letter-spacing: 0.03em;
 }
 
 .mode-dropdown-item:hover:not(:disabled) {
-  background: var(--bg-hover, #2d2d2d);
-  color: var(--text-primary, #d4d4d4);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .mode-dropdown-item:disabled {
@@ -132,7 +136,7 @@
 }
 
 .mode-dropdown-item.active {
-  color: var(--text-primary, #d4d4d4);
+  color: var(--color-text-primary);
 }
 
 /* Dropdown item icon */
@@ -161,8 +165,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-accent, #3b82f6);
-  margin-left: 4px;
+  color: var(--color-accent);
+  margin-left: var(--spacing-xs);
 }
 
 .mode-dropdown-item-check svg {
@@ -173,46 +177,46 @@
 /* Divider between items */
 .mode-dropdown-divider {
   height: 1px;
-  background: var(--border-color, #3c3c3c);
-  margin: 0 8px;
+  background: var(--color-border);
+  margin: 0 var(--spacing-sm);
 }
 
-/* Mode-specific colors for active states */
+/* Mode-specific colors for active states - using theme semantic colors */
 .mode-dropdown-item[data-mode="code"].active .mode-dropdown-item-check,
 .mode-trigger[data-mode="code"] .mode-trigger-icon {
-  color: #3b82f6;
+  color: var(--color-accent);
 }
 
 .mode-dropdown-item[data-mode="architect"].active .mode-dropdown-item-check,
 .mode-trigger[data-mode="architect"] .mode-trigger-icon {
-  color: #f59e0b;
+  color: var(--color-text-warning);
 }
 
 .mode-dropdown-item[data-mode="review"].active .mode-dropdown-item-check,
 .mode-trigger[data-mode="review"] .mode-trigger-icon {
-  color: #8b5cf6;
+  color: var(--color-text-success);
 }
 
 .mode-dropdown-item[data-mode="security"].active .mode-dropdown-item-check,
 .mode-trigger[data-mode="security"] .mode-trigger-icon {
-  color: #ef4444;
+  color: var(--color-text-error);
 }
 
 .mode-dropdown-item[data-mode="debug"].active .mode-dropdown-item-check,
 .mode-trigger[data-mode="debug"] .mode-trigger-icon {
-  color: #10b981;
+  color: var(--color-text-secondary);
 }
 
 /* Legacy styles - kept for backward compatibility */
 .mode-selector-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted, #888);
+  letter-spacing: 0.05em;
+  color: var(--color-text-tertiary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-xs);
 }
 
 .mode-buttons {

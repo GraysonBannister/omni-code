@@ -83,6 +83,115 @@
   color: var(--color-text-primary);
 }
 
+/* File Path Breadcrumb */
+.editor-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-family);
+}
+
+.editor-breadcrumb-segment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.editor-breadcrumb-segment:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.editor-breadcrumb-segment.file {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.editor-breadcrumb-segment.file:hover {
+  background: var(--color-accent-bg);
+}
+
+.editor-breadcrumb-segment.folder.current {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.editor-breadcrumb-separator {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.editor-breadcrumb-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Breadcrumb Dropdown */
+.editor-breadcrumb-dropdown {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  max-width: 300px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.editor-breadcrumb-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.editor-breadcrumb-dropdown-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.editor-breadcrumb-dropdown-item.folder {
+  color: var(--color-accent);
+}
+
+.editor-breadcrumb-dropdown-item.file {
+  color: var(--color-text-primary);
+}
+
+.editor-breadcrumb-dropdown-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Editor Content */
 .editor-content {
   flex: 1;
