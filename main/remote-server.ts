@@ -10,7 +10,7 @@ import type { TunnelProvider } from './tunnel-providers.js';
 import { settingsManager } from './settings.js';
 import { agentBridge } from './agent-bridge.js';
 import type { UnifiedMessage } from './agent-bridge.js';
-import { validateApiKey, validateRequestSignature, getCorsOptions, ensureApiKey, getApiKey } from './remote-auth.js';
+import { validateApiKey, validateRequestSignature, getCorsOptions, ensureApiKey, getApiKey, createProxySession } from './remote-auth.js';
 import {
   initializeEventEmitter,
   cleanupEventEmitter,
@@ -30,9 +30,14 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import * as http from 'node:http';
+import * as zlib from 'node:zlib';
 import { exec, spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as os from 'node:os';
+
+const gunzipAsync = promisify(zlib.gunzip);
+const inflateAsync = promisify(zlib.inflate);
+const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 import { getWorkingDirectory } from './core-integration.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
 import { getConfigModels, getConfigProviders } from './ipc-handlers.js';
@@ -1684,6 +1689,99 @@ function setupGitRoutes(app: express.Express): void {
 }
 
 /**
+ * Test if a TCP connection can be established to host:port
+ * Returns true if connection succeeds, false otherwise
+ */
+async function testTcpConnection(host: string, port: number, timeout: number = 1000): Promise<boolean> {
+  const net = await import('node:net');
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    
+    const onError = () => {
+      socket.destroy();
+      resolve(false);
+    };
+    
+    socket.setTimeout(timeout);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', onError);
+    socket.once('timeout', onError);
+    
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * Get all listening TCP ports on localhost using system commands
+ * Uses lsof (macOS/Linux) or netstat (fallback) to find listening ports
+ */
+async function getListeningPorts(): Promise<number[]> {
+  const ports = new Set<number>();
+  const platform = process.platform;
+  
+  try {
+    let stdout = '';
+    
+    if (platform === 'darwin') {
+      // macOS: use lsof to find listening TCP ports on IPv4 and IPv6
+      try {
+        const { stdout: lsofOut } = await execAsync('lsof -nP -iTCP -sTCP:LISTEN | grep -E "\*:([0-9]+)" | grep -oE "\*:([0-9]+)" | grep -oE "[0-9]+"');
+        stdout = lsofOut;
+      } catch {
+        // Fallback: try netstat
+        const { stdout: netstatOut } = await execAsync('netstat -anv | grep LISTEN | grep -oE "\.([0-9]+)" | grep -oE "[0-9]+"');
+        stdout = netstatOut;
+      }
+    } else if (platform === 'linux') {
+      // Linux: use ss command (faster than netstat) or lsof
+      try {
+        const { stdout: ssOut } = await execAsync('ss -tln | grep LISTEN | grep -oE ":[0-9]+" | grep -oE "[0-9]+"');
+        stdout = ssOut;
+      } catch {
+        // Fallback to lsof
+        const { stdout: lsofOut } = await execAsync('lsof -nP -iTCP -sTCP:LISTEN | grep -oE "TCP \*:[0-9]+" | grep -oE "[0-9]+"');
+        stdout = lsofOut;
+      }
+    } else if (platform === 'win32') {
+      // Windows: use netstat
+      const { stdout: netstatOut } = await execAsync('netstat -ano | findstr LISTENING | findstr 127.0.0.1');
+      stdout = netstatOut;
+    }
+    
+    // Parse port numbers from output
+    const lines = stdout.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      
+      // Extract port number
+      let port: number | null = null;
+      
+      if (platform === 'win32') {
+        // Windows netstat format: TCP    127.0.0.1:9999         0.0.0.0:0              LISTENING       12345
+        const match = line.match(/127\.0\.0\.1:(\d+)/);
+        if (match) port = parseInt(match[1], 10);
+      } else {
+        // Unix format: just the port number
+        port = parseInt(trimmed, 10);
+      }
+      
+      if (port && !isNaN(port) && port > 0 && port <= 65535) {
+        ports.add(port);
+      }
+    }
+  } catch (error) {
+    console.error('[RemoteServer] Error getting listening ports:', error);
+  }
+  
+  // Sort ports numerically
+  return Array.from(ports).sort((a, b) => a - b);
+}
+
+/**
  * Reverse proxy routes — forward requests to localhost services through the
  * active tunnel so remote clients can view dev servers, etc.
  */
@@ -1753,6 +1851,42 @@ function setupProxyRoutes(app: express.Express): void {
     }
   });
 
+  // Scan for available localhost services using system commands
+  app.get('/api/proxy/scan', async (_req, res) => {
+    try {
+      const proxyEnabled = settingsManager.get('remoteAccess.proxyEnabled') as boolean;
+      if (!proxyEnabled) {
+        res.status(403).json({ error: 'Proxy is disabled in settings' });
+        return;
+      }
+
+      // Get all listening ports using system commands
+      const listeningPorts = await getListeningPorts();
+      const available: Array<{ port: number; name: string }> = [];
+
+      // Test each discovered port with a quick TCP connection
+      for (const testPort of listeningPorts) {
+        try {
+          const isReachable = await testTcpConnection('localhost', testPort, 300);
+          if (isReachable) {
+            // Check if already registered to provide better name
+            const registered = registeredProxyPorts.get(testPort);
+            available.push({
+              port: testPort,
+              name: registered?.name || `localhost:${testPort}`,
+            });
+          }
+        } catch {
+          // Port not available, skip
+        }
+      }
+
+      res.json({ enabled: proxyEnabled, available });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // Reverse proxy: forward all methods to localhost:{port}/{path}
   app.all('/api/proxy/:port/*', (req, res) => {
     try {
@@ -1785,14 +1919,17 @@ function setupProxyRoutes(app: express.Express): void {
       const prefix = `/api/proxy/${targetPort}/`;
       const downstreamPath = '/' + req.originalUrl.slice(req.originalUrl.indexOf(prefix) + prefix.length);
 
-      // Build proxy request headers, stripping auth/host
+      // Build proxy request headers, stripping auth/host/encoding
+      // accept-encoding is stripped so the downstream server sends plain text,
+      // which we can buffer and rewrite without needing to decompress.
       const proxyHeaders: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
         const lk = key.toLowerCase();
-        if (lk === 'host' || lk === 'x-api-key' || lk === 'connection') continue;
+        if (lk === 'host' || lk === 'x-api-key' || lk === 'connection' || lk === 'accept-encoding') continue;
         if (typeof value === 'string') proxyHeaders[key] = value;
       }
       proxyHeaders['host'] = `localhost:${targetPort}`;
+      proxyHeaders['accept-encoding'] = 'identity';
 
       const proxyReq = http.request(
         {
@@ -1803,8 +1940,100 @@ function setupProxyRoutes(app: express.Express): void {
           headers: proxyHeaders,
         },
         (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
-          proxyRes.pipe(res);
+          const contentType = (proxyRes.headers['content-type'] || '').toLowerCase();
+          const isHtml = contentType.includes('text/html');
+          const isJs = contentType.includes('javascript');
+          const isCss = contentType.includes('text/css');
+
+          // For HTML/JS/CSS, buffer and rewrite root-relative paths to go through the proxy
+          if (isHtml || isJs || isCss) {
+            const chunks: Buffer[] = [];
+            proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+            proxyRes.on('end', () => {
+              let body = Buffer.concat(chunks).toString('utf8');
+              const proxyBase = `/api/proxy/${targetPort}`;
+
+              if (isHtml) {
+                // Inject a CSS reset into <head> to ensure elements with entrance animations
+                // become visible immediately (opacity:0 → 1) on the WebView.
+                // Animations are sped up to 0.001ms so they complete before first paint.
+                const proxyResetCss = `
+<style id="omni-proxy-reset">
+*, *::before, *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: -1ms !important;
+  animation-fill-mode: both !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
+[style*="opacity:0"] { opacity: 1 !important; }
+[style*="opacity: 0"] { opacity: 1 !important; }
+[style*="transform:translate"] { transform: none !important; }
+[style*="transform: translate"] { transform: none !important; }
+</style>`;
+                body = body.replace('</head>', `${proxyResetCss}</head>`);
+
+                // Rewrite root-relative paths in HTML attributes and meta tags
+                // Handles: src="/, href="/, action="/, content="/, url(/, srcset=" patterns
+                body = body.replace(
+                  /((?:src|href|action|content|srcset)=["'])(\/)(?!\/)/g,
+                  `$1${proxyBase}/`,
+                );
+                body = body.replace(
+                  /url\(\s*["']?(\/)(?!\/)/g,
+                  `url('${proxyBase}/`,
+                );
+                // Patch __NEXT_DATA__ so the Next.js router strips the proxy
+                // prefix from window.location.pathname and finds the correct page.
+                // Without this, Next.js sees "/api/proxy/9999/" as the route and
+                // renders nothing (no matching page).
+                body = body.replace(
+                  /(<script id="__NEXT_DATA__" type="application\/json">)([\s\S]*?)(<\/script>)/,
+                  (_match, open, jsonStr, close) => {
+                    try {
+                      const data = JSON.parse(jsonStr);
+                      data.assetPrefix = proxyBase;
+                      data.basePath = proxyBase;
+                      return `${open}${JSON.stringify(data)}${close}`;
+                    } catch {
+                      return _match;
+                    }
+                  },
+                );
+              } else if (isJs || isCss) {
+                // Rewrite fetch/import paths starting with / in JS/CSS
+                body = body.replace(
+                  /(["'`])(\/(?:_next|static|images|assets|public)\/)/g,
+                  `$1${proxyBase}$2`,
+                );
+              }
+
+              const responseHeaders = { ...proxyRes.headers };
+              delete responseHeaders['content-encoding'];
+              delete responseHeaders['transfer-encoding'];
+              responseHeaders['content-length'] = Buffer.byteLength(body, 'utf8').toString();
+
+              if (isHtml) {
+                // Mint a session token so the browser can fetch sub-resources
+                // (scripts, CSS, images) without HMAC headers
+                const sessionToken = createProxySession(targetPort);
+                const existing = responseHeaders['set-cookie'];
+                const sessionCookie = `omni-proxy-session=${sessionToken}; Path=/api/proxy/; HttpOnly; SameSite=Strict; Max-Age=3600`;
+                responseHeaders['set-cookie'] = existing
+                  ? [
+                      ...(Array.isArray(existing) ? existing : [existing]),
+                      sessionCookie,
+                    ]
+                  : sessionCookie;
+              }
+
+              res.writeHead(proxyRes.statusCode || 502, responseHeaders);
+              res.end(body, 'utf8');
+            });
+          } else {
+            res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+            proxyRes.pipe(res);
+          }
         },
       );
 

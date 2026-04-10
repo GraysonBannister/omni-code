@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy, AlertTriangle } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy, AlertTriangle, RotateCcw } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -489,8 +489,14 @@ const DiffPreviewCard: React.FC<{
       </div>
       {isPending && (
         <div className="diff-preview-actions">
-          <button className="btn-reject-change" onClick={onReject}>Reject</button>
-          <button className="btn-accept-change" onClick={onAccept}>Accept</button>
+          <button className="btn-reject-change" onClick={() => {
+            console.log('[DiffPreviewCard] Reject clicked:', preview.toolCallId, 'status:', preview.status);
+            onReject();
+          }}>Reject</button>
+          <button className="btn-accept-change" onClick={() => {
+            console.log('[DiffPreviewCard] Accept clicked:', preview.toolCallId, 'status:', preview.status);
+            onAccept();
+          }}>Accept</button>
         </div>
       )}
     </div>
@@ -546,29 +552,54 @@ interface FileHistoryItem {
 interface RollbackButtonProps {
   conversationId: string;
   messageId: string;
-  fileChanges: FileChange[];
-  onRollback: (messageId: string) => void;
+  fileCount: number;
+  onRollback: () => void;
 }
 
-const RollbackButton: React.FC<RollbackButtonProps> = ({ conversationId, messageId, fileChanges, onRollback }) => {
-  const [isHovered, setIsHovered] = useState(false);
+const RollbackButton: React.FC<RollbackButtonProps> = ({ conversationId, messageId, fileCount, onRollback }) => {
+  const [pendingConfirm, setPendingConfirm] = useState(false);
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  if (!fileChanges || fileChanges.length === 0) return null;
+  const showConfirm = () => {
+    setPendingConfirm(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setPendingConfirm(false), 5000);
+  };
 
-  const fileCount = fileChanges.length;
+  const cancelConfirm = () => {
+    setPendingConfirm(false);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  };
+
+  const confirmRollback = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    onRollback();
+  };
+
+  if (fileCount === 0) return null;
+
+  if (pendingConfirm) {
+    return (
+      <span className="rollback-confirm">
+        <span className="rollback-confirm-text">Revert {fileCount} change{fileCount !== 1 ? 's' : ''}?</span>
+        <button className="rollback-confirm-yes" onClick={confirmRollback}>
+          Confirm
+        </button>
+        <button className="rollback-confirm-no" onClick={cancelConfirm}>
+          Cancel
+        </button>
+      </span>
+    );
+  }
 
   return (
     <button
       className="rollback-button"
-      onClick={() => onRollback(messageId)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      title={`Rollback ${fileCount} file change${fileCount !== 1 ? 's' : ''}`}
+      onClick={showConfirm}
+      title={`Revert ${fileCount} file change${fileCount !== 1 ? 's' : ''}`}
     >
       <Undo size={14} />
-      <span className="rollback-text">
-        {isHovered ? `Rollback ${fileCount} change${fileCount !== 1 ? 's' : ''}` : `${fileCount} change${fileCount !== 1 ? 's' : ''}`}
-      </span>
+      <span className="rollback-text">{fileCount} change{fileCount !== 1 ? 's' : ''}</span>
     </button>
   );
 };
@@ -940,34 +971,87 @@ export const ChatPanel: React.FC = () => {
     }
   }, [activeConversationId]);
 
-  const handleRollback = useCallback(async (messageId: string) => {
+  // userMessageId — the user message whose turn we are reverting
+  // assistantMsgIds — all assistant message IDs produced by that turn
+  const handleRollback = useCallback(async (userMessageId: string, assistantMsgIds: string[]) => {
     if (!activeConversationId || !window.electronAPI) return;
 
-    const changes = messageFileChanges.get(messageId);
-    if (!changes || changes.length === 0) return;
-
-    const confirmed = window.confirm(
-      `Rollback ${changes.length} file change${changes.length !== 1 ? 's' : ''}?\n\n` +
-      changes.map(c => `- ${c.filePath} (${c.changeType})`).join('\n') +
-      '\n\nThis will restore files to their state before this prompt was sent.'
-    );
-
-    if (!confirmed) return;
+    if (!assistantMsgIds.length) return;
 
     try {
-      const result = await window.electronAPI.file.restore(activeConversationId, messageId);
-      if (result.success) {
-        alert(`Successfully restored ${result.restoredFiles.length} file${result.restoredFiles.length !== 1 ? 's' : ''}`);
-        // Refresh file changes state
-        await loadMessageFileChanges(messageId);
-      } else {
-        alert(`Failed to restore some files:\n${result.failedFiles.join('\n')}`);
+      // Reject any pending change previews for all assistant messages in this turn
+      for (const msgId of assistantMsgIds) {
+        const previews = messageChangePreviews.get(msgId) ?? [];
+        const hasPending = previews.some(p => {
+          const effective = reviewedToolCallIds.get(p.toolCallId) ?? p.status;
+          return effective === 'pending';
+        });
+        if (hasPending) {
+          await window.electronAPI.agent.rejectAllChanges(activeConversationId, msgId);
+        }
       }
+
+      // Find the assistant message ID that actually has a file history snapshot.
+      // File changes are captured under the turn that *triggered* them (the tool_use
+      // turn whose turn_complete set currentAssistantMessageId), which may be one
+      // turn earlier than the final end_turn message.
+      const assistantIdSet = new Set(assistantMsgIds);
+
+      // Primary: backend file-history record (loaded async after turn_complete).
+      // Secondary: change-preview records (populated in real-time, always present).
+      //   This fallback is critical — conversationFileChanges may not be loaded yet
+      //   when the user clicks the button, but previews are always available.
+      const msgWithChanges =
+        (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
+          .map(fc => fc.lastMessageId ?? fc.messageId ?? '')
+          .find(id => assistantIdSet.has(id))
+        ?? assistantMsgIds.find(id => (messageChangePreviews.get(id) ?? []).length > 0);
+
+      // Fall back to the last assistant ID if neither source resolved the correct ID.
+      const targetAssistantId = msgWithChanges ?? assistantMsgIds[assistantMsgIds.length - 1];
+
+      // Restore files to their pre-turn state
+      const restoreResult = await window.electronAPI.file.restore(activeConversationId, targetAssistantId);
+      if (restoreResult && !restoreResult.success) {
+        console.warn('[Rollback] file.restore returned failure:', restoreResult, 'targetAssistantId:', targetAssistantId, 'assistantMsgIds:', assistantMsgIds);
+      }
+
+      // Mark the conversation as reverted at this user message
+      useAppStore.getState().setConversationRevertedAt(activeConversationId, userMessageId);
     } catch (error) {
-      console.error('Rollback failed:', error);
-      alert('Rollback failed. See console for details.');
+      console.error('[Rollback] Failed:', error);
     }
-  }, [activeConversationId, messageFileChanges, loadMessageFileChanges]);
+  }, [activeConversationId, messageChangePreviews, reviewedToolCallIds, conversationFileChanges]);
+
+  const handleRestore = useCallback(async () => {
+    if (!activeConversationId || !window.electronAPI) return;
+    const conv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
+    const revertedId = conv?.revertedAtUserMessageId;
+    if (!revertedId) return;
+
+    // Find assistant messages produced by that user turn without depending on the memo
+    const msgs = conv?.messages ?? [];
+    const userIdx = msgs.findIndex(m => m.id === revertedId);
+    const assistantIds: string[] = [];
+    for (let j = userIdx + 1; j < msgs.length; j++) {
+      if (msgs[j].role === 'user') break;
+      if (msgs[j].role === 'assistant') assistantIds.push(msgs[j].id);
+    }
+    // Use the same logic as handleRollback: find the message that actually has a snapshot
+    const assistantIdSet = new Set(assistantIds);
+    const msgWithChanges = (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
+      .map(fc => fc.lastMessageId ?? fc.messageId ?? '')
+      .find(id => assistantIdSet.has(id));
+    const targetAssistantId = msgWithChanges ?? assistantIds[assistantIds.length - 1];
+    if (targetAssistantId) {
+      try {
+        await window.electronAPI.file.reapply(activeConversationId, targetAssistantId);
+      } catch (error) {
+        console.error('[Restore] Failed:', error);
+      }
+    }
+    useAppStore.getState().setConversationRevertedAt(activeConversationId, undefined);
+  }, [activeConversationId, conversationFileChanges]);
 
   // Load conversation-level file changes
   const loadConversationFileChanges = useCallback(async () => {
@@ -984,25 +1068,39 @@ export const ChatPanel: React.FC = () => {
   }, [activeConversationId]);
 
   // Accept a specific tool call change
-  const handleAcceptChange = useCallback(async (convId: string, messageId: string, toolCallId: string) => {
-    if (!window.electronAPI) return;
+  const handleAcceptChange = useCallback(async (convId: string, messageId: string, toolCallId: string, filePath: string) => {
+    console.log('[ChatPanel] handleAcceptChange called:', { convId, messageId, toolCallId, filePath, hasElectronAPI: !!window.electronAPI });
+    if (!window.electronAPI) {
+      console.warn('[ChatPanel] Cannot accept change: electronAPI not available');
+      return;
+    }
     // Immediately update shared store so the editor status bar also clears.
     useAppStore.getState().markToolCallReviewed(toolCallId, 'accepted');
+    // Clear the file preview so the editor diff view hides
+    useAppStore.getState().clearFilePendingPreview(filePath);
     try {
-      console.log(`[ChangeReview] Accepting change: toolCallId=${toolCallId}`);
-      await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'accept');
+      console.log(`[ChangeReview] Accepting change: convId=${convId}, messageId=${messageId}, toolCallId=${toolCallId}`);
+      const result = await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'accept');
+      console.log('[ChangeReview] Accept result:', result);
     } catch (err) {
       console.error('[ChangeReview] Failed to accept change:', err);
     }
   }, []);
 
   // Reject a specific tool call change
-  const handleRejectChange = useCallback(async (convId: string, messageId: string, toolCallId: string) => {
-    if (!window.electronAPI) return;
+  const handleRejectChange = useCallback(async (convId: string, messageId: string, toolCallId: string, filePath: string) => {
+    console.log('[ChatPanel] handleRejectChange called:', { convId, messageId, toolCallId, filePath, hasElectronAPI: !!window.electronAPI });
+    if (!window.electronAPI) {
+      console.warn('[ChatPanel] Cannot reject change: electronAPI not available');
+      return;
+    }
     useAppStore.getState().markToolCallReviewed(toolCallId, 'rejected');
+    // Clear the file preview so the editor diff view hides
+    useAppStore.getState().clearFilePendingPreview(filePath);
     try {
-      console.log(`[ChangeReview] Rejecting change: toolCallId=${toolCallId}`);
-      await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'reject');
+      console.log(`[ChangeReview] Rejecting change: convId=${convId}, messageId=${messageId}, toolCallId=${toolCallId}`);
+      const result = await window.electronAPI.agent.respondToChangeReview(convId, messageId, toolCallId, 'reject');
+      console.log('[ChangeReview] Reject result:', result);
     } catch (err) {
       console.error('[ChangeReview] Failed to reject change:', err);
     }
@@ -1010,16 +1108,30 @@ export const ChatPanel: React.FC = () => {
 
   // Accept all pending change reviews for the active conversation
   const handleAcceptAll = useCallback(async () => {
-    if (!activeConversationId || !window.electronAPI) return;
+    console.log('[ChatPanel] handleAcceptAll called:', {
+      activeConversationId,
+      hasElectronAPI: !!window.electronAPI,
+      messageChangePreviewsSize: messageChangePreviews.size
+    });
+    if (!activeConversationId || !window.electronAPI) {
+      console.warn('[ChatPanel] Cannot accept all: missing conversationId or electronAPI');
+      return;
+    }
+    let pendingCount = 0;
     for (const previews of messageChangePreviews.values()) {
       for (const preview of previews) {
         if (preview.status === 'pending' && !reviewedToolCallIds.has(preview.toolCallId)) {
+          pendingCount++;
           useAppStore.getState().markToolCallReviewed(preview.toolCallId, 'accepted');
+          // Clear the file preview so the editor diff view hides
+          useAppStore.getState().clearFilePendingPreview(preview.filePath);
         }
       }
     }
+    console.log(`[ChatPanel] Accepting ${pendingCount} pending changes`);
     try {
-      await window.electronAPI.agent.acceptAllChanges(activeConversationId);
+      const result = await window.electronAPI.agent.acceptAllChanges(activeConversationId);
+      console.log('[ChatPanel] acceptAllChanges result:', result);
     } catch (err) {
       console.error('[ChangeReview] Failed to accept all changes:', err);
     }
@@ -1027,29 +1139,80 @@ export const ChatPanel: React.FC = () => {
 
   // Reject all pending change reviews for the active conversation
   const handleRejectAll = useCallback(async () => {
-    if (!activeConversationId || !window.electronAPI) return;
+    console.log('[ChatPanel] handleRejectAll called:', {
+      activeConversationId,
+      hasElectronAPI: !!window.electronAPI,
+      messageChangePreviewsSize: messageChangePreviews.size
+    });
+    if (!activeConversationId || !window.electronAPI) {
+      console.warn('[ChatPanel] Cannot reject all: missing conversationId or electronAPI');
+      return;
+    }
     for (const [msgId, previews] of messageChangePreviews) {
+      let pendingCount = 0;
       for (const preview of previews) {
         if (preview.status === 'pending' && !reviewedToolCallIds.has(preview.toolCallId)) {
+          pendingCount++;
           useAppStore.getState().markToolCallReviewed(preview.toolCallId, 'rejected');
+          // Clear the file preview so the editor diff view hides
+          useAppStore.getState().clearFilePendingPreview(preview.filePath);
         }
       }
-      try {
-        await window.electronAPI.agent.rejectAllChanges(activeConversationId, msgId);
-      } catch (err) {
-        console.error('[ChangeReview] Failed to reject all changes:', err);
+      if (pendingCount > 0) {
+        console.log(`[ChatPanel] Rejecting ${pendingCount} pending changes for message ${msgId}`);
+        try {
+          const result = await window.electronAPI.agent.rejectAllChanges(activeConversationId, msgId);
+          console.log('[ChatPanel] rejectAllChanges result:', result);
+        } catch (err) {
+          console.error('[ChangeReview] Failed to reject all changes:', err);
+        }
       }
     }
   }, [activeConversationId, messageChangePreviews, reviewedToolCallIds]);
 
   // True when at least one change preview is still awaiting review
   const hasPendingChanges = useMemo(() => {
+    let totalPreviews = 0;
+    let pendingPreviews = 0;
     for (const previews of messageChangePreviews.values()) {
       for (const p of previews) {
-        if (p.status === 'pending' && !reviewedToolCallIds.has(p.toolCallId)) return true;
+        totalPreviews++;
+        if (p.status === 'pending' && !reviewedToolCallIds.has(p.toolCallId)) {
+          pendingPreviews++;
+        }
       }
     }
-    return false;
+    const result = pendingPreviews > 0;
+    console.log('[ChatPanel] hasPendingChanges:', result, { totalPreviews, pendingPreviews, reviewedCount: reviewedToolCallIds.size });
+    return result;
+  }, [messageChangePreviews, reviewedToolCallIds]);
+
+  // Compute pending file changes stats for the file history toggle button
+  // Only includes changes that are pending and not yet reviewed
+  const pendingFileChangesStats = useMemo(() => {
+    const pendingFiles = new Map<string, { additions: number; deletions: number }>();
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    for (const previews of messageChangePreviews.values()) {
+      for (const p of previews) {
+        if (p.status === 'pending' && !reviewedToolCallIds.has(p.toolCallId)) {
+          const existing = pendingFiles.get(p.filePath);
+          if (existing) {
+            existing.additions += p.additions;
+            existing.deletions += p.deletions;
+          } else {
+            pendingFiles.set(p.filePath, { additions: p.additions, deletions: p.deletions });
+          }
+          totalAdditions += p.additions;
+          totalDeletions += p.deletions;
+        }
+      }
+    }
+    return {
+      fileCount: pendingFiles.size,
+      totalAdditions,
+      totalDeletions,
+    };
   }, [messageChangePreviews, reviewedToolCallIds]);
 
   // Flat lookup: toolCallId → ChangePreviewData, used to render previews inline after tool call cards
@@ -1196,17 +1359,46 @@ export const ChatPanel: React.FC = () => {
   const planSourceMessageId = activeConversation?.planSourceMessageId ?? null;
   const planFilePath = activeConversation?.planFilePath ?? null;
   const planningApproach: PlanningApproach = activeConversation?.planningApproach ?? 'one-shot';
+  const revertedAtUserMessageId = activeConversation?.revertedAtUserMessageId;
 
-  // Map each user message ID to the next assistant message ID that follows it
-  const userToAssistantMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (let i = 0; i < messages.length - 1; i++) {
-      if (messages[i].role === 'user') {
-        const next = messages[i + 1];
-        if (next?.role === 'assistant') {
-          map.set(messages[i].id, next.id);
-        }
+  // IDs of all messages that come AFTER the reverted user message — rendered grayed-out
+  const suspendedMessageIds = useMemo(() => {
+    if (!revertedAtUserMessageId) return new Set<string>();
+    const idx = messages.findIndex(m => m.id === revertedAtUserMessageId);
+    if (idx < 0) return new Set<string>();
+    return new Set(messages.slice(idx + 1).map(m => m.id));
+  }, [messages, revertedAtUserMessageId]);
+
+  // ID of the very first RENDERED suspended message — used to place the restore banner once.
+  // Skips tool-only messages (tool-result blocks) since they are not rendered and the banner
+  // would be silently lost if attached to them.
+  const firstSuspendedId = useMemo(() => {
+    if (!revertedAtUserMessageId) return null;
+    const idx = messages.findIndex(m => m.id === revertedAtUserMessageId);
+    if (idx < 0) return null;
+    for (let j = idx + 1; j < messages.length; j++) {
+      if (!isToolOnlyMessage(messages[j].content)) return messages[j].id;
+    }
+    return null;
+  }, [messages, revertedAtUserMessageId]);
+
+  // Map each user message ID to ALL subsequent assistant message IDs until the next user message.
+  // A single user prompt can span multiple assistant turns (tool-use rounds), so we collect them all.
+  const userToAssistantMessagesMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role !== 'user') continue;
+      // Skip tool-result user messages — they're internal turn artifacts, not human prompts
+      if (isToolOnlyMessage(messages[i].content)) continue;
+      const ids: string[] = [];
+      for (let j = i + 1; j < messages.length; j++) {
+        // Only break on actual human user messages, not tool-result messages injected
+        // between turns. Tool-result messages are skipped so all assistant turns
+        // across a multi-turn response are attributed to the originating user message.
+        if (messages[j].role === 'user' && !isToolOnlyMessage(messages[j].content)) break;
+        if (messages[j].role === 'assistant') ids.push(messages[j].id);
       }
+      if (ids.length) map.set(messages[i].id, ids);
     }
     return map;
   }, [messages]);
@@ -1627,6 +1819,13 @@ export const ChatPanel: React.FC = () => {
                 useAppStore.getState().setFilePendingPreview(preview.filePath, preview);
               }
             }
+
+            // Refresh conversation-level file changes and clear any stale per-message
+            // caches so the revert button count is always up to date after a turn.
+            loadConversationFileChanges();
+            // Force-clear cached message file changes for ALL assistant messages so
+            // the effect re-fetches them with current data from disk.
+            setMessageFileChanges(new Map());
           }
           break;
         }
@@ -1675,6 +1874,7 @@ export const ChatPanel: React.FC = () => {
               phase: 'validating',
               detail: 'Validating tool input.',
               startedAt: Date.now(),
+              messageId: agentEvent.messageId,
             });
           }
           break;
@@ -1774,11 +1974,15 @@ export const ChatPanel: React.FC = () => {
 
         case 'file_change':
           if (agentEvent.messageId && agentEvent.fileChanges) {
+            // Remove the cached entry so loadMessageFileChanges re-fetches fresh stats
+            // (the direct fileChanges payload from the event lacks additions/deletions).
             setMessageFileChanges(prev => {
               const next = new Map(prev);
-              next.set(agentEvent.messageId!, agentEvent.fileChanges!);
+              next.delete(agentEvent.messageId!);
               return next;
             });
+            // Trigger a fresh load now that captureAfterChange has persisted to disk
+            loadMessageFileChanges(agentEvent.messageId!);
             // Also refresh conversation-level file changes
             loadConversationFileChanges();
           }
@@ -1980,6 +2184,13 @@ export const ChatPanel: React.FC = () => {
     // Reset textarea height after sending
     if (inputRef.current) {
       inputRef.current.style.height = '60px';
+    }
+
+    // Branch-on-re-edit: if the conversation has a revert checkpoint, discard the
+    // suspended branch before sending the new message.
+    const revertedId = useAppStore.getState().conversations.find(c => c.id === activeConversationId)?.revertedAtUserMessageId;
+    if (revertedId) {
+      useAppStore.getState().truncateMessagesAfter(activeConversationId, revertedId);
     }
 
     // In architect mode with one-shot approach, instruct the agent to plan immediately
@@ -2699,11 +2910,20 @@ export const ChatPanel: React.FC = () => {
               }
             }
 
+            const isSuspended = suspendedMessageIds.has(message.id);
+            const isFirstSuspended = isSuspended && message.id === firstSuspendedId;
+
             return (
+              <React.Fragment key={message.id}>
+              {isFirstSuspended && (
+                <div className="revert-restore-banner" onClick={handleRestore}>
+                  <RotateCcw size={13} />
+                  <span>Changes reverted — click to restore</span>
+                </div>
+              )}
               <div
-                key={message.id}
                 data-message-id={message.id}
-                className={`chat-message ${message.role} ${isErrorMessage ? 'error' : ''}`}
+                className={`chat-message ${message.role} ${isErrorMessage ? 'error' : ''}${isSuspended ? ' chat-message--reverted' : ''}`}
                 onContextMenu={(e) => handleMessageContextMenu(e, message.id, message.content)}
               >
                 <div className="chat-message-header">
@@ -2761,73 +2981,92 @@ export const ChatPanel: React.FC = () => {
                   </button>
                 )}
                 {message.role === 'user' && (() => {
-                  const assistantMsgId = userToAssistantMap.get(message.id);
-                  const changes = assistantMsgId ? (messageFileChanges.get(assistantMsgId) || []) : [];
-                  return changes.length > 0 ? (
+                  const assistantIds = userToAssistantMessagesMap.get(message.id) ?? [];
+                  if (!assistantIds.length) return null;
+                  const historyChangeCount = assistantIds.reduce((sum, id) => sum + (messageFileChanges.get(id)?.length ?? 0), 0);
+                  const previewChangeCount = assistantIds.reduce((sum, id) => sum + (messageChangePreviews.get(id)?.length ?? 0), 0);
+                  // Fallback: check conversationFileChanges (uses lastMessageId from backend)
+                  const assistantIdSet = new Set(assistantIds);
+                  const convHistoryCount = (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
+                    .filter(fc => assistantIdSet.has(fc.lastMessageId ?? fc.messageId ?? ''))
+                    .length;
+                  const totalCount = historyChangeCount || previewChangeCount || convHistoryCount;
+                  if (!totalCount) return null;
+                  return (
                     <div className="message-actions">
                       <RollbackButton
                         conversationId={activeConversationId!}
-                        messageId={assistantMsgId!}
-                        fileChanges={changes}
-                        onRollback={handleRollback}
-                      />
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-            );
-          } else if (item.type === 'tool-group') {
-            const groupPreviews = (item.data as ToolCall[])
-              .map(t => toolCallPreviewMap.get(t.id))
-              .filter((p): p is ChangePreviewData => p !== undefined);
-            return (
-              <React.Fragment key={`tool-group-${index}`}>
-                <CollapsibleToolSummary
-                  tools={item.data}
-                  now={now}
-                />
-                {groupPreviews.map(preview => {
-                  const effectiveStatus = reviewedToolCallIds.get(preview.toolCallId) ?? preview.status;
-                  return (
-                    <div className="timeline-change-preview" key={preview.toolCallId}>
-                      <DiffPreviewCard
-                        preview={{ ...preview, status: effectiveStatus }}
-                        onAccept={() => handleAcceptChange(activeConversationId!, preview.messageId, preview.toolCallId)}
-                        onReject={() => handleRejectChange(activeConversationId!, preview.messageId, preview.toolCallId)}
-                        onOpenFile={(filePath) => {
-                          useAppStore.getState().openFile(filePath);
-                        }}
+                        messageId={assistantIds[assistantIds.length - 1] ?? message.id}
+                        fileCount={totalCount}
+                        onRollback={() => handleRollback(message.id, assistantIds)}
                       />
                     </div>
                   );
-                })}
+                })()}
+              </div>
+              </React.Fragment>
+            );
+          } else if (item.type === 'tool-group') {
+            const groupTools = item.data as ToolCall[];
+            const groupPreviews = groupTools
+              .map(t => toolCallPreviewMap.get(t.id))
+              .filter((p): p is ChangePreviewData => p !== undefined);
+            const isGroupSuspended = groupTools.some(
+              t => t.messageId && suspendedMessageIds.has(t.messageId)
+            );
+            return (
+              <React.Fragment key={`tool-group-${index}`}>
+                <div className={isGroupSuspended ? 'timeline-item--reverted' : undefined}>
+                  <CollapsibleToolSummary
+                    tools={groupTools}
+                    now={now}
+                  />
+                  {groupPreviews.map(preview => {
+                    const effectiveStatus = reviewedToolCallIds.get(preview.toolCallId) ?? preview.status;
+                    return (
+                      <div className="timeline-change-preview" key={preview.toolCallId}>
+                        <DiffPreviewCard
+                          preview={{ ...preview, status: effectiveStatus }}
+                          onAccept={() => handleAcceptChange(activeConversationId!, preview.messageId, preview.toolCallId, preview.filePath)}
+                          onReject={() => handleRejectChange(activeConversationId!, preview.messageId, preview.toolCallId, preview.filePath)}
+                          onOpenFile={(filePath) => {
+                            useAppStore.getState().openFile(filePath);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </React.Fragment>
             );
           } else if (item.type === 'tool-single') {
             // Single non-SAFE tool - wrap in CollapsibleToolSummary for consistent minimized display
             const tool = item.data as ToolCall;
             const singlePreview = toolCallPreviewMap.get(tool.id);
+            const isToolSuspended = !!(tool.messageId && suspendedMessageIds.has(tool.messageId));
             return (
               <React.Fragment key={`tool-single-${index}-${tool.id}`}>
-                <CollapsibleToolSummary
-                  tools={[tool]}
-                  now={now}
-                />
-                {singlePreview && (() => {
-                  const effectiveStatus = reviewedToolCallIds.get(singlePreview.toolCallId) ?? singlePreview.status;
-                  return (
-                    <div className="timeline-change-preview">
-                      <DiffPreviewCard
-                        preview={{ ...singlePreview, status: effectiveStatus }}
-                        onAccept={() => handleAcceptChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId)}
-                        onReject={() => handleRejectChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId)}
-                        onOpenFile={(filePath) => {
-                          useAppStore.getState().openFile(filePath);
-                        }}
-                      />
-                    </div>
-                  );
-                })()}
+                <div className={isToolSuspended ? 'timeline-item--reverted' : undefined}>
+                  <CollapsibleToolSummary
+                    tools={[tool]}
+                    now={now}
+                  />
+                  {singlePreview && (() => {
+                    const effectiveStatus = reviewedToolCallIds.get(singlePreview.toolCallId) ?? singlePreview.status;
+                    return (
+                      <div className="timeline-change-preview">
+                        <DiffPreviewCard
+                          preview={{ ...singlePreview, status: effectiveStatus }}
+                          onAccept={() => handleAcceptChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId, singlePreview.filePath)}
+                          onReject={() => handleRejectChange(activeConversationId!, singlePreview.messageId, singlePreview.toolCallId, singlePreview.filePath)}
+                          onOpenFile={(filePath) => {
+                            useAppStore.getState().openFile(filePath);
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
+                </div>
               </React.Fragment>
             );
           } else {
@@ -2997,10 +3236,9 @@ export const ChatPanel: React.FC = () => {
                   type="button"
                 >
                   <Files size={14} />
-                  <span>{conversationFileChanges.length} Files</span>
+                  <span>{pendingFileChangesStats.fileCount} Files</span>
                   {(() => {
-                    const totalAdditions = conversationFileChanges.reduce((sum, f) => sum + f.additions, 0);
-                    const totalDeletions = conversationFileChanges.reduce((sum, f) => sum + f.deletions, 0);
+                    const { totalAdditions, totalDeletions } = pendingFileChangesStats;
                     return (
                       <>
                         {totalAdditions > 0 && (
@@ -3036,10 +3274,16 @@ export const ChatPanel: React.FC = () => {
             )}
             {hasPendingChanges && (
               <div className="file-history-toolbar-actions">
-                <button className="btn-reject-all" onClick={handleRejectAll} type="button">
+                <button className="btn-reject-all" onClick={() => {
+                  console.log('[ChatPanel] Reject All button clicked');
+                  handleRejectAll();
+                }} type="button">
                   Reject All
                 </button>
-                <button className="btn-accept-all" onClick={handleAcceptAll} type="button">
+                <button className="btn-accept-all" onClick={() => {
+                  console.log('[ChatPanel] Accept All button clicked');
+                  handleAcceptAll();
+                }} type="button">
                   Accept All
                 </button>
               </div>

@@ -54,4 +54,18 @@ If a plan file exists at \`.omnicode/plan.json\`, you can read it with the Read 
     systemPromptAppend: 'You are in debug mode. Focus on diagnosing issues: read logs, trace code paths, inspect state, run targeted tests. Be methodical and systematic.',
     temperature: 0.2,
   },
+  ask: {
+    systemPromptAppend: `You are in ASK mode. Your ONLY purpose is to answer questions and provide information.
+
+CRITICAL RULES:
+1. You are in READ-ONLY mode - you CANNOT and MUST NOT make any changes to files, code, or the system
+2. If the user asks you to make a change, fix something, edit code, create files, or run commands, you MUST REFUSE
+3. When refusing, tell the user: "I can't make changes in Ask mode. Please switch to Code mode (⌘I) if you'd like me to make this change."
+4. You may use Read, Glob, Grep, SearchWeb, WebFetch, and other read/search tools to find information
+5. NEVER use Write, Edit, MultiFileEdit, DiffEdit, Bash, GitCommit, or any tool that modifies files or executes commands
+6. If you need to show code, copy it into your response - do not create or modify files
+
+You are an assistant that provides information ONLY. Changes require switching to Code mode.`,
+    disabledTools: ['Write', 'Edit', 'MultiFileEdit', 'DiffEdit', 'Bash', 'GitCommit'],
+  },
 };

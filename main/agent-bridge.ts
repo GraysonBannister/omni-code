@@ -11,7 +11,7 @@ type AgentEvent =
   | { type: 'stream_delta'; delta: { type: 'text'; text?: string } }
   | { type: 'thinking_delta'; text: string; accumulated: string }
   | { type: 'turn_complete'; message: unknown }
-  | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
+  | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown>; messageId?: string }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: { content: string; isError?: boolean } }
   | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
   | { type: 'tool_results_complete'; message: unknown }
@@ -289,6 +289,12 @@ export class AgentBridge {
         state.agent.updateConfig({ cwd: workspacePath, systemPrompt });
       }
     }
+  }
+
+  // Get the working directory for a specific conversation (may differ from global path in multi-window)
+  getWorkspacePathForConversation(conversationId: string): string {
+    const state = this.conversations.get(conversationId);
+    return state?.agent.config.cwd || this.workspacePath;
   }
 
   // Set the provider registry for model switching
@@ -793,6 +799,10 @@ export class AgentBridge {
           state.isRunning = false;
           state.currentAssistantMessageId = undefined;
           state.pendingFileChanges.clear();
+        } else if (agentEvent.type === 'tool_call_start' && state.currentAssistantMessageId) {
+          // Attach the originating assistant message ID so the renderer can associate
+          // each tool call with the turn that generated it (used for reverted-state graying).
+          this.emitEvent(conversationId, { ...agentEvent, messageId: state.currentAssistantMessageId });
         } else {
           this.emitEvent(conversationId, agentEvent);
         }
@@ -1048,7 +1058,7 @@ export class AgentBridge {
       // Update system prompt with mode-specific guidance
       const currentSystemPrompt = state.agent.config.systemPrompt || '';
       // Remove any previous mode append (simple approach: look for mode markers)
-      const basePrompt = currentSystemPrompt.replace(/\n\nYou are in (architect|code|review|security|debug) mode\.?.*/s, '');
+      const basePrompt = currentSystemPrompt.replace(/\n\nYou are in (architect|code|review|security|debug|ask) mode\.?.*/s, '');
       updates.systemPrompt = basePrompt + '\n\n' + modeConfig.systemPromptAppend;
 
       // Apply config updates
@@ -1105,11 +1115,12 @@ export class AgentBridge {
     toolCallId: string,
     decision: 'accept' | 'reject'
   ): Promise<{ success: boolean; error?: string }> {
-    if (!this.workspacePath) {
-      return { success: false, error: 'No workspace path set' };
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
+      return { success: false, error: 'No workspace path set for conversation' };
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     if (decision === 'accept') {
@@ -1145,11 +1156,12 @@ export class AgentBridge {
     accepted: string[];
     failed: Array<{ toolCallId: string; error: string }>;
   }> {
-    if (!this.workspacePath) {
-      return { success: false, accepted: [], failed: [{ toolCallId: 'all', error: 'No workspace path set' }] };
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
+      return { success: false, accepted: [], failed: [{ toolCallId: 'all', error: 'No workspace path set for conversation' }] };
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     const result = await changeReviewManager.acceptAllChanges(conversationId);
@@ -1177,11 +1189,12 @@ export class AgentBridge {
     rejected: string[];
     failed: Array<{ toolCallId: string; error: string }>;
   }> {
-    if (!this.workspacePath) {
-      return { success: false, rejected: [], failed: [{ toolCallId: 'all', error: 'No workspace path set' }] };
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
+      return { success: false, rejected: [], failed: [{ toolCallId: 'all', error: 'No workspace path set for conversation' }] };
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     const result = await changeReviewManager.rejectAllChanges(conversationId, messageId);
@@ -1205,11 +1218,12 @@ export class AgentBridge {
    * Get pending changes for a conversation
    */
   getPendingChanges(conversationId: string): PendingToolCallChange[] {
-    if (!this.workspacePath) {
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
       return [];
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     return changeReviewManager.getPendingChanges(conversationId);
@@ -1223,11 +1237,12 @@ export class AgentBridge {
     totalAccepted: number;
     totalRejected: number;
   } {
-    if (!this.workspacePath) {
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
       return { totalPending: 0, totalAccepted: 0, totalRejected: 0 };
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     return changeReviewManager.getChangeSummary(conversationId);
@@ -1237,11 +1252,12 @@ export class AgentBridge {
    * Check if there are pending changes for a conversation
    */
   hasPendingChanges(conversationId: string): boolean {
-    if (!this.workspacePath) {
+    const workingDir = this.getWorkspacePathForConversation(conversationId);
+    if (!workingDir) {
       return false;
     }
 
-    const fileHistoryManager = getFileHistoryManager(this.workspacePath);
+    const fileHistoryManager = getFileHistoryManager(workingDir);
     const changeReviewManager = getChangeReviewManager(fileHistoryManager);
 
     return changeReviewManager.hasPendingChanges(conversationId);

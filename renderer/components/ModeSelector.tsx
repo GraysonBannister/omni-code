@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Code, Building2, Eye, Shield, Bug, Check, ChevronDown } from 'lucide-react'
 import './ModeSelector.css'
 
-export type AIMode = 'code' | 'architect' | 'review' | 'security' | 'debug'
+export type AIMode = 'code' | 'architect' | 'review' | 'security' | 'debug' | 'ask'
 
 interface AIModeConfig {
   value: AIMode
@@ -96,7 +96,7 @@ const modes: AIModeConfig[] = [
     label: 'Ask',
     description: 'Ask questions and get answers',
     icon: <AskIcon className="w-4 h-4" />,
-  } as any, // Adding ask mode for the UI
+  },
 ]
 
 interface ModeSelectorProps {

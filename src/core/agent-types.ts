@@ -12,7 +12,7 @@ import type {
 
 export type AgentEvent =
   | { type: 'stream_delta'; delta: StreamDelta }
-  | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown> }
+  | { type: 'tool_call_start'; toolName: string; toolId: string; input: Record<string, unknown>; messageId?: string }
   | { type: 'tool_call_end'; toolName: string; toolId: string; result: ToolResult }
   | { type: 'tool_call_progress'; toolName: string; toolId: string; message: string }
   | { type: 'tool_results_complete'; message: UnifiedMessage }

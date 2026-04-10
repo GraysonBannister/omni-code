@@ -431,6 +431,7 @@ export const CodeEditor: React.FC = () => {
     projectPath,
     files,
     loadFile,
+    activeConversationId,
   } = useAppStore();
 
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
@@ -598,36 +599,58 @@ export const CodeEditor: React.FC = () => {
   }, [editorInstance, activeFilePath, pendingPreview, activeFile?.content]);
 
   const handleAcceptChange = useCallback(async () => {
-    if (!pendingPreview || !activeFilePath) return;
+    if (!pendingPreview || !activeFilePath || !activeConversationId) {
+      console.warn('[Editor] Cannot accept change: missing preview, file path, or conversation ID');
+      return;
+    }
     // Update the shared store immediately so the chat panel reflects the new
     // status without waiting for the backend event round-trip.
     markToolCallReviewed(pendingPreview.toolCallId, 'accepted');
     clearFilePendingPreview(activeFilePath);
     try {
-      await (window as any).electronAPI!.agent.respondToChangeReview(
+      console.log('[Editor] Accepting change:', {
+        conversationId: activeConversationId,
+        messageId: pendingPreview.messageId,
+        toolCallId: pendingPreview.toolCallId,
+        decision: 'accept'
+      });
+      const result = await (window as any).electronAPI!.agent.respondToChangeReview(
+        activeConversationId,
         pendingPreview.messageId,
         pendingPreview.toolCallId,
         'accept'
       );
+      console.log('[Editor] Accept result:', result);
     } catch (error) {
       console.error('[Editor] Failed to accept change:', error);
     }
-  }, [pendingPreview, activeFilePath, clearFilePendingPreview, markToolCallReviewed]);
+  }, [pendingPreview, activeFilePath, activeConversationId, clearFilePendingPreview, markToolCallReviewed]);
 
   const handleRejectChange = useCallback(async () => {
-    if (!pendingPreview || !activeFilePath) return;
+    if (!pendingPreview || !activeFilePath || !activeConversationId) {
+      console.warn('[Editor] Cannot reject change: missing preview, file path, or conversation ID');
+      return;
+    }
     markToolCallReviewed(pendingPreview.toolCallId, 'rejected');
     clearFilePendingPreview(activeFilePath);
     try {
-      await (window as any).electronAPI!.agent.respondToChangeReview(
+      console.log('[Editor] Rejecting change:', {
+        conversationId: activeConversationId,
+        messageId: pendingPreview.messageId,
+        toolCallId: pendingPreview.toolCallId,
+        decision: 'reject'
+      });
+      const result = await (window as any).electronAPI!.agent.respondToChangeReview(
+        activeConversationId,
         pendingPreview.messageId,
         pendingPreview.toolCallId,
         'reject'
       );
+      console.log('[Editor] Reject result:', result);
     } catch (error) {
       console.error('[Editor] Failed to reject change:', error);
     }
-  }, [pendingPreview, activeFilePath, clearFilePendingPreview, markToolCallReviewed]);
+  }, [pendingPreview, activeFilePath, activeConversationId, clearFilePendingPreview, markToolCallReviewed]);
 
   const getLanguage = (filePath: string): string => {
     const ext = filePath.split('.').pop()?.toLowerCase();

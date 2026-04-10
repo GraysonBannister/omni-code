@@ -52,6 +52,7 @@ export interface ToolCall {
   completedAt?: number;
   permissionLevel?: string;
   category?: string;
+  messageId?: string;
 }
 
 export interface OpenFile {
@@ -120,6 +121,7 @@ export interface Conversation {
   planSourceMessageId?: string | null; // ID of the assistant message that produced the plan
   planFilePath?: string | null; // Absolute path to the .omnicode/plan.json file on disk
   pendingChangePreviews?: Map<string, ChangePreviewData[]>; // Pending change review previews keyed by message ID
+  revertedAtUserMessageId?: string; // Set when the user has reverted a turn; messages after this ID are grayed out
 }
 
 // Terminal Session for multi-terminal support
@@ -257,6 +259,8 @@ interface AppState {
   setPlanFilePath: (conversationId: string, filePath: string | null) => void;
   updatePendingPlanStepStatus: (conversationId: string, stepId: string, status: PlanStepStatus) => void;
   setPendingChangePreviews: (conversationId: string, previews: Map<string, ChangePreviewData[]>) => void;
+  setConversationRevertedAt: (conversationId: string, userMessageId: string | undefined) => void;
+  truncateMessagesAfter: (conversationId: string, userMessageId: string) => void;
 
   // Past Chats Actions
   listSavedConversations: () => Promise<void>;
@@ -1053,6 +1057,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }));
   },
+
+  setConversationRevertedAt: (conversationId, userMessageId) => set(state => ({
+    conversations: state.conversations.map(c =>
+      c.id === conversationId
+        ? { ...c, revertedAtUserMessageId: userMessageId, updatedAt: Date.now(), isDirty: true }
+        : c
+    ),
+  })),
+
+  truncateMessagesAfter: (conversationId, userMessageId) => set(state => ({
+    conversations: state.conversations.map(c => {
+      if (c.id !== conversationId) return c;
+      const idx = c.messages.findIndex(m => m.id === userMessageId);
+      if (idx < 0) return c;
+      return { ...c, messages: c.messages.slice(0, idx + 1), revertedAtUserMessageId: undefined, updatedAt: Date.now(), isDirty: true };
+    }),
+  })),
 
   switchConversationModel: (conversationId, model, provider) => {
     // Update the conversation's model in the store

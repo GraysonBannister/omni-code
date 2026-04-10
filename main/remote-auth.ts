@@ -5,11 +5,57 @@ import { randomBytes } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { settingsManager } from './settings.js';
 
+// Short-lived session tokens for WebView proxy sub-resource loading.
+// When a proxied HTML page is served, a session token is minted and set as a
+// cookie. The browser then automatically includes it in script/CSS/image fetches,
+// which cannot carry HMAC headers.
+interface ProxySession {
+  port: number;
+  expiresAt: number;
+}
+const proxySessionStore = new Map<string, ProxySession>();
+
+export function createProxySession(port: number): string {
+  const token = randomBytes(32).toString('hex');
+  proxySessionStore.set(token, { port, expiresAt: Date.now() + 60 * 60 * 1000 });
+  // Opportunistic cleanup of expired sessions
+  for (const [key, val] of proxySessionStore) {
+    if (val.expiresAt < Date.now()) proxySessionStore.delete(key);
+  }
+  return token;
+}
+
+export function validateProxySessionToken(token: string): boolean {
+  const session = proxySessionStore.get(token);
+  if (!session) return false;
+  if (session.expiresAt < Date.now()) {
+    proxySessionStore.delete(token);
+    return false;
+  }
+  return true;
+}
+
 // CORS configuration for mobile app access
 const DEFAULT_ALLOWED_ORIGINS: string[] = [];
 
 // API Key validation middleware
 export function validateApiKey(req: Request, res: Response, next: NextFunction): void {
+  // Allow requests carrying a valid proxy session cookie — these are browser-initiated
+  // sub-resource requests (CSS, JS, images) from a proxied page and cannot carry API key headers.
+  const cookieHeader = (req.headers['cookie'] as string) || '';
+  const cookieMap = Object.fromEntries(
+    cookieHeader
+      .split(';')
+      .map((c) => c.trim().split('='))
+      .filter((p) => p.length === 2)
+      .map(([k, v]) => [k.trim(), v.trim()]),
+  );
+  const sessionToken = cookieMap['omni-proxy-session'];
+  if (sessionToken && validateProxySessionToken(sessionToken)) {
+    next();
+    return;
+  }
+
   const apiKey = req.headers['x-api-key'] as string | undefined;
 
   if (!apiKey) {
@@ -102,6 +148,23 @@ export function validateIp(req: Request, res: Response, next: NextFunction): voi
  * Requests with a timestamp older than 5 minutes are rejected, preventing replays.
  */
 export function validateRequestSignature(req: Request, res: Response, next: NextFunction): void {
+  // Allow requests that carry a valid proxy session cookie.
+  // These are browser-initiated sub-resource fetches (JS, CSS, images) from a
+  // proxied HTML page — they cannot include HMAC headers.
+  const cookieHeader = (req.headers['cookie'] as string) || '';
+  const cookieMap = Object.fromEntries(
+    cookieHeader
+      .split(';')
+      .map((c) => c.trim().split('='))
+      .filter((p) => p.length === 2)
+      .map(([k, v]) => [k.trim(), v.trim()]),
+  );
+  const sessionToken = cookieMap['omni-proxy-session'];
+  if (sessionToken && validateProxySessionToken(sessionToken)) {
+    next();
+    return;
+  }
+
   const timestamp = req.headers['x-timestamp'] as string | undefined;
   const signature = req.headers['x-signature'] as string | undefined;
 

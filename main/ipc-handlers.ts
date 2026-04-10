@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
-import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
+import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, getWorkingDirectoryForConversation, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
 import { remoteClientMode } from './remote-client-mode.js';
 import {
   createPlanFile,
@@ -755,8 +755,18 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('file:restore', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
     try {
-      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
       const result = await fileHistoryManager.rollbackToMessage(conversationId, messageId);
+      return result;
+    } catch (error) {
+      return { success: false, restoredFiles: [], failedFiles: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('file:reapply', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
+    try {
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
+      const result = await fileHistoryManager.reapplyMessage(conversationId, messageId);
       return result;
     } catch (error) {
       return { success: false, restoredFiles: [], failedFiles: [], error: (error as Error).message };
@@ -765,7 +775,7 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('file:getChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
     try {
-      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
       const changes = await fileHistoryManager.getMessageChangesWithStats(conversationId, messageId);
       return { changes };
     } catch (error) {
@@ -775,7 +785,7 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('file:hasChanges', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string) => {
     try {
-      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
       const hasChanges = await fileHistoryManager.hasChanges(conversationId, messageId);
       return { hasChanges };
     } catch (error) {
@@ -785,7 +795,7 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('file:getAllChanges', async (_: IpcMainInvokeEvent, conversationId: string) => {
     try {
-      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
       const changes = await fileHistoryManager.getAllConversationChanges(conversationId);
       return { changes };
     } catch (error) {
@@ -796,7 +806,7 @@ export function setupIpcHandlers(): void {
   // Get diff for a specific file change
   ipcMain.handle('file:getDiff', async (_: IpcMainInvokeEvent, conversationId: string, messageId: string, filePath: string) => {
     try {
-      const fileHistoryManager = getFileHistoryManager(getWorkingDirectory());
+      const fileHistoryManager = getFileHistoryManager(getWorkingDirectoryForConversation(conversationId));
       const changes = await fileHistoryManager.getMessageChanges(conversationId, messageId);
       const change = changes.find(c => c.filePath === filePath);
 

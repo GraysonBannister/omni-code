@@ -149,6 +149,12 @@ export function getWorkingDirectory(): string {
   return currentWorkingDirectory;
 }
 
+// Returns the working directory for a specific conversation. Falls back to
+// the global directory when no per-conversation path is available (single-window mode).
+export function getWorkingDirectoryForConversation(conversationId: string): string {
+  return agentBridge.getWorkspacePathForConversation(conversationId) || currentWorkingDirectory;
+}
+
 export async function initializeCore(): Promise<void> {
   if (coreInitialized) return;
 

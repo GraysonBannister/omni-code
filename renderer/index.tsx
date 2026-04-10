@@ -59,6 +59,7 @@ declare global {
           error?: string;
         }>;
         restore: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; error?: string }>;
+        reapply: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; error?: string }>;
       };
       tool: {
         execute: (toolName: string, input: Record<string, unknown>) => Promise<{ result: unknown; error?: string }>;

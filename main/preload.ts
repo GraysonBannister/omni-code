@@ -81,6 +81,7 @@ type FileAPI = {
   onChange: (callback: (event: { type: 'add' | 'change' | 'unlink'; path: string }) => void) => () => void;
   backup: (conversationId: string, messageId: string, toolCallId: string, filePath: string, changeType: 'write' | 'edit' | 'delete') => Promise<{ success: boolean }>;
   restore: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; failedFiles: string[] }>;
+  reapply: (conversationId: string, messageId: string) => Promise<{ success: boolean; restoredFiles: string[]; failedFiles: string[] }>;
   getChanges: (conversationId: string, messageId: string) => Promise<{ changes: Array<{
     filePath: string;
     fileName: string;
@@ -580,6 +581,8 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('file:backup', conversationId, messageId, toolCallId, filePath, changeType),
     restore: (conversationId, messageId) =>
       ipcRenderer.invoke('file:restore', conversationId, messageId),
+    reapply: (conversationId, messageId) =>
+      ipcRenderer.invoke('file:reapply', conversationId, messageId),
     getChanges: (conversationId, messageId) =>
       ipcRenderer.invoke('file:getChanges', conversationId, messageId),
     getAllChanges: (conversationId) =>

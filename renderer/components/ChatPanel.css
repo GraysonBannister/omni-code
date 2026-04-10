@@ -469,6 +469,49 @@
   color: var(--color-text-primary);
 }
 
+/* Inline two-step confirmation that replaces the rollback button on first click */
+.rollback-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.rollback-confirm-text {
+  color: var(--color-text-primary);
+}
+
+.rollback-confirm-yes,
+.rollback-confirm-no {
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.rollback-confirm-yes {
+  background: var(--color-accent, #e05252);
+  color: #fff;
+  border: 1px solid transparent;
+}
+
+.rollback-confirm-yes:hover {
+  filter: brightness(1.1);
+}
+
+.rollback-confirm-no {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.rollback-confirm-no:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
 /* Ultra-minimal inline tool name - just text */
 .chat-inline-tool-name {
   color: var(--color-text-secondary);
@@ -1565,4 +1608,39 @@
 .message-image:hover {
   transform: scale(1.02);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Checkpoint / revert system ─────────────────────────────────── */
+.chat-message--reverted {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Dims reverted tool-call timeline items (CollapsibleToolSummary + DiffPreviewCard) */
+.timeline-item--reverted {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.2s ease;
+}
+
+.revert-restore-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin: 6px 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.revert-restore-banner:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
 }

@@ -707,6 +707,54 @@ export class FileHistoryManager {
   }
 
   /**
+   * Re-apply the changes from a specific message (undo a previous rollback).
+   * Writes afterContent for each file change captured in the snapshot.
+   */
+  async reapplyMessage(conversationId: string, messageId: string): Promise<{
+    success: boolean;
+    restoredFiles: string[];
+    failedFiles: string[];
+  }> {
+    const restoredFiles: string[] = [];
+    const failedFiles: string[] = [];
+
+    const targetKey = `${conversationId}/${messageId}`;
+    const targetSnapshot = await this.ensureSnapshotLoaded(targetKey);
+
+    if (!targetSnapshot) {
+      console.warn(`[FileHistoryManager] No snapshot found for message ${messageId} (reapply)`);
+      return { success: false, restoredFiles, failedFiles };
+    }
+
+    for (const change of targetSnapshot.changes.filter(entry => entry.afterContent !== undefined)) {
+      const absolutePath = this.resolveFilePath(change.filePath);
+
+      try {
+        await fs.mkdir(dirname(absolutePath), { recursive: true });
+
+        if (change.changeType === 'delete') {
+          // Original change deleted the file — re-apply by deleting again.
+          try { await fs.unlink(absolutePath); } catch { /* already gone */ }
+          restoredFiles.push(change.filePath);
+        } else {
+          // Write the afterContent back to disk.
+          await fs.writeFile(absolutePath, change.afterContent!, 'utf8');
+          restoredFiles.push(change.filePath);
+        }
+      } catch (error) {
+        console.error(`[FileHistoryManager] Failed to reapply ${change.filePath}:`, error);
+        failedFiles.push(change.filePath);
+      }
+    }
+
+    return {
+      success: failedFiles.length === 0,
+      restoredFiles,
+      failedFiles,
+    };
+  }
+
+  /**
    * Clear all snapshots for a conversation (when conversation is deleted)
    */
   async clearConversation(conversationId: string): Promise<void> {
