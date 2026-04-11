@@ -188,8 +188,13 @@ export function validateRequestSignature(req: Request, res: Response, next: Next
   const signingString = `${req.method}\n${req.originalUrl}\n${timestamp}`;
   const expected = crypto.createHmac('sha256', apiKey).update(signingString).digest('hex');
 
+  // Debug logging for signature verification
+  console.log('[SignatureDebug] Server signing string:', JSON.stringify(signingString));
+  console.log('[SignatureDebug] Server expected sig:', expected.substring(0, 16) + '...');
+  console.log('[SignatureDebug] Client sent sig:', (signature as string).substring(0, 16) + '...');
+
   if (!timingSafeEqual(signature, expected)) {
-    res.status(401).json({ error: 'Invalid request signature.' });
+    res.status(401).json({ error: 'Invalid request signature.', debug: { serverString: signingString } });
     return;
   }
 
