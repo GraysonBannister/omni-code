@@ -109,6 +109,8 @@ export interface WorkspaceOperationResult {
   success: boolean;
   error?: string;
   workspace?: Workspace;
+  /** Absolute path to the saved workspace file (set after create/save operations) */
+  filePath?: string;
 }
 
 /**

@@ -14,7 +14,7 @@ import { app, nativeImage } from 'electron';
 import * as path from 'node:path';
 import { createWindow, setupAppEventHandlers } from './main/app-window.js';
 import { initializeCore } from './main/core-integration.js';
-import { setupIpcHandlers, cleanupIpcHandlers, setupRulesAndSkillsIpcHandlers, setupUpdaterIpcHandlers } from './main/ipc-handlers.js';
+import { setupIpcHandlers, cleanupIpcHandlers, setupRulesAndSkillsIpcHandlers, setupUpdaterIpcHandlers, setupWorkspaceIpcHandlers } from './main/ipc-handlers.js';
 import { setupSettingsIpcHandlers, cleanupSettingsIpcHandlers } from './main/settings.js';
 
 // Set app name before ready so it appears correctly in dock/taskbar
@@ -55,6 +55,7 @@ async function initializeApp(): Promise<void> {
     setupSettingsIpcHandlers();
     setupRulesAndSkillsIpcHandlers();
     setupUpdaterIpcHandlers();
+    setupWorkspaceIpcHandlers();
 
     // Wait for settings manager to be ready before creating window
     const { getSettingsManager } = await import('./main/settings.js');

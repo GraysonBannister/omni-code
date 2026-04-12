@@ -1,4 +1,5 @@
 // Core Integration - Initializes omni-code core for Electron
+import * as path from 'node:path';
 import { ConfigManager } from '../src/config/config-manager.js';
 import { ProviderRegistry, type ProviderRegistry as ProviderRegistryType } from '../src/providers/provider-registry.js';
 import { AnthropicProvider } from '../src/providers/anthropic/anthropic-provider.js';
@@ -50,10 +51,41 @@ export function setPermissionMode(autoRunMode: string): void {
   }
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  path: string;
+  name?: string;
+}
+
 // Build system prompt with current working directory and active rules/skills
-function buildSystemPrompt(cwd: string): string {
+// When workspaceFolders is provided, the AI is given full multi-folder context.
+function buildSystemPrompt(cwd: string, workspaceName?: string, workspaceFolders?: WorkspaceFolder[]): string {
   const rulesSection = rulesManager.buildRulesPrompt();
   const skillsSection = skillsManager.buildSkillsPrompt();
+
+  let workingDirectorySection: string;
+
+  if (workspaceFolders && workspaceFolders.length > 1) {
+    const folderList = workspaceFolders
+      .map(f => {
+        const name = f.name || path.basename(f.path);
+        const isActive = f.path === cwd;
+        return `- ${name}: ${f.path}${isActive ? ' (active)' : ''}`;
+      })
+      .join('\n');
+
+    workingDirectorySection = `## Workspace: ${workspaceName || 'Multi-folder Workspace'}
+This is a multi-folder workspace containing ${workspaceFolders.length} projects:
+${folderList}
+
+The currently active folder is: ${cwd}
+You have access to all folders in the workspace. When working on tasks, consider all projects unless the user specifies otherwise.
+File operations and searches default to the active folder unless you specify an absolute path.`;
+  } else {
+    workingDirectorySection = `## Working Directory
+The user's current working directory is: ${cwd}
+Always use this working directory for file operations and searches unless specifically asked to work elsewhere.`;
+  }
 
   return `You are omni-code, a powerful AI coding assistant running in the Electron GUI.
 You help users with software engineering tasks: writing code, debugging, refactoring, explaining code, and more.
@@ -91,11 +123,13 @@ After scaffolding a new project or making significant changes, always verify it 
 
 Do NOT hand off to the user after writing files. Run the project, observe the result, fix any issues, and confirm it works before finishing.
 
-## Working Directory
-The user's current working directory is: ${cwd}
-Always use this working directory for file operations and searches unless specifically asked to work elsewhere.
+${workingDirectorySection}
 ${rulesSection}${skillsSection}`;
 }
+
+// Currently active workspace context (set when in multi-folder workspace mode)
+let currentWorkspaceName: string | undefined;
+let currentWorkspaceFolders: WorkspaceFolder[] | undefined;
 
 export async function setWorkingDirectory(cwd: string): Promise<void> {
   currentWorkingDirectory = cwd;
@@ -107,7 +141,7 @@ export async function setWorkingDirectory(cwd: string): Promise<void> {
     skillsManager.loadSkills(cwd),
   ]);
 
-  const newSystemPrompt = buildSystemPrompt(cwd);
+  const newSystemPrompt = buildSystemPrompt(cwd, currentWorkspaceName, currentWorkspaceFolders);
   agentBridge.updateWorkspaceContext(cwd, newSystemPrompt);
 
   // Keep the legacy singleton in sync as well if one is ever assigned.
@@ -131,12 +165,58 @@ export async function setWorkingDirectoryForWindow(cwd: string, conversationIds:
     skillsManager.loadSkills(cwd),
   ]);
 
-  const newSystemPrompt = buildSystemPrompt(cwd);
+  const newSystemPrompt = buildSystemPrompt(cwd, currentWorkspaceName, currentWorkspaceFolders);
   agentBridge.updateWorkspaceContextForConversations(cwd, newSystemPrompt, conversationIds);
 }
 
+/**
+ * Set the full multi-folder workspace context so the AI knows about all projects.
+ * Called when the user opens or creates a workspace with multiple folders.
+ */
+export async function setWorkspaceContext(
+  activeFolderPath: string,
+  workspaceName: string,
+  folders: WorkspaceFolder[],
+  conversationIds?: string[]
+): Promise<void> {
+  currentWorkingDirectory = activeFolderPath;
+  currentWorkspaceName = workspaceName;
+  currentWorkspaceFolders = folders;
+
+  console.log(`[WorkspaceContext] Setting workspace "${workspaceName}" with ${folders.length} folder(s), active: ${activeFolderPath}`);
+
+  // Load rules and skills from all workspace folders (merges them)
+  await Promise.all(
+    folders.map(f => Promise.all([
+      rulesManager.loadRules(f.path),
+      skillsManager.loadSkills(f.path),
+    ]))
+  );
+
+  const newSystemPrompt = buildSystemPrompt(activeFolderPath, workspaceName, folders);
+
+  if (conversationIds && conversationIds.length > 0) {
+    agentBridge.updateWorkspaceContextForConversations(activeFolderPath, newSystemPrompt, conversationIds);
+  } else {
+    agentBridge.updateWorkspaceContext(activeFolderPath, newSystemPrompt);
+  }
+
+  if (agentInstance) {
+    agentInstance.updateConfig({ systemPrompt: newSystemPrompt, cwd: activeFolderPath });
+  }
+}
+
+/**
+ * Clear multi-folder workspace context (e.g. when closing the workspace).
+ */
+export function clearWorkspaceContext(): void {
+  currentWorkspaceName = undefined;
+  currentWorkspaceFolders = undefined;
+  console.log('[WorkspaceContext] Cleared workspace context');
+}
+
 export function refreshSystemPrompt(): void {
-  const newSystemPrompt = buildSystemPrompt(currentWorkingDirectory);
+  const newSystemPrompt = buildSystemPrompt(currentWorkingDirectory, currentWorkspaceName, currentWorkspaceFolders);
   agentBridge.updateWorkspaceContext(currentWorkingDirectory, newSystemPrompt);
   if (agentInstance) {
     agentInstance.updateConfig({ systemPrompt: newSystemPrompt });

@@ -54,10 +54,26 @@ export class WorkspaceStorage {
    * Get the storage path for a specific workspace's app data
    */
   async getWorkspaceStoragePath(workspaceId: string): Promise<string> {
-    const workspacesDir = await this.getWorkspacesDir();
-    const storagePath = path.join(workspacesDir, workspaceId);
-    await fs.mkdir(storagePath, { recursive: true });
-    return storagePath;
+    console.log('[WorkspaceStorage] getWorkspaceStoragePath called for workspaceId:', workspaceId);
+    try {
+      const workspacesDir = await this.getWorkspacesDir();
+      console.log('[WorkspaceStorage] Workspaces directory resolved:', workspacesDir);
+
+      const storagePath = path.join(workspacesDir, workspaceId);
+      console.log('[WorkspaceStorage] Creating storage directory:', storagePath);
+
+      await fs.mkdir(storagePath, { recursive: true });
+      console.log('[WorkspaceStorage] Storage directory created/verified:', storagePath);
+
+      return storagePath;
+    } catch (error) {
+      console.error('[WorkspaceStorage] getWorkspaceStoragePath FAILED:', {
+        workspaceId,
+        error: (error as Error).message,
+        stack: (error as Error).stack,
+      });
+      throw error;
+    }
   }
 
   /**
@@ -72,13 +88,28 @@ export class WorkspaceStorage {
    * Load all workspace metadata
    */
   private async loadMetadata(): Promise<Map<string, WorkspaceMetadata>> {
+    console.log('[WorkspaceStorage] loadMetadata called');
     try {
       const metadataPath = await this.getMetadataPath();
+      console.log('[WorkspaceStorage] Loading metadata from:', metadataPath);
+
       const content = await fs.readFile(metadataPath, 'utf-8');
+      console.log('[WorkspaceStorage] Metadata file read, size:', content.length, 'bytes');
+
       const data = JSON.parse(content) as Record<string, WorkspaceMetadata>;
-      return new Map(Object.entries(data));
-    } catch {
+      const map = new Map(Object.entries(data));
+      console.log('[WorkspaceStorage] Metadata parsed successfully, entries:', map.size);
+      return map;
+    } catch (error) {
       // No metadata file yet, return empty map
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.log('[WorkspaceStorage] No metadata file exists yet, returning empty map');
+      } else {
+        console.error('[WorkspaceStorage] Error loading metadata:', {
+          error: (error as Error).message,
+          code: (error as NodeJS.ErrnoException).code,
+        });
+      }
       return new Map();
     }
   }
@@ -87,33 +118,86 @@ export class WorkspaceStorage {
    * Save workspace metadata
    */
   private async saveMetadata(metadata: Map<string, WorkspaceMetadata>): Promise<void> {
-    const metadataPath = await this.getMetadataPath();
-    const data = Object.fromEntries(metadata);
-    await fs.writeFile(metadataPath, JSON.stringify(data, null, 2), 'utf-8');
+    console.log('[WorkspaceStorage] saveMetadata called with', metadata.size, 'workspaces');
+    try {
+      const metadataPath = await this.getMetadataPath();
+      console.log('[WorkspaceStorage] Metadata file path:', metadataPath);
+
+      const data = Object.fromEntries(metadata);
+      const jsonData = JSON.stringify(data, null, 2);
+      console.log('[WorkspaceStorage] Writing metadata JSON, size:', jsonData.length, 'bytes');
+
+      await fs.writeFile(metadataPath, jsonData, 'utf-8');
+      console.log('[WorkspaceStorage] Metadata saved successfully to:', metadataPath);
+    } catch (error) {
+      console.error('[WorkspaceStorage] saveMetadata FAILED:', {
+        error: (error as Error).message,
+        stack: (error as Error).stack,
+        metadataSize: metadata.size,
+      });
+      throw error;
+    }
   }
 
   /**
    * Create a new workspace
    */
   async createWorkspace(options: CreateWorkspaceOptions): Promise<WorkspaceOperationResult> {
+    console.log('[WorkspaceStorage] createWorkspace started:', {
+      name: options.name,
+      folderCount: options.folders?.length || 0,
+      folders: options.folders,
+    });
+
     try {
+      console.log('[WorkspaceStorage] Creating workspace object...');
       const workspace = createWorkspace(options);
+      console.log('[WorkspaceStorage] Workspace object created:', {
+        id: workspace.id,
+        name: workspace.name,
+        version: workspace.version,
+        folderCount: workspace.folders.length,
+      });
 
       // Ensure workspace has a folder in app data
-      await this.getWorkspaceStoragePath(workspace.id);
+      console.log('[WorkspaceStorage] Getting workspace storage path for ID:', workspace.id);
+      const storagePath = await this.getWorkspaceStoragePath(workspace.id);
+      console.log('[WorkspaceStorage] Storage path created:', storagePath);
 
       // Save to metadata
+      console.log('[WorkspaceStorage] Loading existing metadata...');
       const metadata = await this.loadMetadata();
-      metadata.set(workspace.id, {
+      console.log('[WorkspaceStorage] Metadata loaded, existing workspaces:', metadata.size);
+
+      const metadataEntry = {
         id: workspace.id,
         lastOpenedAt: Date.now(),
-      });
+      };
+      console.log('[WorkspaceStorage] Adding workspace to metadata:', metadataEntry);
+      metadata.set(workspace.id, metadataEntry);
+
+      console.log('[WorkspaceStorage] Saving metadata...');
       await this.saveMetadata(metadata);
+      console.log('[WorkspaceStorage] Metadata saved successfully');
+
+      console.log('[WorkspaceStorage] createWorkspace completed successfully:', {
+        workspaceId: workspace.id,
+        name: workspace.name,
+      });
 
       return { success: true, workspace };
     } catch (error) {
-      console.error('[WorkspaceStorage] Failed to create workspace:', error);
-      return { success: false, error: (error as Error).message };
+      const errorMessage = (error as Error).message;
+      const errorStack = (error as Error).stack;
+      console.error('[WorkspaceStorage] Failed to create workspace:', {
+        error: errorMessage,
+        stack: errorStack,
+        options: {
+          name: options.name,
+          folders: options.folders,
+        },
+      });
+      return { success: false, error: errorMessage };
     }
   }
 

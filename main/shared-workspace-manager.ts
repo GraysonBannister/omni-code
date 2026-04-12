@@ -263,25 +263,45 @@ export class SharedWorkspaceManager {
    * Add a workspace file to the shared list
    */
   async addWorkspaceFile(workspaceFilePath: string): Promise<SharedWorkspace | null> {
+    console.log('[SharedWorkspaceManager] addWorkspaceFile called:', workspaceFilePath);
+
     try {
       // Validate file exists and is a workspace file
+      console.log('[SharedWorkspaceManager] Checking if file exists and is accessible...');
       await fs.access(workspaceFilePath);
+      console.log('[SharedWorkspaceManager] File exists and is accessible');
+
       if (!workspaceFilePath.endsWith('.omnicode-workspace')) {
+        console.error('[SharedWorkspaceManager] Invalid file extension:', workspaceFilePath);
         throw new Error('Not a valid workspace file');
       }
+      console.log('[SharedWorkspaceManager] File extension validated (.omnicode-workspace)');
 
       // Check if already shared
+      console.log('[SharedWorkspaceManager] Checking if workspace is already shared...');
       const existing = this.sharedWorkspaces.find(ws => ws.filePath === workspaceFilePath);
       if (existing) {
         console.log(`[SharedWorkspaceManager] Workspace already shared: ${workspaceFilePath}`);
         return existing;
       }
+      console.log('[SharedWorkspaceManager] Workspace not previously shared, proceeding...');
 
       // Load workspace file
+      console.log('[SharedWorkspaceManager] Reading workspace file...');
       const content = await fs.readFile(workspaceFilePath, 'utf-8');
+      console.log('[SharedWorkspaceManager] Workspace file read, size:', content.length, 'bytes');
+
+      console.log('[SharedWorkspaceManager] Parsing workspace JSON...');
       const workspace: Workspace = JSON.parse(content);
+      console.log('[SharedWorkspaceManager] Workspace parsed:', {
+        id: workspace.id,
+        name: workspace.name,
+        version: workspace.version,
+        folderCount: workspace.folders?.length || 0,
+      });
 
       // Create shared workspace entry
+      console.log('[SharedWorkspaceManager] Creating shared workspace entry...');
       const sharedWorkspace: SharedWorkspace = {
         sharedId: `shared-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         workspaceId: workspace.id,
@@ -297,20 +317,35 @@ export class SharedWorkspaceManager {
         addedAt: Date.now(),
         isSingleFolder: false,
       };
+      console.log('[SharedWorkspaceManager] Shared workspace entry created:', {
+        sharedId: sharedWorkspace.sharedId,
+        workspaceId: sharedWorkspace.workspaceId,
+        name: sharedWorkspace.name,
+      });
 
       this.sharedWorkspaces.push(sharedWorkspace);
+      console.log('[SharedWorkspaceManager] Workspace added to shared list, total count:', this.sharedWorkspaces.length);
 
       // If this is the first workspace, make it active
       if (this.sharedWorkspaces.length === 1) {
         this.activeWorkspaceId = sharedWorkspace.sharedId;
+        console.log('[SharedWorkspaceManager] First workspace, set as active:', sharedWorkspace.sharedId);
       }
 
+      console.log('[SharedWorkspaceManager] Saving to settings...');
       await this.saveToSettings();
+      console.log('[SharedWorkspaceManager] Settings saved successfully');
 
-      console.log(`[SharedWorkspaceManager] Added workspace: ${sharedWorkspace.name}`);
+      console.log(`[SharedWorkspaceManager] addWorkspaceFile completed successfully: ${sharedWorkspace.name}`);
       return sharedWorkspace;
     } catch (error) {
-      console.error('[SharedWorkspaceManager] Failed to add workspace:', error);
+      const errorMessage = (error as Error).message;
+      const errorStack = (error as Error).stack;
+      console.error('[SharedWorkspaceManager] addWorkspaceFile FAILED:', {
+        error: errorMessage,
+        stack: errorStack,
+        workspaceFilePath,
+      });
       return null;
     }
   }
@@ -381,27 +416,88 @@ export class SharedWorkspaceManager {
    * Create a new multi-folder workspace, persist it to a file, and add it to the shared list.
    */
   async createWorkspaceFromFolders(name: string, folderPaths: string[]): Promise<SharedWorkspace | null> {
+    console.log('[SharedWorkspaceManager] createWorkspaceFromFolders started:', {
+      name,
+      folderCount: folderPaths.length,
+      folderPaths,
+    });
+
     try {
+      console.log('[SharedWorkspaceManager] Step 1: Creating workspace via WorkspaceStorage...');
       const createResult = await this.workspaceStorage.createWorkspace({ name, folders: folderPaths });
+
       if (!createResult.success || !createResult.workspace) {
-        console.error('[SharedWorkspaceManager] Failed to create workspace:', createResult.error);
+        console.error('[SharedWorkspaceManager] Step 1 FAILED: WorkspaceStorage.createWorkspace failed:', {
+          success: createResult.success,
+          error: createResult.error,
+          hasWorkspace: !!createResult.workspace,
+        });
         return null;
       }
 
       const workspace = createResult.workspace;
+      console.log('[SharedWorkspaceManager] Step 1 SUCCESS: Workspace created:', {
+        workspaceId: workspace.id,
+        name: workspace.name,
+        folderCount: workspace.folders.length,
+      });
+
+      // Step 2: Ensure app-data storage dir exists (used for chats, index, etc.)
+      console.log('[SharedWorkspaceManager] Step 2: Getting storage path for workspace ID:', workspace.id);
       const storageDir = await this.workspaceStorage.getWorkspaceStoragePath(workspace.id);
+      console.log('[SharedWorkspaceManager] Step 2 SUCCESS: App storage directory:', storageDir);
+
+      // Step 3: Bootstrap .omnicode directories in every project folder so each
+      // project can store its own chats, rules, skills, index, etc.
+      await Promise.all(
+        folderPaths.map(fp => fs.mkdir(path.join(fp, '.omnicode'), { recursive: true }).catch(e => {
+          console.warn(`[SharedWorkspaceManager] Could not create .omnicode in ${fp}:`, e.message);
+        }))
+      );
+
+      // Step 4: Determine file path — fall back to app storage for the
+      // HTTP/remote API path (the Electron UI path shows a save dialog via IPC).
       const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
       const filePath = path.join(storageDir, `${safeName}.omnicode-workspace`);
+      console.log('[SharedWorkspaceManager] Step 4 prepared file path:', { safeName, filePath });
 
+      console.log('[SharedWorkspaceManager] Step 5: Saving workspace to file...');
       const saveResult = await this.workspaceStorage.saveWorkspaceToFile(workspace, filePath);
+
       if (!saveResult.success) {
-        console.error('[SharedWorkspaceManager] Failed to save workspace file:', saveResult.error);
+        console.error('[SharedWorkspaceManager] Step 5 FAILED: saveWorkspaceToFile failed:', {
+          error: saveResult.error,
+          filePath,
+        });
+        return null;
+      }
+      console.log('[SharedWorkspaceManager] Step 5 SUCCESS: Workspace file saved');
+
+      console.log('[SharedWorkspaceManager] Step 6: Adding workspace file to shared list...');
+      const sharedWorkspace = await this.addWorkspaceFile(filePath);
+
+      if (!sharedWorkspace) {
+        console.error('[SharedWorkspaceManager] Step 6 FAILED: addWorkspaceFile returned null for path:', filePath);
         return null;
       }
 
-      return await this.addWorkspaceFile(filePath);
+      console.log('[SharedWorkspaceManager] createWorkspaceFromFolders completed successfully:', {
+        sharedId: sharedWorkspace.sharedId,
+        workspaceId: sharedWorkspace.workspaceId,
+        name: sharedWorkspace.name,
+        folderCount: sharedWorkspace.folderCount,
+      });
+
+      return sharedWorkspace;
     } catch (error) {
-      console.error('[SharedWorkspaceManager] createWorkspaceFromFolders failed:', error);
+      const errorMessage = (error as Error).message;
+      const errorStack = (error as Error).stack;
+      console.error('[SharedWorkspaceManager] createWorkspaceFromFolders EXCEPTION:', {
+        error: errorMessage,
+        stack: errorStack,
+        name,
+        folderPaths,
+      });
       return null;
     }
   }

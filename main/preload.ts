@@ -135,6 +135,8 @@ type ConfigAPI = {
   getProviders: () => Promise<Array<{ name: string; available: boolean; models: string[] }>>;
   setCwd: (cwd: string) => Promise<void>;
   getCwd: () => Promise<{ cwd: string }>;
+  setWorkspaceContext: (activeFolderPath: string, workspaceName: string, folders: Array<{ id: string; path: string; name?: string }>) => Promise<{ success: boolean }>;
+  clearWorkspaceContext: () => Promise<{ success: boolean }>;
 };
 
 // Window API
@@ -148,6 +150,7 @@ type WindowAPI = {
 type DialogAPI = {
   openFolder: () => Promise<{ canceled: boolean; path: string | null }>;
   createFolder: () => Promise<{ canceled: boolean; path: string | null; error?: string }>;
+  openWorkspace: () => Promise<{ canceled: boolean; path: string | null }>;
 };
 
 // App API
@@ -185,6 +188,62 @@ type ChatStorageAPI = {
   loadConversations: (workspacePath: string) => Promise<{ conversations: unknown[]; error?: string }>;
   deleteConversation: (workspacePath: string, conversationId: string) => Promise<{ success: boolean; error?: string }>;
   listConversations: (workspacePath: string) => Promise<{ conversations: Array<{ id: string; title: string; updatedAt: number; messageCount: number }>; error?: string }>;
+};
+
+// Workspace API
+type FolderRef = {
+  id: string;
+  path: string;
+  name?: string;
+};
+
+type Workspace = {
+  version: number;
+  id: string;
+  name: string;
+  folders: FolderRef[];
+  settings: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type CreateWorkspaceOptions = {
+  name: string;
+  folders?: string[];
+  settings?: Record<string, unknown>;
+};
+
+type WorkspaceOperationResult = {
+  success: boolean;
+  workspace?: Workspace;
+  error?: string;
+  filePath?: string;
+};
+
+type WorkspaceSummary = {
+  id: string;
+  name: string;
+  folderCount: number;
+  filePath?: string;
+  lastOpenedAt?: number;
+};
+
+type WorkspaceAPI = {
+  create: (options: CreateWorkspaceOptions) => Promise<WorkspaceOperationResult>;
+  loadFromFile: (filePath: string) => Promise<WorkspaceOperationResult>;
+  update: (workspace: Workspace) => Promise<WorkspaceOperationResult>;
+  addFolder: (workspaceId: string, folderPath: string, folderName?: string) => Promise<WorkspaceOperationResult>;
+  removeFolder: (workspaceId: string, folderId: string) => Promise<WorkspaceOperationResult>;
+  rename: (workspaceId: string, newName: string) => Promise<WorkspaceOperationResult>;
+  list: () => Promise<{ workspaces: WorkspaceSummary[]; error?: string }>;
+  export: (workspaceId: string, targetDir: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  import: (sourceDir: string) => Promise<WorkspaceOperationResult>;
+  delete: (workspaceId: string, deleteData?: boolean) => Promise<{ success: boolean; error?: string }>;
+  chat: {
+    load: (workspace: Workspace) => Promise<{ conversations: unknown[]; error?: string }>;
+    save: (workspace: Workspace, conversation: unknown) => Promise<{ success: boolean; error?: string }>;
+    delete: (workspace: Workspace, conversationId: string) => Promise<{ success: boolean; error?: string }>;
+  };
 };
 
 // Usage Tracking API
@@ -501,6 +560,7 @@ type ElectronAPI = {
   rules: RulesAPI;
   skills: SkillsAPI;
   addons: AddonsAPI;
+  workspace: WorkspaceAPI;
 };
 
 interface AddonManifest {
@@ -609,11 +669,15 @@ const api: ElectronAPI = {
     getProviders: () => ipcRenderer.invoke('config:get-providers'),
     setCwd: (cwd: string) => ipcRenderer.invoke('config:set-cwd', cwd),
     getCwd: () => ipcRenderer.invoke('config:get-cwd'),
+    setWorkspaceContext: (activeFolderPath: string, workspaceName: string, folders: Array<{ id: string; path: string; name?: string }>) =>
+      ipcRenderer.invoke('config:set-workspace-context', activeFolderPath, workspaceName, folders),
+    clearWorkspaceContext: () => ipcRenderer.invoke('config:clear-workspace-context'),
   },
 
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:open-folder'),
     createFolder: () => ipcRenderer.invoke('dialog:create-folder'),
+    openWorkspace: () => ipcRenderer.invoke('dialog:open-workspace'),
   },
 
   settings: {
@@ -885,6 +949,29 @@ const api: ElectronAPI = {
     uninstall: (id: string) => ipcRenderer.invoke('addons:uninstall', id),
   },
 
+  workspace: {
+    create: (options: CreateWorkspaceOptions) => ipcRenderer.invoke('workspace:create', options),
+    loadFromFile: (filePath: string) => ipcRenderer.invoke('workspace:loadFromFile', filePath),
+    update: (workspace: Workspace) => ipcRenderer.invoke('workspace:update', workspace),
+    addFolder: (workspaceId: string, folderPath: string, folderName?: string) =>
+      ipcRenderer.invoke('workspace:addFolder', workspaceId, folderPath, folderName),
+    removeFolder: (workspaceId: string, folderId: string) =>
+      ipcRenderer.invoke('workspace:removeFolder', workspaceId, folderId),
+    rename: (workspaceId: string, newName: string) =>
+      ipcRenderer.invoke('workspace:rename', workspaceId, newName),
+    list: () => ipcRenderer.invoke('workspace:list'),
+    export: (workspaceId: string, targetDir: string) =>
+      ipcRenderer.invoke('workspace:export', workspaceId, targetDir),
+    import: (sourceDir: string) => ipcRenderer.invoke('workspace:import', sourceDir),
+    delete: (workspaceId: string, deleteData?: boolean) =>
+      ipcRenderer.invoke('workspace:delete', workspaceId, deleteData),
+    chat: {
+      load: (workspace: Workspace) => ipcRenderer.invoke('workspace:chat:load', workspace),
+      save: (workspace: Workspace, conversation: unknown) => ipcRenderer.invoke('workspace:chat:save', workspace, conversation),
+      delete: (workspace: Workspace, conversationId: string) => ipcRenderer.invoke('workspace:chat:delete', workspace, conversationId),
+    },
+  },
+
   tray: {
     onNavigateToChat: (callback: (conversationId: string) => void) => {
       const handler = (_: IpcRendererEvent, conversationId: string) => callback(conversationId);
@@ -952,5 +1039,5 @@ export type {
   SettingsAPI, ChatStorageAPI, UsageAPI, IndexingAPI, NotificationsAPI, TrayAPI, TerminalAPI, BrowserAPI, RemoteAPI, RemoteClientAPI, ProjectAPI, PlanAPI, PlanFileData, GitAPI, GitStatusResult,
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
   RemoteClientStatus, RemoteClientConnectResult, RemoteClientTestResult, RemoteClientServerInfo,
-  RulesAPI, SkillsAPI, RuleData, SkillData,
+  RulesAPI, SkillsAPI, RuleData, SkillData, WorkspaceAPI, Workspace, CreateWorkspaceOptions, WorkspaceOperationResult, WorkspaceSummary, FolderRef,
 };

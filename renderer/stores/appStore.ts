@@ -324,6 +324,7 @@ interface AppState {
   importWorkspace: (sourceDir: string) => Promise<Workspace | null>;
   loadSavedWorkspaces: () => Promise<void>;
   setWorkspaceMode: (isWorkspaceMode: boolean) => void;
+  setRecentWorkspaces: (workspaces: string[]) => void;
   loadWorkspaceConversations: (workspace: Workspace) => Promise<void>;
   saveWorkspaceConversation: (conversationId: string) => Promise<boolean>;
 
@@ -425,19 +426,60 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Workspace Actions (NEW - multi-project support)
   setCurrentWorkspace: (workspace) => set({ currentWorkspace: workspace, isWorkspaceMode: !!workspace }),
-  setActiveFolder: (folderId) => set({ activeFolderId: folderId }),
+  setActiveFolder: (folderId) => {
+    const state = get();
+    const folder = state.currentWorkspace?.folders.find(f => f.id === folderId);
+    if (folder) {
+      const workspace = state.currentWorkspace!;
+      // Update workspace context so AI knows the new active folder (while keeping all folders visible)
+      window.electronAPI?.config?.setWorkspaceContext(
+        folder.path,
+        workspace.name,
+        workspace.folders
+      ).catch(err => {
+        console.error('[setActiveFolder] Failed to set workspace context:', err);
+      });
+      set({
+        activeFolderId: folderId,
+        projectPath: folder.path,
+      });
+    } else {
+      set({ activeFolderId: folderId });
+    }
+  },
   setWorkspaceMode: (isWorkspaceMode) => set({ isWorkspaceMode }),
+  setRecentWorkspaces: (workspaces) => set({ recentWorkspaces: workspaces }),
 
   createWorkspace: async (options) => {
     try {
       const result = await window.electronAPI?.workspace?.create(options);
       if (result?.success && result.workspace) {
+        const firstFolder = result.workspace.folders[0];
+        const firstFolderPath = firstFolder?.path || '';
         set({
           currentWorkspace: result.workspace,
           isWorkspaceMode: true,
-          activeFolderId: result.workspace.folders[0]?.id || null,
-          projectPath: result.workspace.folders[0]?.path || '',
+          activeFolderId: firstFolder?.id || null,
+          projectPath: firstFolderPath,
         });
+
+        // Track the workspace file path in recents so it appears on the welcome screen
+        // result.filePath is the user-chosen save path returned by the IPC handler
+        if (result.filePath) {
+          await window.electronAPI?.settings?.addRecentWorkspace(result.filePath);
+          const prev = get().recentWorkspaces;
+          set({ recentWorkspaces: [result.filePath, ...prev.filter(w => w !== result.filePath)] });
+        }
+
+        // Tell the AI about the full workspace — all folders, not just the first
+        if (firstFolderPath && result.workspace.folders.length > 0) {
+          console.log('[createWorkspace] Setting workspace context:', result.workspace.name, result.workspace.folders.length, 'folders');
+          await window.electronAPI?.config?.setWorkspaceContext(
+            firstFolderPath,
+            result.workspace.name,
+            result.workspace.folders
+          );
+        }
 
         // Create initial conversation for workspace
         const convId = get().createConversation();
@@ -463,20 +505,33 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         });
 
+        const firstFolderPath = result.workspace.folders[0]?.path || '';
         set({
           currentWorkspace: result.workspace,
           isWorkspaceMode: true,
           activeFolderId: result.workspace.folders[0]?.id || null,
-          projectPath: result.workspace.folders[0]?.path || '',
+          projectPath: firstFolderPath,
           conversations: [],
           pastChats: [],
         });
+
+        // Tell the AI about the full workspace — all folders, not just the first
+        if (firstFolderPath && result.workspace.folders.length > 0) {
+          console.log('[openWorkspace] Setting workspace context:', result.workspace.name, result.workspace.folders.length, 'folders');
+          await window.electronAPI?.config?.setWorkspaceContext(
+            firstFolderPath,
+            result.workspace.name,
+            result.workspace.folders
+          );
+        }
 
         // Load workspace conversations
         await get().loadWorkspaceConversations(result.workspace);
 
         // Add to recent workspaces
         await window.electronAPI?.settings?.addRecentWorkspace(filePath);
+        const prev = get().recentWorkspaces;
+        set({ recentWorkspaces: [filePath, ...prev.filter(w => w !== filePath)] });
 
         // If no conversations were loaded, create a new one
         const state = get();
@@ -517,6 +572,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Close workspace indexer
       await window.electronAPI?.workspace?.indexing?.close(state.currentWorkspace.id);
+
+      // Clear workspace context from AI
+      await window.electronAPI?.config?.clearWorkspaceContext();
 
       // Clear workspace state
       set({
@@ -624,7 +682,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         folderName
       );
       if (result?.success && result.workspace) {
+        // If this was the first folder added, set it as active and update working directory
+        const wasFirstFolder = state.currentWorkspace.folders.length === 0;
         set({ currentWorkspace: result.workspace });
+        if (wasFirstFolder && result.workspace.folders.length > 0) {
+          const firstFolder = result.workspace.folders[0];
+          set({
+            activeFolderId: firstFolder.id,
+            projectPath: firstFolder.path,
+          });
+          await window.electronAPI?.config?.setCwd(firstFolder.path);
+        }
         return true;
       }
       return false;
@@ -647,11 +715,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ currentWorkspace: result.workspace });
         // If we removed the active folder, switch to another one
         if (state.activeFolderId === folderId) {
-          const newActiveFolder = result.workspace.folders[0]?.id || null;
+          const newActiveFolder = result.workspace.folders[0] || null;
           set({
-            activeFolderId: newActiveFolder,
-            projectPath: result.workspace.folders[0]?.path || '',
+            activeFolderId: newActiveFolder?.id || null,
+            projectPath: newActiveFolder?.path || '',
           });
+          // Update working directory to the new active folder
+          if (newActiveFolder?.path) {
+            await window.electronAPI?.config?.setCwd(newActiveFolder.path);
+          }
         }
         return true;
       }
@@ -1134,7 +1206,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.electronAPI?.agent.closeConversation(id).catch(console.error);
 
     // Delete the saved chat file from disk (this chat was manually closed and should not reappear)
-    if (state.projectPath) {
+    if (state.isWorkspaceMode && state.currentWorkspace) {
+      window.electronAPI?.workspace?.chat?.delete(state.currentWorkspace, id)
+        .then(() => {
+          console.log(`[closeConversation] Deleted workspace chat file for ${id}`);
+        })
+        .catch((error) => {
+          console.error('[closeConversation] Failed to delete workspace chat:', error);
+        });
+    } else if (state.projectPath) {
       window.electronAPI?.chatStorage?.deleteConversation(state.projectPath, id)
         .then(() => {
           console.log(`[closeConversation] Deleted saved chat file and file history for ${id}`);

@@ -6,6 +6,7 @@ interface WelcomeScreenProps {
   onOpenFolder: () => void;
   onCreateFolder: () => void;
   onOpenRecent: (path: string) => void;
+  onOpenRecentWorkspace: (filePath: string) => void;
   onOpenWorkspace?: () => void;
   onCreateWorkspace?: () => void;
   recentFolders: string[];
@@ -16,6 +17,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenFolder,
   onCreateFolder,
   onOpenRecent,
+  onOpenRecentWorkspace,
   onOpenWorkspace,
   onCreateWorkspace,
   recentFolders,
@@ -123,7 +125,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <div
                   key={workspacePath}
                   className="recent-item workspace-item"
-                  onClick={() => onOpenRecent(workspacePath)}
+                  onClick={() => onOpenRecentWorkspace(workspacePath)}
                   title={workspacePath}
                 >
                   <div className="recent-icon workspace-icon">

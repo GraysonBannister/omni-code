@@ -34,6 +34,7 @@ export const App: React.FC = () => {
     openRecentWorkspace,
     openWorkspace,
     loadSavedWorkspaces,
+    setRecentWorkspaces,
   } = useAppStore();
 
   const themePref = useSettingsStore(state => state.settings?.general?.theme ?? 'dark');
@@ -68,7 +69,6 @@ export const App: React.FC = () => {
 
   const [isElectron, setIsElectron] = React.useState(true);
   const [recentFoldersState, setRecentFoldersState] = useState<string[]>([]);
-  const [recentWorkspacesState, setRecentWorkspacesState] = useState<string[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false);
@@ -223,7 +223,7 @@ export const App: React.FC = () => {
         console.log('[App] Loaded recent folders:', folders.value?.length || 0);
         console.log('[App] Loaded recent workspaces:', workspaces.value?.length || 0);
         setRecentFoldersState(folders.value || []);
-        setRecentWorkspacesState(workspaces.value || []);
+        useAppStore.getState().setRecentWorkspaces(workspaces.value || []);
 
         // Load saved workspace list
         await loadSavedWorkspaces();
@@ -435,10 +435,11 @@ export const App: React.FC = () => {
           onOpenFolder={openFolder}
           onCreateFolder={createFolder}
           onOpenRecent={openRecentWorkspace}
+          onOpenRecentWorkspace={openWorkspace}
           onOpenWorkspace={openWorkspaceDialog}
           onCreateWorkspace={() => setWorkspaceManagerOpen(true)}
           recentFolders={recentFoldersState}
-          recentWorkspaces={recentWorkspacesState}
+          recentWorkspaces={recentWorkspaceFiles}
         />
         <WorkspaceManager
           isOpen={workspaceManagerOpen}

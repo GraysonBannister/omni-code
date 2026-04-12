@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
-import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, getWorkingDirectoryForConversation, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons } from './core-integration.js';
+import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, getWorkingDirectoryForConversation, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons, setWorkspaceContext, clearWorkspaceContext, type WorkspaceFolder } from './core-integration.js';
 import { remoteClientMode } from './remote-client-mode.js';
 import {
   createPlanFile,
@@ -20,6 +20,8 @@ import {
   type PlanFileData,
 } from './plan-file-manager.js';
 import { getSharedWorkspaceManager } from './shared-workspace-manager.js';
+import { getWorkspaceStorage } from './workspace-storage.js';
+import type { Workspace, CreateWorkspaceOptions } from '../src/types/workspace.js';
 import { getChatStorage } from './chat-storage.js';
 import { getUsageStorage } from './usage-storage.js';
 import { getFileHistoryManager } from './file-history.js';
@@ -944,6 +946,27 @@ export function setupIpcHandlers(): void {
     return { cwd: getWorkingDirectory() };
   });
 
+  // Workspace context handler — tells the AI about all folders in a multi-folder workspace
+  ipcMain.handle('config:set-workspace-context', async (
+    event: IpcMainInvokeEvent,
+    activeFolderPath: string,
+    workspaceName: string,
+    folders: WorkspaceFolder[]
+  ) => {
+    const windowId = event.sender.id;
+    windowCwdMap.set(windowId, activeFolderPath);
+    const conversationIds = [...(windowConversationsMap.get(windowId) ?? [])];
+    console.log(`[IPC] config:set-workspace-context "${workspaceName}" with ${folders.length} folders, active: ${activeFolderPath}`);
+    await setWorkspaceContext(activeFolderPath, workspaceName, folders, conversationIds);
+    return { success: true };
+  });
+
+  // Clear workspace context when returning to single-folder mode
+  ipcMain.handle('config:clear-workspace-context', () => {
+    clearWorkspaceContext();
+    return { success: true };
+  });
+
   // Dialog handlers
   ipcMain.handle('dialog:open-folder', async () => {
     const window = BrowserWindow.getFocusedWindow();
@@ -978,6 +1001,23 @@ export function setupIpcHandlers(): void {
     }
 
     return { canceled: false, path: result.filePaths[0] };
+  });
+
+  ipcMain.handle('dialog:open-workspace', async () => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (!window) return { canceled: true, path: null };
+
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Open Workspace',
+      buttonLabel: 'Open Workspace',
+      filters: [{ name: 'Omni Code Workspace', extensions: ['omnicode-workspace'] }],
+      properties: ['openFile'],
+    });
+
+    return {
+      canceled: result.canceled,
+      path: result.filePaths[0] || null,
+    };
   });
 
   ipcMain.handle('app:get-version', async () => {
@@ -1973,6 +2013,223 @@ export function setupUpdaterIpcHandlers(): void {
   });
 }
 
+// ─── Workspace IPC Handlers ──────────────────────────────────────────────────
+
+export function setupWorkspaceIpcHandlers(): void {
+  console.log('[IPC] Registering workspace handlers...');
+
+  const workspaceStorage = getWorkspaceStorage();
+
+  ipcMain.handle('workspace:create', async (_: IpcMainInvokeEvent, options: CreateWorkspaceOptions) => {
+    console.log('[IPC] workspace:create called:', options);
+    try {
+      // Prompt the user to choose where to save the workspace file
+      const window = BrowserWindow.getFocusedWindow();
+      const safeName = (options.name || 'workspace').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const saveResult = await dialog.showSaveDialog(window!, {
+        title: 'Save Workspace',
+        defaultPath: safeName,
+        buttonLabel: 'Save Workspace',
+        filters: [{ name: 'Omni Code Workspace', extensions: ['omnicode-workspace'] }],
+        properties: ['createDirectory', 'showOverwriteConfirmation'],
+      });
+
+      if (saveResult.canceled || !saveResult.filePath) {
+        console.log('[IPC] workspace:create canceled by user');
+        return { success: false, error: 'canceled' };
+      }
+
+      const filePath = saveResult.filePath;
+      console.log('[IPC] workspace:create save path chosen:', filePath);
+
+      // Create the workspace object and save metadata
+      const result = await workspaceStorage.createWorkspace(options);
+      if (!result.success || !result.workspace) {
+        console.error('[IPC] workspace:create storage failed:', result.error);
+        return result;
+      }
+
+      // Bootstrap .omnicode dirs in each project folder
+      await Promise.all(
+        (options.folders ?? []).map(fp =>
+          fs.mkdir(path.join(fp, '.omnicode'), { recursive: true }).catch(e => {
+            console.warn(`[IPC] workspace:create could not create .omnicode in ${fp}:`, e.message);
+          })
+        )
+      );
+
+      // Save the workspace file to the user-chosen location
+      const saveFileResult = await workspaceStorage.saveWorkspaceToFile(result.workspace, filePath);
+      if (!saveFileResult.success) {
+        console.error('[IPC] workspace:create saveWorkspaceToFile failed:', saveFileResult.error);
+        return { success: false, error: saveFileResult.error };
+      }
+
+      // Track in recent workspaces (Omni Code welcome screen + menu)
+      const { settingsManager: sm } = await import('./settings.js');
+      sm.addRecentWorkspace(filePath);
+      console.log('[IPC] workspace:create added to recent workspaces:', filePath);
+
+      // Register with SharedWorkspaceManager so Omni Go sees the new workspace
+      try {
+        const sharedManager = getSharedWorkspaceManager();
+        await sharedManager.addWorkspaceFile(filePath);
+        console.log('[IPC] workspace:create registered with SharedWorkspaceManager');
+      } catch (sharedErr) {
+        console.warn('[IPC] workspace:create SharedWorkspaceManager registration failed:', sharedErr);
+      }
+
+      console.log('[IPC] workspace:create succeeded, file at:', filePath);
+      return { success: true, workspace: saveFileResult.workspace, filePath };
+    } catch (error) {
+      console.error('[IPC] workspace:create error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:loadFromFile', async (_: IpcMainInvokeEvent, filePath: string) => {
+    console.log('[IPC] workspace:loadFromFile called:', filePath);
+    try {
+      const result = await workspaceStorage.loadWorkspaceFromFile(filePath);
+      console.log('[IPC] workspace:loadFromFile result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:loadFromFile error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:update', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    console.log('[IPC] workspace:update called:', workspace.id);
+    try {
+      const result = await workspaceStorage.updateWorkspace(workspace);
+      console.log('[IPC] workspace:update result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:update error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:addFolder', async (_: IpcMainInvokeEvent, workspaceId: string, folderPath: string, folderName?: string) => {
+    console.log('[IPC] workspace:addFolder called:', { workspaceId, folderPath, folderName });
+    try {
+      const result = await workspaceStorage.addFolderToWorkspace(workspaceId, folderPath, folderName);
+      console.log('[IPC] workspace:addFolder result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:addFolder error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:removeFolder', async (_: IpcMainInvokeEvent, workspaceId: string, folderId: string) => {
+    console.log('[IPC] workspace:removeFolder called:', { workspaceId, folderId });
+    try {
+      const result = await workspaceStorage.removeFolderFromWorkspace(workspaceId, folderId);
+      console.log('[IPC] workspace:removeFolder result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:removeFolder error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:rename', async (_: IpcMainInvokeEvent, workspaceId: string, newName: string) => {
+    console.log('[IPC] workspace:rename called:', { workspaceId, newName });
+    try {
+      const result = await workspaceStorage.renameWorkspace(workspaceId, newName);
+      console.log('[IPC] workspace:rename result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:rename error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:list', async () => {
+    console.log('[IPC] workspace:list called');
+    try {
+      const result = await workspaceStorage.listWorkspaces();
+      console.log('[IPC] workspace:list result:', result.workspaces.length, 'workspaces');
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:list error:', error);
+      return { workspaces: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:export', async (_: IpcMainInvokeEvent, workspaceId: string, targetDir: string) => {
+    console.log('[IPC] workspace:export called:', { workspaceId, targetDir });
+    try {
+      const result = await workspaceStorage.exportWorkspace(workspaceId, targetDir);
+      console.log('[IPC] workspace:export result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:export error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:import', async (_: IpcMainInvokeEvent, sourceDir: string) => {
+    console.log('[IPC] workspace:import called:', sourceDir);
+    try {
+      const result = await workspaceStorage.importWorkspace(sourceDir);
+      console.log('[IPC] workspace:import result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:import error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:delete', async (_: IpcMainInvokeEvent, workspaceId: string, deleteData?: boolean) => {
+    console.log('[IPC] workspace:delete called:', { workspaceId, deleteData });
+    try {
+      const result = await workspaceStorage.deleteWorkspace(workspaceId, deleteData);
+      console.log('[IPC] workspace:delete result:', result.success);
+      return result;
+    } catch (error) {
+      console.error('[IPC] workspace:delete error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // ── Workspace chat handlers (Option B: chats stored in userData/workspaces/{id}/) ──
+
+  ipcMain.handle('workspace:chat:load', async (_: IpcMainInvokeEvent, workspace: Workspace) => {
+    try {
+      const storagePath = await workspaceStorage.getWorkspaceStoragePath(workspace.id);
+      return chatStorageRef.loadConversations(storagePath);
+    } catch (error) {
+      console.error('[IPC] workspace:chat:load error:', error);
+      return { conversations: [], error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:chat:save', async (_: IpcMainInvokeEvent, workspace: Workspace, conversation: Conversation) => {
+    try {
+      const storagePath = await workspaceStorage.getWorkspaceStoragePath(workspace.id);
+      return chatStorageRef.saveConversation(storagePath, conversation);
+    } catch (error) {
+      console.error('[IPC] workspace:chat:save error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  ipcMain.handle('workspace:chat:delete', async (_: IpcMainInvokeEvent, workspace: Workspace, conversationId: string) => {
+    try {
+      const storagePath = await workspaceStorage.getWorkspaceStoragePath(workspace.id);
+      return chatStorageRef.deleteConversation(storagePath, conversationId);
+    } catch (error) {
+      console.error('[IPC] workspace:chat:delete error:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  console.log('[IPC] Workspace handlers registered');
+}
+
 export function cleanupIpcHandlers(): void {
   // Clean up all terminal sessions
   destroyAllTerminals();
@@ -2025,6 +2282,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('config:get-providers');
   ipcMain.removeHandler('dialog:open-folder');
   ipcMain.removeHandler('dialog:create-folder');
+  ipcMain.removeHandler('dialog:open-workspace');
   ipcMain.removeHandler('app:get-version');
   ipcMain.removeHandler('app:get-platform');
   ipcMain.removeHandler('usage:get');
@@ -2118,4 +2376,19 @@ export function cleanupIpcHandlers(): void {
   // Updater cleanup
   ipcMain.removeHandler('app:check-for-updates');
   ipcMain.removeHandler('app:install-update');
+
+  // Workspace cleanup
+  ipcMain.removeHandler('workspace:create');
+  ipcMain.removeHandler('workspace:loadFromFile');
+  ipcMain.removeHandler('workspace:update');
+  ipcMain.removeHandler('workspace:addFolder');
+  ipcMain.removeHandler('workspace:removeFolder');
+  ipcMain.removeHandler('workspace:rename');
+  ipcMain.removeHandler('workspace:list');
+  ipcMain.removeHandler('workspace:export');
+  ipcMain.removeHandler('workspace:import');
+  ipcMain.removeHandler('workspace:delete');
+  ipcMain.removeHandler('workspace:chat:load');
+  ipcMain.removeHandler('workspace:chat:save');
+  ipcMain.removeHandler('workspace:chat:delete');
 }

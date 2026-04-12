@@ -1901,12 +1901,42 @@
           "byProvider": {
             "moonshot": 2.0523185
           }
+        },
+        {
+          "date": "2026-04-12",
+          "records": [
+            {
+              "timestamp": 1775983087081,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 7719,
+              "outputTokens": 74,
+              "cost": 0.0040075,
+              "conversationId": "7f371bb8-ed55-489f-94a2-4486da0fcbbb"
+            },
+            {
+              "timestamp": 1775983100312,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9233,
+              "outputTokens": 368,
+              "cost": 0.0053525,
+              "conversationId": "7f371bb8-ed55-489f-94a2-4486da0fcbbb"
+            }
+          ],
+          "totalCost": 0.00936,
+          "byModel": {
+            "kimi-k2.5": 0.00936
+          },
+          "byProvider": {
+            "moonshot": 0.00936
+          }
         }
       ],
-      "totalCost": 2.726233499999999,
+      "totalCost": 2.735593499999999,
       "alertedAt": []
     }
   ],
-  "allTimeTotal": 2.726233499999999,
-  "lastUpdated": 1775828323567
+  "allTimeTotal": 2.735593499999999,
+  "lastUpdated": 1775983100324
 }
