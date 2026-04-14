@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Omni Code
+Comment=AI-powered code assistant
+Exec=/opt/OmniCode/omni-code %U
+Icon=/opt/OmniCode/icon.png
+Type=Application
+Categories=Development;IDE;
+Terminal=false
+MimeType=text/plain;
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=Open New Window
+Exec=/opt/OmniCode/omni-code --new-window

@@ -325,6 +325,7 @@ interface AppState {
   loadSavedWorkspaces: () => Promise<void>;
   setWorkspaceMode: (isWorkspaceMode: boolean) => void;
   setRecentWorkspaces: (workspaces: string[]) => void;
+  setRecentFolders: (folders: string[]) => void;
   loadWorkspaceConversations: (workspace: Workspace) => Promise<void>;
   saveWorkspaceConversation: (conversationId: string) => Promise<boolean>;
 
@@ -449,6 +450,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setWorkspaceMode: (isWorkspaceMode) => set({ isWorkspaceMode }),
   setRecentWorkspaces: (workspaces) => set({ recentWorkspaces: workspaces }),
+  setRecentFolders: (folders) => set({ recentFolders: folders }),
 
   createWorkspace: async (options) => {
     try {
@@ -1977,8 +1979,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeFilePath: null,
       });
 
-      // Add to recent workspaces
-      await window.electronAPI.settings.addRecentWorkspace(result.path);
+      // Add to recent folders and update store
+      await window.electronAPI.settings.addRecentFolder(result.path);
+      const updatedFolders = await window.electronAPI.settings.getRecentFolders();
+      set({ recentFolders: updatedFolders.value || [] });
 
       // Load the new directory
       await get().loadDirectory(result.path);
@@ -2049,8 +2053,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeFilePath: null,
       });
 
-      // Add to recent workspaces
-      await window.electronAPI.settings.addRecentWorkspace(result.path);
+      // Add to recent folders and update store
+      await window.electronAPI.settings.addRecentFolder(result.path);
+      const updatedFolders = await window.electronAPI.settings.getRecentFolders();
+      set({ recentFolders: updatedFolders.value || [] });
 
       // Load the new directory
       await get().loadDirectory(result.path);
@@ -2092,6 +2098,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openRecentWorkspace: async (path: string) => {
     try {
+      // Check if this is a workspace file or a regular folder
+      const isWorkspaceFile = path.endsWith('.omnicode-workspace');
+
       // Update working directory in main process
       await window.electronAPI.config.setCwd(path);
 
@@ -2114,8 +2123,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         pastChatsLoaded: false,
       });
 
-      // Add to recent workspaces (moves to top)
-      await window.electronAPI.settings.addRecentWorkspace(path);
+      // Add to appropriate recent list and update store
+      if (isWorkspaceFile) {
+        await window.electronAPI.settings.addRecentWorkspace(path);
+        const updatedWorkspaces = await window.electronAPI.settings.getRecentWorkspaces();
+        set({ recentWorkspaces: updatedWorkspaces.value || [] });
+      } else {
+        await window.electronAPI.settings.addRecentFolder(path);
+        const updatedFolders = await window.electronAPI.settings.getRecentFolders();
+        set({ recentFolders: updatedFolders.value || [] });
+      }
 
       // Load the directory
       await get().loadDirectory(path);

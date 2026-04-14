@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard, app } from 'electron';
+import { ipcMain, BrowserWindow, IpcMainInvokeEvent, dialog, shell, clipboard, app, systemPreferences } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
@@ -58,6 +58,111 @@ import type { MemoryChunk } from '../src/memory/persistent-store.js';
 
 // This file sets up IPC handlers that will be connected to the Agent and Tools
 // The actual implementations will be provided by the agent-bridge
+
+// ============================================================================
+// System Permission Check Helpers
+// ============================================================================
+
+async function checkMacOSFullDiskAccess(): Promise<boolean> {
+  try {
+    // Try to access a TCC-protected directory to test permission
+    const testPath = path.join(os.homedir(), 'Library', 'Application Support', 'com.apple.tccd');
+    await fs.access(testPath).catch(() => {});
+    // Also try to write to a protected location
+    const testFile = path.join(os.homedir(), 'Desktop', '.omni-perm-test');
+    try {
+      await fs.writeFile(testFile, 'test', { flag: 'wx' });
+      await fs.unlink(testFile);
+      return true;
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function checkMacOSAccessibility(): Promise<boolean> {
+  try {
+    // Check if the app has accessibility permissions by trying to use AppleScript
+    // This is a heuristic - actual accessibility can't be checked programmatically
+    const { exec } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+
+    // Try to run a harmless AppleScript that requires accessibility
+    try {
+      await execAsync('osascript -e "tell application \\"System Events\\" to get name of first application process"', {
+        timeout: 5000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function checkWindowsExecutionPolicy(): Promise<boolean> {
+  try {
+    const { exec } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+
+    const { stdout } = await execAsync('powershell -Command "Get-ExecutionPolicy -Scope CurrentUser"', {
+      timeout: 10000,
+    });
+    const policy = stdout.trim();
+    return policy === 'RemoteSigned' || policy === 'Unrestricted' || policy === 'Bypass';
+  } catch {
+    return false;
+  }
+}
+
+async function checkWindowsFirewall(): Promise<boolean> {
+  try {
+    const { exec } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+
+    // Check if Omni Code is in the allowed apps list
+    const { stdout } = await execAsync(
+      'netsh advfirewall firewall show rule name="Omni Code"',
+      { timeout: 10000 }
+    );
+    return stdout.includes('Enabled') && stdout.includes('Allow');
+  } catch {
+    return false;
+  }
+}
+
+async function checkLinuxGroups(): Promise<boolean> {
+  try {
+    const { exec } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execAsync = promisify(exec);
+
+    // Check if user is in common useful groups
+    const { stdout: groups } = await execAsync('groups', { timeout: 5000 });
+    const usefulGroups = ['dialout', 'docker', 'video'];
+    const userGroups = groups.trim().split(' ');
+    return usefulGroups.some((g) => userGroups.includes(g));
+  } catch {
+    return false;
+  }
+}
+
+async function checkLinuxFilePermissions(): Promise<boolean> {
+  try {
+    const testFile = path.join(os.homedir(), '.omni-perm-test');
+    await fs.writeFile(testFile, 'test', { flag: 'wx' });
+    await fs.unlink(testFile);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Store references to be set by agent-bridge
 // Updated to support multiple conversations per the multi-tab chat feature
@@ -1460,6 +1565,285 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // --- System Permissions IPC Handlers ---
+  console.log('[IPC:system] Registering system permission handlers...');
+
+  // Check system permissions for remote access
+  ipcMain.handle('system:check-permissions', async () => {
+    const platform = process.platform;
+    const permissions: {
+      platform: string;
+      allGranted: boolean;
+      permissions: Array<{
+        name: string;
+        granted: boolean;
+        required: boolean;
+        description: string;
+        macosSetting?: string;
+        windowsSetting?: string;
+        linuxSetting?: string;
+      }>;
+    } = {
+      platform,
+      allGranted: true,
+      permissions: [],
+    };
+
+    try {
+      if (platform === 'darwin') {
+        // macOS permission checks
+        // Use the privacy section URL — works on both macOS 12 (Monterey) and macOS 13+ (Ventura/Sonoma/Sequoia)
+        const privacyUrl = 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension';
+        permissions.permissions = [
+          {
+            name: 'Full Disk Access',
+            granted: await checkMacOSFullDiskAccess(),
+            required: true,
+            description: 'Required to access files in protected locations (Desktop, Documents, etc.)',
+            macosSetting: privacyUrl,
+          },
+          {
+            name: 'Accessibility',
+            granted: await checkMacOSAccessibility(),
+            required: false,
+            description: 'Recommended for window management and terminal operations',
+            macosSetting: privacyUrl,
+          },
+        ];
+      } else if (platform === 'win32') {
+        // Windows permission checks
+        permissions.permissions = [
+          {
+            name: 'PowerShell Execution Policy',
+            granted: await checkWindowsExecutionPolicy(),
+            required: false,
+            description: 'Required to run PowerShell scripts remotely',
+            windowsSetting: 'ms-settings:developers',
+          },
+          {
+            name: 'Windows Firewall',
+            granted: await checkWindowsFirewall(),
+            required: true,
+            description: 'Required for mobile app to connect to the server',
+            windowsSetting: 'ms-settings:windowsdefender',
+          },
+        ];
+      } else if (platform === 'linux') {
+        // Linux permission checks
+        permissions.permissions = [
+          {
+            name: 'User Groups',
+            granted: await checkLinuxGroups(),
+            required: false,
+            description: 'Recommended for hardware access (serial ports, Docker, etc.)',
+            linuxSetting: 'users',
+          },
+          {
+            name: 'File Permissions',
+            granted: await checkLinuxFilePermissions(),
+            required: true,
+            description: 'Required to read and write project files',
+          },
+        ];
+      }
+
+      permissions.allGranted = permissions.permissions.every((p) => !p.required || p.granted);
+      return permissions;
+    } catch (error) {
+      console.error('[IPC:system] Error checking permissions:', error);
+      return {
+        platform,
+        allGranted: false,
+        permissions: [],
+        error: (error as Error).message,
+      };
+    }
+  });
+
+  // Open system settings
+  ipcMain.handle('system:open-settings', async (_: IpcMainInvokeEvent, setting?: string) => {
+    const platform = process.platform;
+
+    try {
+      if (platform === 'darwin') {
+        // On macOS the `setting` argument is already the full URL produced by
+        // checkPermissions (e.g. the macosSetting field on each permission).
+        // Use it directly; fall back to the generic Privacy & Security pane.
+        const url = (setting && setting.startsWith('x-apple.systempreferences:'))
+          ? setting
+          : 'x-apple.systempreferences:com.apple.preference.security';
+
+        // Use the `open` CLI so macOS properly routes to the correct pane.
+        // shell.openExternal can silently mis-route some anchor-based URLs.
+        const { execFile: ef } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const efAsync = promisify(ef);
+        try {
+          await efAsync('open', [url]);
+        } catch {
+          // Fallback to Electron's openExternal
+          await shell.openExternal(url);
+        }
+      } else if (platform === 'win32') {
+        // The `setting` argument is already the ms-settings: URL.
+        const url = (setting && setting.startsWith('ms-settings:'))
+          ? setting
+          : 'ms-settings:privacy';
+        await shell.openExternal(url);
+      } else if (platform === 'linux') {
+        // Try different Linux desktop environments
+        const { exec: ex } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const exAsync = promisify(ex);
+        const desktop = process.env.XDG_CURRENT_DESKTOP?.toLowerCase() || '';
+        try {
+          if (desktop.includes('gnome') || desktop.includes('ubuntu')) {
+            await exAsync('gnome-control-center privacy', { timeout: 5000 });
+          } else if (desktop.includes('kde')) {
+            await exAsync('systemsettings5', { timeout: 5000 });
+          } else {
+            await exAsync('xdg-open settings:', { timeout: 5000 });
+          }
+        } catch {
+          // Silent fail — Linux desktops vary too much
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC:system] Error opening settings:', error);
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // Attempt to programmatically request a specific system permission.
+  // Where Apple provides an API (Accessibility, Media), we trigger the native
+  // dialog directly. For Full Disk Access, Apple provides no API so we open
+  // the exact Settings pane and show a native instruction dialog.
+  ipcMain.handle('system:request-permission', async (_: IpcMainInvokeEvent, permissionName: string) => {
+    const platform = process.platform;
+
+    try {
+      if (platform === 'darwin') {
+        if (permissionName === 'Accessibility') {
+          // isTrustedAccessibilityClient(true) triggers the native macOS
+          // Accessibility permission dialog if not already granted.
+          const already = systemPreferences.isTrustedAccessibilityClient(false);
+          if (already) return { success: true, granted: true, method: 'already-granted' };
+
+          // Pass true to prompt — this opens System Settings to the Accessibility
+          // pane and registers the app, showing the native Allow/Deny UI.
+          systemPreferences.isTrustedAccessibilityClient(true);
+          // Re-check after a short pause to let the OS update
+          await new Promise((r) => setTimeout(r, 1500));
+          const granted = systemPreferences.isTrustedAccessibilityClient(false);
+          return { success: true, granted, method: 'prompt' };
+        }
+
+        if (permissionName === 'Full Disk Access') {
+          // Full Disk Access cannot be triggered via any Apple API.
+          // Open System Settings to the exact pane, then show a native
+          // dialog explaining what the user needs to do.
+          const { execFile: ef } = await import('node:child_process');
+          const { promisify } = await import('node:util');
+          const efAsync = promisify(ef);
+
+          // Open Privacy & Security > Full Disk Access
+          try {
+            await efAsync('open', ['x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles']);
+          } catch {
+            try {
+              await efAsync('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles']);
+            } catch {
+              await shell.openExternal('x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension');
+            }
+          }
+
+          // Show a native dialog with step-by-step instructions
+          const appName = app.getName();
+          await dialog.showMessageBox({
+            type: 'information',
+            title: 'Grant Full Disk Access',
+            message: `System Settings has been opened to Full Disk Access.`,
+            detail: [
+              `To allow ${appName} to run commands remotely without permission prompts:`,
+              '',
+              '1. Find "Omni Code" in the list (or click "+" to add it)',
+              '2. Toggle the switch ON next to Omni Code',
+              '3. Click "Quit & Reopen" if prompted',
+              '4. Come back here and click "Refresh" to verify',
+            ].join('\n'),
+            buttons: ['OK'],
+            defaultId: 0,
+          });
+
+          // Check if it was granted after the user dismisses the dialog
+          const granted = await checkMacOSFullDiskAccess();
+          return { success: true, granted, method: 'manual-settings' };
+        }
+      } else if (platform === 'win32') {
+        if (permissionName === 'PowerShell Execution Policy') {
+          // Try to set the execution policy automatically via PowerShell
+          const { exec: ex } = await import('node:child_process');
+          const { promisify } = await import('node:util');
+          const exAsync = promisify(ex);
+          try {
+            await exAsync(
+              'powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force"',
+              { timeout: 15000 }
+            );
+            const granted = await checkWindowsExecutionPolicy();
+            return { success: true, granted, method: 'auto' };
+          } catch (err) {
+            return { success: false, granted: false, error: (err as Error).message };
+          }
+        }
+
+        if (permissionName === 'Windows Firewall') {
+          // Add Omni Code firewall rule automatically (requires admin rights)
+          const { exec: ex } = await import('node:child_process');
+          const { promisify } = await import('node:util');
+          const exAsync = promisify(ex);
+          const exePath = app.getPath('exe');
+          const appName = app.getName();
+          try {
+            await exAsync(
+              `netsh advfirewall firewall add rule name="${appName}" dir=in action=allow program="${exePath}" enable=yes`,
+              { timeout: 15000 }
+            );
+            const granted = await checkWindowsFirewall();
+            return { success: true, granted, method: 'auto' };
+          } catch {
+            // Likely not running as admin — open Windows Security settings
+            await shell.openExternal('ms-settings:windowsdefender');
+            await dialog.showMessageBox({
+              type: 'information',
+              title: 'Allow Through Firewall',
+              message: 'Windows Security has been opened.',
+              detail: [
+                `To allow ${appName} through the firewall:`,
+                '',
+                '1. Go to "Firewall & network protection"',
+                '2. Click "Allow an app through firewall"',
+                '3. Click "Change settings" then "Allow another app"',
+                `4. Browse to the Omni Code executable and add it`,
+                '5. Ensure both Private and Public are checked',
+              ].join('\n'),
+              buttons: ['OK'],
+              defaultId: 0,
+            });
+            return { success: true, granted: false, method: 'manual-settings' };
+          }
+        }
+      }
+
+      return { success: false, granted: false, error: 'No automatic grant available for this permission' };
+    } catch (error) {
+      console.error('[IPC:system] Error requesting permission:', error);
+      return { success: false, granted: false, error: (error as Error).message };
+    }
+  });
+
   // --- Git IPC Handlers ---
   console.log('[IPC:git] Registering git handlers...');
   const GIT_MANAGER_CACHE_MAX = 10;
@@ -2391,4 +2775,9 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('workspace:chat:load');
   ipcMain.removeHandler('workspace:chat:save');
   ipcMain.removeHandler('workspace:chat:delete');
+
+  // System permissions cleanup
+  ipcMain.removeHandler('system:check-permissions');
+  ipcMain.removeHandler('system:open-settings');
+  ipcMain.removeHandler('system:request-permission');
 }

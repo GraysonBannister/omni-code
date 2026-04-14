@@ -533,6 +533,30 @@ type CustomModelsAPI = {
   }>;
 };
 
+// System permissions API
+type SystemPermission = {
+  name: string;
+  granted: boolean;
+  required: boolean;
+  description: string;
+  macosSetting?: string;
+  windowsSetting?: string;
+  linuxSetting?: string;
+};
+
+type SystemPermissionCheckResult = {
+  platform: string;
+  allGranted: boolean;
+  permissions: SystemPermission[];
+  error?: string;
+};
+
+type SystemAPI = {
+  checkPermissions: () => Promise<SystemPermissionCheckResult>;
+  openSettings: (setting?: string) => Promise<{ success: boolean; error?: string }>;
+  requestPermission: (permissionName: string) => Promise<{ success: boolean; granted: boolean; method?: string; error?: string }>;
+};
+
 // Main Electron API
 type ElectronAPI = {
   agent: AgentAPI;
@@ -561,6 +585,7 @@ type ElectronAPI = {
   skills: SkillsAPI;
   addons: AddonsAPI;
   workspace: WorkspaceAPI;
+  system: SystemAPI;
 };
 
 interface AddonManifest {
@@ -1004,6 +1029,13 @@ const api: ElectronAPI = {
     clearAllNotifications: () =>
       ipcRenderer.invoke('tray:clear-all-notifications'),
   },
+
+  // System permissions API
+  system: {
+    checkPermissions: () => ipcRenderer.invoke('system:check-permissions'),
+    openSettings: (setting?: string) => ipcRenderer.invoke('system:open-settings', setting),
+    requestPermission: (permissionName: string) => ipcRenderer.invoke('system:request-permission', permissionName),
+  },
 };
 
 // Expose to window.electronAPI
@@ -1040,4 +1072,5 @@ export type {
   IndexingState, IndexChunk, AgentEvent, ConversationAgentEvent, RemoteServerStatus,
   RemoteClientStatus, RemoteClientConnectResult, RemoteClientTestResult, RemoteClientServerInfo,
   RulesAPI, SkillsAPI, RuleData, SkillData, WorkspaceAPI, Workspace, CreateWorkspaceOptions, WorkspaceOperationResult, WorkspaceSummary, FolderRef,
+  SystemAPI, SystemPermission, SystemPermissionCheckResult,
 };

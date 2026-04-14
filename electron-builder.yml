@@ -1,6 +1,6 @@
 appId: com.omnicode.app
 productName: Omni Code
-copyright: Copyright © 2025
+copyright: Copyright 2025
 directories:
   output: dist-electron
   buildResources: build
@@ -16,6 +16,7 @@ extraResources:
     filter:
       - "**/*.js"
       - "**/*.js.map"
+
 mac:
   category: public.app-category.developer-tools
   target:
@@ -24,6 +25,14 @@ mac:
     - target: zip
       arch: [x64, arm64]
   icon: build/icon.icns
+  # Enable hardened runtime with entitlements for shell execution
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarization (requires Apple Developer account)
+  # Sign with: export CSC_NAME="Developer ID Application: Your Name"
+
 dmg:
   contents:
     - x: 130
@@ -32,6 +41,7 @@ dmg:
       y: 220
       type: link
       path: /Applications
+
 win:
   target:
     - target: nsis
@@ -40,19 +50,42 @@ win:
       arch: [x64]
   icon: build/icon.ico
   requestedExecutionLevel: asInvoker
+  # Use application manifest for Windows compatibility
+  # manifest: build/app.manifest
+  # Code signing (optional but recommended to avoid SmartScreen)
+  # certificateFile: "path/to/certificate.p12"
+  # certificatePassword: "password"  # Or use env var: WIN_CSC_KEY_PASSWORD
+
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # Request admin rights for installation (optional)
+  # perMachine: true
+
 linux:
   target:
     - target: AppImage
       arch: [x64, arm64]
     - target: deb
       arch: [x64, arm64]
+    - target: rpm
+      arch: [x64, arm64]
   icon: build/icon.png
   category: Development
+  # Desktop entry for proper app integration
+  desktop:
+    Name: Omni Code
+    Comment: AI-powered code assistant
+    Categories: Development;IDE;
+  # For deb packages
+  maintainer: Omni Code Team
+  vendor: Omni Code
+  # For rpm packages
+  synopsis: AI-powered code assistant
+  description: Omni Code is an AI-powered code assistant with remote access capabilities
+
 publish:
   provider: github
   owner: GraysonBannister

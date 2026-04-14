@@ -17,6 +17,7 @@ import {
   registerConnection,
   getConnectionStats,
 } from './remote-event-emitter.js';
+import { initializeWebSocketServer, cleanupWebSocketServer } from './remote-ws.js';
 import {
   createTerminal,
   writeToTerminal,
@@ -254,8 +255,11 @@ export async function initializeRemoteServer(): Promise<{
       tunnelProvider = null;
     }
 
-    // Initialize event emitter for SSE
+    // Initialize event emitter for SSE (desktop renderer)
     initializeEventEmitter();
+
+    // Initialize WebSocket server for mobile clients (Cloudflare buffers SSE)
+    initializeWebSocketServer(server!);
 
     isRunning = true;
 
@@ -333,8 +337,9 @@ async function cleanup(): Promise<void> {
   // Clear remote conversation tracking
   remoteConversationMeta.clear();
 
-  // Cleanup event emitter
+  // Cleanup event emitter (SSE) and WebSocket server
   cleanupEventEmitter();
+  cleanupWebSocketServer();
 
   // Stop tunnel provider
   if (tunnelProvider) {
@@ -428,7 +433,29 @@ function setupRoutes(app: express.Express): void {
     });
   });
 
-  // Apply auth middleware to all /api routes except status
+  // Diagnostic SSE test endpoint — no auth, emits a counter every second.
+  // Use: curl -N http://localhost:3000/api/sse-test
+  // Or:  curl -N https://<tunnel>/api/sse-test
+  // If events arrive via localhost but NOT via the tunnel, the tunnel is buffering.
+  app.get('/api/sse-test', (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      res.write(`data: ${JSON.stringify({ count, ts: Date.now() })}\n\n`);
+      if (count >= 30) {
+        clearInterval(interval);
+        res.end();
+      }
+    }, 1000);
+    res.on('close', () => clearInterval(interval));
+  });
+
+  // Apply auth middleware to all /api routes except status and sse-test
   app.use('/api', validateApiKey as RequestHandler);
   app.use('/api', validateRequestSignature as RequestHandler);
 
@@ -845,10 +872,13 @@ function setupAgentRoutes(app: express.Express): void {
   app.get('/api/agent/events', async (req, res) => {
     const conversationId = req.query.conversationId as string | undefined;
 
-    // Set SSE headers
+    // Set SSE headers — X-Accel-Buffering disables proxy buffering in
+    // Cloudflare tunnels and nginx so events are delivered immediately.
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
     // Register this connection
     if (conversationId) {
@@ -1449,6 +1479,8 @@ function setupTerminalRoutes(app: express.Express): void {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
     // Send initial connection event
     res.write(`data: ${JSON.stringify({ type: 'connected', terminalId: id })}\n\n`);
@@ -2306,6 +2338,8 @@ function setupAdbRoutes(app: express.Express): void {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
 
       const logcat = spawn(adb, args);
 

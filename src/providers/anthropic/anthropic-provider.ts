@@ -142,7 +142,7 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   async countTokens(messages: UnifiedMessage[], model: string): Promise<number> {
-    // Rough estimation: ~4 chars per token for English text
+    // Rough estimation: ~3 chars per token — code and tool output are denser than prose
     let totalChars = 0;
     for (const msg of messages) {
       if (typeof msg.content === 'string') {
@@ -159,7 +159,7 @@ export class AnthropicProvider extends BaseProvider {
         }
       }
     }
-    return Math.ceil(totalChars / 4);
+    return Math.ceil(totalChars / 3);
   }
 
   private buildParams(request: CompletionRequest): Anthropic.MessageCreateParamsNonStreaming {

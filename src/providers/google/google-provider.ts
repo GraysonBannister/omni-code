@@ -174,7 +174,8 @@ export class GoogleProvider extends BaseProvider {
       for (const msg of messages) {
         chars += typeof msg.content === 'string' ? msg.content.length : JSON.stringify(msg.content).length;
       }
-      return Math.ceil(chars / 4);
+      // Use chars/3 (not chars/4) — code and tool output are denser than prose
+      return Math.ceil(chars / 3);
     }
   }
 

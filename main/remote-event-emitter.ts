@@ -99,22 +99,24 @@ function broadcastEvent(event: ConversationAgentEvent): void {
 
   const responseSet = connections.get(conversationId);
   if (!responseSet || responseSet.size === 0) {
-    if (event.type === 'user_message') {
-      console.log(`[RemoteEventEmitter] user_message event has no SSE connections for conversation ${conversationId}. Active conversations: [${Array.from(connections.keys()).join(', ')}]`);
-    }
+    // Log ALL event types that have no SSE connections — not just user_message —
+    // so we can diagnose whether the connection is missing during streaming.
+    console.log(`[RemoteEventEmitter] Event ${event.type} has no SSE connections for conversation ${conversationId}. Active conversations: [${Array.from(connections.keys()).join(', ')}]`);
     return; // No connections for this conversation
   }
 
-  if (event.type === 'user_message') {
-    console.log(`[RemoteEventEmitter] Broadcasting user_message to ${responseSet.size} SSE connection(s) for conversation ${conversationId}`);
-  }
+  // Log every event type being broadcast for debugging SSE delivery issues
+  console.log(`[RemoteEventEmitter] Broadcasting ${event.type} to ${responseSet.size} SSE connection(s) for conversation ${conversationId}`);
 
   const sseData = `data: ${JSON.stringify(eventData)}\n\n`;
 
   // Send to all connections for this conversation
   Array.from(responseSet).forEach((res) => {
     try {
-      res.write(sseData);
+      const ok = res.write(sseData);
+      if (!ok) {
+        console.warn(`[RemoteEventEmitter] Backpressure on SSE write for ${event.type} (conversation ${conversationId}) — buffer full`);
+      }
     } catch (error) {
       console.error(`[RemoteEventEmitter] Failed to send event to conversation ${conversationId}:`, error);
       // Remove failed connection

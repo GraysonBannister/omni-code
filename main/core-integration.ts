@@ -641,7 +641,7 @@ export async function initializeCore(): Promise<void> {
           tools: toolRegistry.getAll(),
           temperature: config.get('temperature'),
           maxContextTokens: config.get('maxContextTokens'),
-          maxTurns: settingsManager.get('ai.maxTurns') ?? undefined,
+          maxTurns: settingsManager.get('ai.maxTurns') ?? null,
           contextCompressionThreshold: config.get('contextCompressionThreshold'),
           contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
           planMode: false,

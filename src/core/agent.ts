@@ -11,7 +11,7 @@ import { getTextContent, getToolUseBlocks, getToolResultBlocks } from './message
 import type { ToolRunner } from '../tools/tool-runner.js';
 import type { CostTracker, CostTrackerConfig } from './cost-tracker.js';
 import type { TokenUsage } from '../providers/provider-types.js';
-import { CONTEXT_COMPRESSION_THRESHOLD, RECENT_MESSAGES_TO_KEEP } from '../constants.js';
+import { CONTEXT_COMPRESSION_THRESHOLD, RECENT_MESSAGES_TO_KEEP, DEFAULT_MAX_CONTEXT_TOKENS } from '../constants.js';
 
 export interface AgentLimitCheck {
   check: () => Promise<{ allowed: boolean; warning?: string; percentage: number }>;
@@ -112,27 +112,38 @@ export class AgentImpl implements Agent {
     while (maxTurns === null || turns < maxTurns) {
       turns++;
 
-      // Auto-compress context if approaching token limit
-      const maxCtx = this.config.maxContextTokens;
-      if (maxCtx && this._messages.length > 10) {
-        try {
-          const currentTokens = await this.getTokenCount();
-          // Use configurable threshold, falling back to default
-          const thresholdValue = this.config.contextCompressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
-          const threshold = maxCtx * thresholdValue;
-          if (currentTokens > threshold) {
-            const before = currentTokens;
-            await this.compressContext();
-            const after = await this.getTokenCount();
-            yield {
-              type: 'context_compressed',
-              removedTokens: before - after,
-              remainingTokens: after,
-            };
-          }
-        } catch {
-          // Token counting may fail; skip compression
+      // Auto-compress context if approaching token limit.
+      // Derive effective limits from the model registry so we respect each model's
+      // actual context window rather than relying solely on the global config value.
+      const modelInfo = this.config.provider.getModelInfo(this.config.model);
+      const modelMaxContext = modelInfo?.capabilities?.maxContextWindow;
+      const modelMaxOutput = modelInfo?.capabilities?.maxOutputTokens ?? 8192;
+      // Reserve space for the model's output; this is the usable input ceiling.
+      const modelEffectiveLimit = modelMaxContext ? modelMaxContext - modelMaxOutput : undefined;
+      // Soft limit: smallest of the configured cap and the model's effective input window.
+      const configuredMax = this.config.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
+      const softLimit = modelEffectiveLimit !== undefined
+        ? Math.min(configuredMax, modelEffectiveLimit)
+        : configuredMax;
+      try {
+        const currentTokens = await this.getTokenCount();
+        const thresholdValue = this.config.contextCompressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
+        // Soft trigger: approaching the soft limit with enough messages to compress meaningfully.
+        const approachingSoftLimit = this._messages.length > 6 && currentTokens > softLimit * thresholdValue;
+        // Hard trigger: over 90% of the model's actual context ceiling, regardless of message count.
+        const exceedsModelCeiling = modelEffectiveLimit !== undefined && currentTokens > modelEffectiveLimit * 0.9;
+        if (approachingSoftLimit || exceedsModelCeiling) {
+          const before = currentTokens;
+          await this.compressContext();
+          const after = await this.getTokenCount();
+          yield {
+            type: 'context_compressed',
+            removedTokens: before - after,
+            remainingTokens: after,
+          };
         }
+      } catch {
+        // Token counting may fail; skip compression
       }
 
       // Build the tools list
@@ -144,8 +155,7 @@ export class AgentImpl implements Agent {
           inputSchema: t.tool.inputSchema,
         }));
 
-      // Resolve extended thinking if model supports it
-      const modelInfo = this.config.provider.getModelInfo(this.config.model);
+      // Resolve extended thinking if model supports it (modelInfo already fetched above)
       const thinkingConfig = this.config.thinking?.enabled && modelInfo?.capabilities.extendedThinking
         ? this.config.thinking
         : undefined;

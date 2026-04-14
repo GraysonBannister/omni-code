@@ -251,7 +251,8 @@ export class BedrockProvider extends BaseProvider {
         }
       }
     }
-    return Math.ceil(totalChars / 4);
+    // Use chars/3 (not chars/4) — code and tool output are denser than prose
+    return Math.ceil(totalChars / 3);
   }
 
   private buildParams(request: CompletionRequest): any {

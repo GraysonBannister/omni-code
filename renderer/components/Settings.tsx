@@ -8,6 +8,7 @@ import { SettingInput } from './settings/SettingInput';
 import { UsageDashboard } from './UsageDashboard';
 import { RulesPanel } from './RulesPanel';
 import { SkillsPanel } from './SkillsPanel';
+import { PermissionBanner } from './PermissionBanner';
 import './Settings.css';
 
 type TabId = 'general' | 'editor' | 'ai' | 'apiKeys' | 'shortcuts' | 'files' | 'indexing' | 'privacy' | 'usage' | 'remote' | 'connect' | 'notifications' | 'rulesSkills';
@@ -1595,6 +1596,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
                 Enable remote access to control omni-code from your mobile device anywhere.
                 Choose a tunnel provider below — ngrok, Cloudflare Tunnel, or Localtunnel.
               </p>
+
+              {/* Permission Banner - Check system permissions for remote access */}
+              <PermissionBanner />
 
               <SettingToggle
                 label="Enable Remote Access"

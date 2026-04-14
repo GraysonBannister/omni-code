@@ -247,7 +247,8 @@ export class XAIProvider extends BaseProvider {
         else if (block.type === 'tool_result') totalChars += typeof block.content === 'string' ? block.content.length : JSON.stringify(block.content).length;
       }
     }
-    return Math.ceil(totalChars / 4);
+    // Use chars/3 (not chars/4) — code and tool output are denser than prose
+    return Math.ceil(totalChars / 3);
   }
 
   // ─── Responses API (multi-agent models) ───

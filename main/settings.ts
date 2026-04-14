@@ -466,11 +466,6 @@ class SettingsManager {
     console.log('[Settings] Added recent folder:', folderPath);
   }
 
-  // Get recent folders
-  getRecentFolders(): string[] {
-    return this.ensureInitialized().get('files.recentFolders');
-  }
-
   // Add a recent workspace
   addRecentWorkspace(workspacePath: string): void {
     const store = this.ensureInitialized();
@@ -488,9 +483,32 @@ class SettingsManager {
     console.log('[Settings] Added recent workspace:', workspacePath);
   }
 
-  // Get recent workspaces
+  // Get recent workspaces (with migration to filter out non-workspace files)
   getRecentWorkspaces(): string[] {
-    return this.ensureInitialized().get('files.recentWorkspaces');
+    const store = this.ensureInitialized();
+    const workspaces = store.get('files.recentWorkspaces') as string[];
+    // Filter out any non-workspace files (migration from old buggy data)
+    const validWorkspaces = workspaces.filter(w => w.endsWith('.omnicode-workspace'));
+    // If we filtered anything out, save the cleaned list back
+    if (validWorkspaces.length !== workspaces.length) {
+      store.set('files.recentWorkspaces', validWorkspaces);
+      console.log('[Settings] Cleaned up recent workspaces, removed:', workspaces.length - validWorkspaces.length, 'invalid entries');
+    }
+    return validWorkspaces;
+  }
+
+  // Get recent folders (with migration to filter out any workspace files that were incorrectly stored)
+  getRecentFolders(): string[] {
+    const store = this.ensureInitialized();
+    const folders = store.get('files.recentFolders') as string[];
+    // Filter out any workspace files that may have been incorrectly added
+    const validFolders = folders.filter(f => !f.endsWith('.omnicode-workspace'));
+    // If we filtered anything out, save the cleaned list back
+    if (validFolders.length !== folders.length) {
+      store.set('files.recentFolders', validFolders);
+      console.log('[Settings] Cleaned up recent folders, removed:', folders.length - validFolders.length, 'invalid entries');
+    }
+    return validFolders;
   }
 }
 
