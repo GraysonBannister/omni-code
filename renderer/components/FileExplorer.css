@@ -114,6 +114,7 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   transition: background 0.1s ease;
+  position: relative;
 }
 
 .file-node-row:hover {
@@ -121,9 +122,39 @@
   color: var(--color-text-primary);
 }
 
+/* Enhanced active file highlight with animation and left border indicator */
 .file-node-row.active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: var(--color-accent-bg, rgba(59, 130, 246, 0.15));
+  color: var(--color-accent, #3b82f6);
+  border-left: 3px solid var(--color-accent, #3b82f6);
+  font-weight: 500;
+  animation: activeFilePulse 0.3s ease-out;
+}
+
+.file-node-row.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 60%;
+  background: var(--color-accent, #3b82f6);
+  border-radius: 0 2px 2px 0;
+}
+
+@keyframes activeFilePulse {
+  0% {
+    background: transparent;
+    border-left-color: transparent;
+  }
+  50% {
+    background: rgba(59, 130, 246, 0.25);
+  }
+  100% {
+    background: var(--color-accent-bg, rgba(59, 130, 246, 0.15));
+    border-left-color: var(--color-accent, #3b82f6);
+  }
 }
 
 .file-node-row.selected-folder {

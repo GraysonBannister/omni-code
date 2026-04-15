@@ -190,7 +190,7 @@ let toolsRef: {
 let configRef: {
   get: (key: string) => unknown;
   set: (key: string, value: unknown) => void;
-  getModels: () => Array<{ id: string; name: string; provider: string; available: boolean }>;
+  getModels: () => Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>;
   getProviders: () => Array<{ name: string; available: boolean; models: string[] }>;
 } | null = null;
 
@@ -235,6 +235,7 @@ export function getConfigModels(): Array<{ id: string; name: string; provider: s
       name: model.name || model.id,
       provider: model.provider,
       available: isProviderAvailable,
+      maxContextWindow: model.capabilities?.maxContextWindow,
     };
   });
 }

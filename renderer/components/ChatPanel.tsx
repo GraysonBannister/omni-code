@@ -1215,6 +1215,39 @@ export const ChatPanel: React.FC = () => {
     };
   }, [messageChangePreviews, reviewedToolCallIds]);
 
+  // Deduplicate conversationFileChanges by filePath, merging additions/deletions for files
+  // that were edited multiple times across tool calls in the same conversation.
+  const deduplicatedFileChanges = useMemo(() => {
+    const fileMap = new Map<string, FileChange>();
+    for (const change of conversationFileChanges) {
+      const existing = fileMap.get(change.filePath);
+      if (existing) {
+        existing.additions = (existing.additions || 0) + (change.additions || 0);
+        existing.deletions = (existing.deletions || 0) + (change.deletions || 0);
+        // Escalate changeType: added > modified > deleted
+        if (change.changeType === 'added') existing.changeType = 'added';
+      } else {
+        fileMap.set(change.filePath, { ...change });
+      }
+    }
+    return Array.from(fileMap.values());
+  }, [conversationFileChanges]);
+
+  // Compute stats from deduplicatedFileChanges for the file history toggle button
+  const conversationFileStats = useMemo(() => {
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    for (const change of deduplicatedFileChanges) {
+      totalAdditions += change.additions || 0;
+      totalDeletions += change.deletions || 0;
+    }
+    return {
+      fileCount: deduplicatedFileChanges.length,
+      totalAdditions,
+      totalDeletions,
+    };
+  }, [deduplicatedFileChanges]);
+
   // Flat lookup: toolCallId → ChangePreviewData, used to render previews inline after tool call cards
   const toolCallPreviewMap = useMemo(() => {
     const map = new Map<string, ChangePreviewData>();
@@ -1629,7 +1662,8 @@ export const ChatPanel: React.FC = () => {
     const updateTokenCount = async () => {
       try {
         const count = await window.electronAPI.agent.getTokenCount(activeConversationId);
-        updateConversationContext(activeConversationId, count);
+        const modelData = availableModels.find(m => m.id === activeModel);
+        updateConversationContext(activeConversationId, count, modelData?.maxContextWindow);
       } catch (error) {
         // Silently fail - token count is not critical
       }
@@ -1642,7 +1676,7 @@ export const ChatPanel: React.FC = () => {
     const interval = setInterval(updateTokenCount, 5000);
 
     return () => clearInterval(interval);
-  }, [activeConversationId, updateConversationContext]);
+  }, [activeConversationId, activeModel, availableModels, updateConversationContext]);
 
   // Load file changes for visible messages
   useEffect(() => {
@@ -3176,12 +3210,17 @@ export const ChatPanel: React.FC = () => {
       </div>
 
       {/* Context Usage Indicator */}
-      {activeConversation && activeConversation.maxContextTokens && activeConversation.maxContextTokens > 0 && (
-        <ContextIndicator 
-          used={activeConversation.contextTokens || 0} 
-          max={activeConversation.maxContextTokens} 
-        />
-      )}
+      {activeConversation && (() => {
+        // Prefer the model's known context window (from registry) over the stored conversation value
+        const modelContextWindow = availableModels.find(m => m.id === activeModel)?.maxContextWindow;
+        const maxCtx = modelContextWindow || activeConversation.maxContextTokens;
+        return maxCtx && maxCtx > 0 ? (
+          <ContextIndicator 
+            used={activeConversation.contextTokens || 0} 
+            max={maxCtx} 
+          />
+        ) : null;
+      })()}
 
       {/* Input */}
       <div
@@ -3236,9 +3275,9 @@ export const ChatPanel: React.FC = () => {
                   type="button"
                 >
                   <Files size={14} />
-                  <span>{pendingFileChangesStats.fileCount} Files</span>
+                  <span>{conversationFileStats.fileCount} Files</span>
                   {(() => {
-                    const { totalAdditions, totalDeletions } = pendingFileChangesStats;
+                    const { totalAdditions, totalDeletions } = conversationFileStats;
                     return (
                       <>
                         {totalAdditions > 0 && (
@@ -3252,10 +3291,10 @@ export const ChatPanel: React.FC = () => {
                   })()}
                 </button>
                 
-                {/* File History Popup - positioned below the button */}
+                {/* File History Popup - positioned above the button */}
                 {fileHistoryPopupVisible && (
                   <FileHistoryPopup
-                    files={conversationFileChanges.map(change => ({
+                    files={deduplicatedFileChanges.map(change => ({
                       filePath: change.filePath,
                       fileName: change.fileName || change.filePath.split('/').pop() || change.filePath,
                       extension: change.extension || change.filePath.split('.').pop() || '',

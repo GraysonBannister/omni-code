@@ -69,7 +69,7 @@ declare global {
         get: (key: string) => Promise<unknown>;
         set: (key: string, value: unknown) => Promise<void>;
         setCwd: (cwd: string) => Promise<void>;
-        getModels: () => Promise<Array<{ id: string; name: string; provider: string; available: boolean }>>;
+        getModels: () => Promise<Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>>;
         getProviders: () => Promise<Array<{ name: string; available: boolean; models: string[] }>>;
       };
       dialog: {

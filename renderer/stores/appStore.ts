@@ -167,8 +167,8 @@ interface AppState {
   // Global Agent State (shared across conversations)
   currentModel: string;
   currentProvider: string;
-  allModels: Array<{ id: string; name: string; provider: string; available: boolean }>; // full unfiltered list
-  availableModels: Array<{ id: string; name: string; provider: string; available: boolean }>;
+  allModels: Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>; // full unfiltered list
+  availableModels: Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>;
   availableProviders: Array<{ name: string; available: boolean; models: string[] }>;
   totalCost: number;
   inputTokens: number;
@@ -283,8 +283,8 @@ interface AppState {
   
   // Global Agent Actions
   setModel: (model: string, provider: string) => void;
-  setAllModels: (models: Array<{ id: string; name: string; provider: string; available: boolean }>) => void;
-  setAvailableModels: (models: Array<{ id: string; name: string; provider: string; available: boolean }>) => void;
+  setAllModels: (models: Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>) => void;
+  setAvailableModels: (models: Array<{ id: string; name: string; provider: string; available: boolean; maxContextWindow?: number }>) => void;
   setAvailableProviders: (providers: Array<{ name: string; available: boolean; models: string[] }>) => void;
   setCost: (totalCost: number, inputTokens: number, outputTokens: number) => void;
   

@@ -51,6 +51,30 @@ function enhanceErrorMessage(error: Error, model?: string): string {
   return `${context}${message}`;
 }
 
+/**
+ * Truncate oversized tool_result blocks in-place to reduce token usage during compression.
+ * Keeps the first 4000 + last 2000 characters of each result, inserting a marker in the middle.
+ * This targets the primary source of token bloat: file reads, bash output, and search results.
+ */
+function truncateToolResults(messages: UnifiedMessage[], maxChars = 6000): UnifiedMessage[] {
+  return messages.map(msg => {
+    if (msg.role !== 'user') return msg;
+    const blocks = Array.isArray(msg.content) ? msg.content : null;
+    if (!blocks) return msg;
+    const truncated = blocks.map((block: ContentBlock) => {
+      if (block.type !== 'tool_result') return block;
+      const tr = block as ToolResultBlock;
+      const content = typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content);
+      if (content.length <= maxChars) return block;
+      const head = content.slice(0, 4000);
+      const tail = content.slice(-2000);
+      const removed = content.length - maxChars;
+      return { ...tr, content: `${head}\n...[truncated ${removed} chars]...\n${tail}` };
+    });
+    return { ...msg, content: truncated };
+  });
+}
+
 export class AgentImpl implements Agent {
   readonly id: string;
   readonly config: AgentConfig;
@@ -96,6 +120,33 @@ export class AgentImpl implements Agent {
       }
     }
 
+    // Sanitize message history: scan for any assistant message whose tool_calls lack matching
+    // tool result messages. This can happen mid-history (not just at the end) when a turn was
+    // interrupted after the tool call was appended but before the result came back.
+    // Truncate at the first broken position to give the model the cleanest possible context.
+    {
+      let cutAt = -1;
+      for (let i = 0; i < this._messages.length; i++) {
+        const msg = this._messages[i];
+        if (msg.role !== 'assistant') continue;
+        const toolCalls = getToolUseBlocks(msg);
+        if (toolCalls.length === 0) continue;
+
+        const next = this._messages[i + 1];
+        if (next?.role === 'user') {
+          const resultIds = new Set(getToolResultBlocks(next).map(r => r.toolUseId));
+          if (toolCalls.every(tc => resultIds.has(tc.id))) continue; // all resolved
+        }
+
+        // Found an assistant with unresolved tool_calls — truncate from here
+        cutAt = i;
+        break;
+      }
+      if (cutAt >= 0) {
+        this._messages = this._messages.slice(0, cutAt);
+      }
+    }
+
     // Add user message — supports plain text or multi-part content blocks (e.g. text + images)
     const userMsg: UnifiedMessage = {
       id: crypto.randomUUID(),
@@ -135,6 +186,23 @@ export class AgentImpl implements Agent {
         if (approachingSoftLimit || exceedsModelCeiling) {
           const before = currentTokens;
           await this.compressContext();
+
+          // If still over the hard ceiling after the first pass, retry up to 2 more
+          // times with progressively fewer retained messages until we fit.
+          if (exceedsModelCeiling && modelEffectiveLimit !== undefined) {
+            const originalKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
+            let retries = 0;
+            while (retries < 2) {
+              const afterTokens = await this.getTokenCount();
+              if (afterTokens <= modelEffectiveLimit * 0.95) break;
+              this.config.contextRecentMessagesToKeep = Math.max(2, originalKeep - 2 * (retries + 1));
+              await this.compressContext();
+              retries++;
+            }
+            // Restore so future turns use the configured setting
+            this.config.contextRecentMessagesToKeep = originalKeep;
+          }
+
           const after = await this.getTokenCount();
           yield {
             type: 'context_compressed',
@@ -426,8 +494,13 @@ export class AgentImpl implements Agent {
         break;
       }
 
-      // Execute tool calls and add results
+      // Execute tool calls and add results.
+      // IMPORTANT: tool results are always pushed to _messages even if a tool throws or the
+      // agent is aborted mid-execution. Without this guarantee, _messages ends up with an
+      // orphaned assistant message (tool_calls with no matching tool results), which causes
+      // strict APIs like Moonshot/Kimi to reject subsequent requests.
       const toolResultBlocks: ContentBlock[] = [];
+      let toolExecutionAborted = false;
       for (const toolCall of toolCalls) {
         yield {
           type: 'tool_call_start',
@@ -436,27 +509,41 @@ export class AgentImpl implements Agent {
           input: toolCall.input,
         };
 
-        const result = await this.toolRunner.execute(
-          toolCall.name,
-          toolCall.id,
-          toolCall.input,
-          {
-            cwd: this.config.cwd || process.cwd(),
-            sessionId: this.id,
-            abortSignal: this.abortController.signal,
-            eventBus: this.toolRunner.getEventBus(),
-            spawnSubAgent: async (task: string): Promise<string> => {
-              const subAgent = this.spawnSubAgent({});
-              let subResult = '';
-              for await (const event of subAgent.run(task)) {
-                if (event.type === 'turn_complete') {
-                  subResult = getTextContent(event.message);
+        let result: { content: string; isError?: boolean; contentBlocks?: ContentBlock[] };
+        try {
+          result = await this.toolRunner.execute(
+            toolCall.name,
+            toolCall.id,
+            toolCall.input,
+            {
+              cwd: this.config.cwd || process.cwd(),
+              sessionId: this.id,
+              abortSignal: this.abortController.signal,
+              eventBus: this.toolRunner.getEventBus(),
+              spawnSubAgent: async (task: string): Promise<string> => {
+                const subAgent = this.spawnSubAgent({});
+                let subResult = '';
+                for await (const event of subAgent.run(task)) {
+                  if (event.type === 'turn_complete') {
+                    subResult = getTextContent(event.message);
+                  }
                 }
-              }
-              return subResult;
+                return subResult;
+              },
             },
-          },
-        );
+          );
+        } catch (execError) {
+          // Execution threw (e.g. AbortError or unexpected failure). Record a placeholder
+          // result so _messages stays consistent with no orphaned tool_calls.
+          const isAborted = this.abortController.signal.aborted;
+          result = {
+            content: isAborted
+              ? '[Tool execution interrupted by user]'
+              : `[Tool execution error: ${(execError as Error)?.message ?? String(execError)}]`,
+            isError: true,
+          };
+          if (isAborted) toolExecutionAborted = true;
+        }
 
         yield {
           type: 'tool_call_end',
@@ -479,9 +566,13 @@ export class AgentImpl implements Agent {
           content: resultContent,
           isError: result.isError,
         } as ToolResultBlock);
+
+        // Stop executing further tools if aborted
+        if (toolExecutionAborted) break;
       }
 
-      // Add tool results as a user message
+      // Always add tool results as a user message so _messages is never left with an
+      // orphaned assistant message. This must happen even on abort or partial failure.
       const toolResultMsg: UnifiedMessage = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -492,6 +583,9 @@ export class AgentImpl implements Agent {
 
       // Yield event so UI can display tool results in correct order
       yield { type: 'tool_results_complete', message: toolResultMsg };
+
+      // Stop the agent loop if execution was aborted
+      if (toolExecutionAborted) break;
 
       // Loop back to let the LLM process tool results
     }
@@ -518,7 +612,11 @@ export class AgentImpl implements Agent {
     const recentMessagesToKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
     const minMessagesBeforeCompress = recentMessagesToKeep + 4; // Need some messages to compress
 
-    if (this._messages.length <= minMessagesBeforeCompress) return;
+    if (this._messages.length <= minMessagesBeforeCompress) {
+      // Not enough messages to summarize, but we can still truncate large tool results
+      this._messages = truncateToolResults(this._messages);
+      return;
+    }
 
     const firstMsg = this._messages[0];
 
@@ -615,7 +713,9 @@ export class AgentImpl implements Agent {
     // consecutive user messages ([firstMsg, summaryMsg]) which is invalid for all
     // OpenAI-compatible APIs and causes a 400 "no body" error.
     // The summary already captures the context from the first message.
-    this._messages = [summaryMsg, ...recentMessages];
+    // Also truncate large tool results in the retained window to prevent them from
+    // individually exceeding the model's token budget.
+    this._messages = [summaryMsg, ...truncateToolResults(recentMessages)];
   }
 
   async getTokenCount(): Promise<number> {

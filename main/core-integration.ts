@@ -550,6 +550,7 @@ export async function initializeCore(): Promise<void> {
             name: m.displayName,
             provider: m.provider,
             available: provider?.isAvailable() || false,
+            maxContextWindow: m.capabilities?.maxContextWindow,
           };
         });
       },

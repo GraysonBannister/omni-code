@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Folder, FolderOpen, ChevronRight, ChevronDown,
   RefreshCw, FolderOpen as FolderOpenIcon, FilePlus, FolderPlus,
@@ -46,11 +46,25 @@ const FileNode: React.FC<FileNodeProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const nodeRef = useRef<HTMLDivElement>(null);
 
   const isExpanded = expandedDirs.has(path) || ((isCreatingFile || isCreatingFolder) && selectedFolderPath === path);
   const isActiveFile = activeFilePath === path;
   const isSelectedFolder = selectedFolderPath === path;
   const showCreateInput = (isCreatingFile || isCreatingFolder) && selectedFolderPath === path;
+
+  // Scroll into view when this file becomes active
+  // Small delay to allow parent directory expansion to complete first
+  useEffect(() => {
+    if (isActiveFile && nodeRef.current && !isDirectory) {
+      setTimeout(() => {
+        nodeRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }, 150);
+    }
+  }, [isActiveFile, isDirectory]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (isDirectory) {
@@ -252,6 +266,7 @@ const FileNode: React.FC<FileNodeProps> = ({
   return (
     <div className="file-node">
       <div
+        ref={nodeRef}
         className={`file-node-row ${isActiveFile ? 'active' : ''} ${isSelectedFolder ? 'selected-folder' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
@@ -367,6 +382,39 @@ export const FileExplorer: React.FC = () => {
   useEffect(() => {
     setSelectedFolderPath(null);
   }, [projectPath]);
+
+  // Auto-expand parent directories when activeFilePath changes, loading each directory
+  // level sequentially so its children appear in the file tree before expanding further.
+  const { activeFilePath } = useAppStore();
+  useEffect(() => {
+    if (!activeFilePath || !projectPath) return;
+
+    const expandAndLoad = async () => {
+      // Build parent paths from outermost to innermost so we can load them in order
+      const pathSegments: string[] = [];
+      let current = activeFilePath.substring(0, activeFilePath.lastIndexOf('/'));
+
+      while (current && current.startsWith(projectPath) && current !== projectPath) {
+        pathSegments.unshift(current); // unshift keeps outermost first
+        const parentIndex = current.lastIndexOf('/');
+        if (parentIndex <= 0) break;
+        current = current.substring(0, parentIndex);
+      }
+
+      // Load and expand each directory from outermost to innermost.
+      // loadDirectory must be awaited before moving inward so the children exist
+      // in the files array when the next level tries to render.
+      const { loadDirectory } = useAppStore.getState();
+      for (const dirPath of pathSegments) {
+        await loadDirectory(dirPath);
+        const { expandedDirs } = useAppStore.getState();
+        expandedDirs.add(dirPath);
+        useAppStore.setState({ expandedDirs: new Set(expandedDirs) });
+      }
+    };
+
+    expandAndLoad();
+  }, [activeFilePath, projectPath]);
 
   // Auto-expand all projects when entering workspace mode
   useEffect(() => {

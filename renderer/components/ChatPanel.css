@@ -933,10 +933,11 @@
   display: inline-block;
 }
 
-/* File History Popup positioned below the button */
+/* File History Popup positioned above the button */
 .file-history-popup {
   position: absolute;
-  top: calc(100% + 4px);
+  bottom: calc(100% + 4px);
+  top: auto;
   left: 0;
   min-width: 320px;
   max-width: 400px;
@@ -954,7 +955,7 @@
 @keyframes fileHistoryPopupExpand {
   from {
     opacity: 0;
-    transform: translateY(-10px) scaleY(0.95);
+    transform: translateY(10px) scaleY(0.95);
     max-height: 0;
   }
   to {
