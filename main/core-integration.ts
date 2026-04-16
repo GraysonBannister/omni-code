@@ -500,8 +500,19 @@ export async function initializeCore(): Promise<void> {
       );
     });
 
+    // Determine which directories the agent must never write to.
+    // At minimum this is the application's own install/source directory so the agent
+    // cannot rewrite the app itself while it is running.
+    const { app } = await import('electron');
+    const appRoot = path.resolve(app.getAppPath());
+    // Also protect the directory containing the compiled main bundle (__dirname) because
+    // in production builds getAppPath() points to the .asar archive while __dirname is
+    // the directory next to it (e.g. Contents/Resources/).
+    const mainDir = path.resolve(__dirname);
+    const protectedAppPaths = [...new Set([appRoot, mainDir])];
+
     // Initialize tool runner (permissionManager is guaranteed non-null here)
-    const toolRunner = new ToolRunner(toolRegistry, permissionManager!, eventBus, config.get('autoLintFix'));
+    const toolRunner = new ToolRunner(toolRegistry, permissionManager!, eventBus, config.get('autoLintFix'), protectedAppPaths);
 
     // Initialize cost tracker
     const costTracker = new CostTracker();

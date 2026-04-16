@@ -28,7 +28,7 @@ function enhanceErrorMessage(error: Error, model?: string): string {
   const context = model ? `[Model: ${model}] ` : '';
 
   // Check for specific error patterns and add suggestions
-  if (lowerMsg.includes('rate limit') || lowerMsg.includes('too many requests')) {
+  if (lowerMsg.includes('rate limit') || lowerMsg.includes('too many requests') || lowerMsg.includes('overload')) {
     return `${context}${message}. Suggestion: Wait a moment and try again, or switch to a different model.`;
   }
   

@@ -151,6 +151,15 @@ export class MoonshotProvider extends BaseProvider {
     const params = this.buildParams(request);
     console.log('[MoonshotProvider:streamComplete] Params built, making API call...');
 
+    // Retry with exponential backoff for 429 / overloaded responses.
+    // The 429 is thrown before any stream delta is yielded, so it is safe to
+    // restart the stream from scratch on each attempt.
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+
+    while (true) {
+      attempt++;
+
     try {
       console.log('[MoonshotProvider:streamComplete] Sending request to Moonshot API...');
       console.log('[MoonshotProvider:streamComplete] Request params:', JSON.stringify(params, null, 2));
@@ -227,15 +236,28 @@ export class MoonshotProvider extends BaseProvider {
         }
       }
       console.log('[MoonshotProvider:streamComplete] Stream completed successfully');
+      return; // success — exit the retry loop
     } catch (error) {
+      const status = (error as any).status ?? (error as any).statusCode;
+      const msg = ((error as Error).message ?? '').toLowerCase();
+      const isRateLimit = status === 429 || msg.includes('overload') || msg.includes('rate limit') || msg.includes('too many requests');
+
+      if (isRateLimit && attempt <= MAX_RETRIES) {
+        const waitMs = attempt * 5000; // 5 s, 10 s, 15 s
+        console.warn(`[MoonshotProvider:streamComplete] 429/overloaded (attempt ${attempt}/${MAX_RETRIES}), retrying in ${waitMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue; // restart the while loop
+      }
+
       console.error('[MoonshotProvider:streamComplete] Error during streaming:', (error as Error).message);
-      console.error('[MoonshotProvider:streamComplete] Error status:', (error as any).status);
+      console.error('[MoonshotProvider:streamComplete] Error status:', status);
       console.error('[MoonshotProvider:streamComplete] Error code:', (error as any).code);
       console.error('[MoonshotProvider:streamComplete] Error type:', (error as any).type);
       console.error('[MoonshotProvider:streamComplete] Error response:', (error as any).response);
       console.error('[MoonshotProvider:streamComplete] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
       throw error;
     }
+    } // end while (retry loop)
   }
 
   async countTokens(messages: UnifiedMessage[], _model: string): Promise<number> {

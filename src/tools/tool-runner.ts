@@ -6,17 +6,34 @@ import * as path from 'node:path';
 
 const LINT_ELIGIBLE_TOOLS = new Set(['Edit', 'Write', 'MultiFileEdit', 'DiffEdit']);
 const FILE_PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'DiffEdit']);
+// Tools that mutate files and must be blocked from writing to protected directories
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiFileEdit', 'DiffEdit']);
 
 export class ToolRunner {
   private autoLintFix: boolean;
+  private protectedPaths: string[];
 
   constructor(
     private registry: ToolRegistry,
     private permissionManager: PermissionManager,
     private eventBus: EventBus,
     autoLintFix = false,
+    protectedPaths: string[] = [],
   ) {
     this.autoLintFix = autoLintFix;
+    // Normalise once so comparisons are reliable
+    this.protectedPaths = protectedPaths.map(p => path.resolve(p));
+  }
+
+  /**
+   * Returns true if the resolved filePath falls inside (or equals) a protected directory.
+   * Used to prevent the agent from modifying the application's own source files.
+   */
+  private isProtectedPath(filePath: string): boolean {
+    const resolved = path.resolve(filePath);
+    return this.protectedPaths.some(
+      protected_ => resolved === protected_ || resolved.startsWith(protected_ + path.sep),
+    );
   }
 
   /**
@@ -39,6 +56,29 @@ export class ToolRunner {
 
     const tool = registration.tool;
     const normalizedInput = this.normalizeInput(toolName, input, context);
+
+    // 0. Block writes to protected directories (e.g. the app's own source tree)
+    if (WRITE_TOOLS.has(toolName) && this.protectedPaths.length > 0) {
+      const filePath = normalizedInput.file_path as string | undefined;
+      if (filePath && this.isProtectedPath(filePath)) {
+        return {
+          content: `Access denied: the agent is not allowed to modify application files at "${filePath}". You can only write files inside the user's open workspace.`,
+          isError: true,
+        };
+      }
+      // MultiFileEdit carries an array of edits, each with its own file_path
+      if (toolName === 'MultiFileEdit' && Array.isArray(normalizedInput.edits)) {
+        for (const edit of normalizedInput.edits as Array<Record<string, unknown>>) {
+          const editPath = edit?.file_path as string | undefined;
+          if (editPath && this.isProtectedPath(editPath)) {
+            return {
+              content: `Access denied: the agent is not allowed to modify application files at "${editPath}". You can only write files inside the user's open workspace.`,
+              isError: true,
+            };
+          }
+        }
+      }
+    }
 
     // 1. Validate input
     const validationError = tool.validate(normalizedInput);
