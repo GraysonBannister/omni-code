@@ -4,6 +4,9 @@ import type { PermissionManager } from '../permissions/permission-manager.js';
 import type { EventBus } from '../utils/event-bus.js';
 import * as path from 'node:path';
 
+/** Signature for addon-provided tool output filters. */
+export type ToolOutputFilter = (toolName: string, output: string) => string;
+
 const LINT_ELIGIBLE_TOOLS = new Set(['Edit', 'Write', 'MultiFileEdit', 'DiffEdit']);
 const FILE_PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'DiffEdit']);
 // Tools that mutate files and must be blocked from writing to protected directories
@@ -12,6 +15,7 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiFileEdit', 'DiffEdit']);
 export class ToolRunner {
   private autoLintFix: boolean;
   private protectedPaths: string[];
+  private outputFilters: ToolOutputFilter[] = [];
 
   constructor(
     private registry: ToolRegistry,
@@ -41,6 +45,27 @@ export class ToolRunner {
    */
   getEventBus(): EventBus {
     return this.eventBus;
+  }
+
+  /**
+   * Replace the active set of addon-provided output filters.
+   * Called by core-integration after addons are (re)loaded.
+   */
+  setOutputFilters(filters: ToolOutputFilter[]): void {
+    this.outputFilters = filters;
+  }
+
+  /** Run the output string through all registered filters in order. */
+  private applyOutputFilters(toolName: string, output: string): string {
+    let result = output;
+    for (const filter of this.outputFilters) {
+      try {
+        result = filter(toolName, result);
+      } catch {
+        // Filters must never crash the agent — silently skip a broken filter.
+      }
+    }
+    return result;
   }
 
   async execute(
@@ -122,7 +147,12 @@ export class ToolRunner {
       };
     }
 
-    // 5. Auto lint-fix after file modifications
+    // 5. Apply addon output filters (only on successful, non-error results with string content)
+    if (!result.isError && typeof result.content === 'string' && this.outputFilters.length > 0) {
+      result = { ...result, content: this.applyOutputFilters(toolName, result.content) };
+    }
+
+    // 6. Auto lint-fix after file modifications
     if (this.autoLintFix && !result.isError && LINT_ELIGIBLE_TOOLS.has(toolName)) {
       try {
         const lintReg = this.registry.get('LintFix');
@@ -137,7 +167,7 @@ export class ToolRunner {
       }
     }
 
-    // 6. Emit completion event
+    // 7. Emit completion event
     this.eventBus.emit('tool_call_end', { toolName, toolId, result });
 
     return result;

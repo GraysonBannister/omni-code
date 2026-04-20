@@ -26,13 +26,14 @@ import type { UsageRecord } from '../src/core/usage-types.js';
 import { settingsManager, type SettingsSchema } from './settings.js';
 import { rulesManager } from './rules-manager.js';
 import { skillsManager } from './skills-manager.js';
-import { loadInstalledAddons } from './addon-loader.js';
+import { loadInstalledAddons, getSystemPromptFragments, getToolOutputFilters } from './addon-loader.js';
 
 let coreInitialized = false;
 let currentWorkingDirectory = process.cwd();
 let agentInstance: AgentImpl | null = null;
 let providerRegistry: ProviderRegistry | null = null;
 let toolRegistryRef: ToolRegistry | null = null;
+let toolRunnerRef: ToolRunner | null = null;
 
 // Module-level PermissionManager so its mode can be updated at runtime.
 // Initialized to 'auto-allow' until initializeCore() creates it with the
@@ -55,6 +56,13 @@ export interface WorkspaceFolder {
   id: string;
   path: string;
   name?: string;
+}
+
+/** Assembles the addon-injected system prompt section, if any fragments are registered. */
+function buildAddonPromptSection(): string {
+  const fragments = getSystemPromptFragments();
+  if (fragments.length === 0) return '';
+  return '\n\n' + fragments.join('\n\n');
 }
 
 // Build system prompt with current working directory and active rules/skills
@@ -124,7 +132,7 @@ After scaffolding a new project or making significant changes, always verify it 
 Do NOT hand off to the user after writing files. Run the project, observe the result, fix any issues, and confirm it works before finishing.
 
 ${workingDirectorySection}
-${rulesSection}${skillsSection}`;
+${rulesSection}${skillsSection}${buildAddonPromptSection()}`;
 }
 
 // Currently active workspace context (set when in multi-folder workspace mode)
@@ -513,6 +521,8 @@ export async function initializeCore(): Promise<void> {
 
     // Initialize tool runner (permissionManager is guaranteed non-null here)
     const toolRunner = new ToolRunner(toolRegistry, permissionManager!, eventBus, config.get('autoLintFix'), protectedAppPaths);
+    toolRunnerRef = toolRunner;
+    toolRunner.setOutputFilters([...getToolOutputFilters()]);
 
     // Initialize cost tracker
     const costTracker = new CostTracker();
@@ -904,5 +914,7 @@ export function getProviderRegistry(): ProviderRegistryType | null {
 export async function reloadAddons(): Promise<void> {
   if (toolRegistryRef) {
     await loadInstalledAddons(toolRegistryRef);
+    // Re-sync output filters after addons are reloaded
+    toolRunnerRef?.setOutputFilters([...getToolOutputFilters()]);
   }
 }

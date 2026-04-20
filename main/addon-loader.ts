@@ -4,8 +4,41 @@ import { app } from 'electron';
 import type { ToolRegistry } from '../src/tools/tool-registry.js';
 import type { Tool } from '../src/tools/tool-types.js';
 
+/**
+ * A filter function registered by an addon to post-process tool output before it
+ * enters the agent's context. Receives the tool name and raw output string; returns
+ * a (potentially compressed) replacement string.
+ */
+export type ToolOutputFilter = (toolName: string, output: string) => string;
+
+// Module-level registries — populated when addons are activated.
+// Cleared on reloadAddons() so filters don't accumulate across hot-reloads.
+const systemPromptFragments: string[] = [];
+const toolOutputFilters: ToolOutputFilter[] = [];
+
+/** Returns all system-prompt fragments registered by addons. */
+export function getSystemPromptFragments(): readonly string[] {
+  return systemPromptFragments;
+}
+
+/** Returns all tool-output filters registered by addons. */
+export function getToolOutputFilters(): readonly ToolOutputFilter[] {
+  return toolOutputFilters;
+}
+
 interface AddonContext {
   registerTool: (tool: Tool) => void;
+  /**
+   * Append a block of text to the system prompt for every LLM request.
+   * Useful for injecting token-efficiency instructions, project conventions, etc.
+   */
+  registerSystemPromptFragment: (fragment: string) => void;
+  /**
+   * Register a filter that post-processes every tool's output before it is
+   * added to the agent's context. Filters are applied in registration order.
+   * Only `content` (the string output) is filtered; error results are passed through.
+   */
+  registerToolOutputFilter: (filter: ToolOutputFilter) => void;
 }
 
 interface AddonModule {
@@ -34,8 +67,13 @@ export function getAddonsDir(): string {
  * Loads all installed add-ons from {userData}/addons/ into the given ToolRegistry.
  * Safe to call multiple times — existing tools from each addon are unregistered
  * before re-requiring the entrypoint, so reinstalls pick up new code.
+ * Non-tool registrations (prompt fragments, output filters) are also cleared and
+ * re-populated from scratch on each call.
  */
 export async function loadInstalledAddons(toolRegistry: ToolRegistry): Promise<void> {
+  // Clear non-tool registrations so they're fully rebuilt from active addons.
+  systemPromptFragments.length = 0;
+  toolOutputFilters.length = 0;
   const addonsDir = getAddonsDir();
   try {
     await fs.mkdir(addonsDir, { recursive: true });
@@ -99,6 +137,16 @@ async function loadAddon(id: string, addonDir: string, toolRegistry: ToolRegistr
         }
         toolRegistry.register(tool, 'plugin');
         registered.push(tool.name);
+      },
+      registerSystemPromptFragment(fragment: string) {
+        if (fragment && fragment.trim()) {
+          systemPromptFragments.push(fragment.trim());
+        }
+      },
+      registerToolOutputFilter(filter: ToolOutputFilter) {
+        if (typeof filter === 'function') {
+          toolOutputFilters.push(filter);
+        }
       },
     };
 
