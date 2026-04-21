@@ -117,6 +117,8 @@ export class AnthropicProvider extends BaseProvider {
               usage: {
                 inputTokens: 0,
                 outputTokens: event.usage.output_tokens,
+                cacheReadTokens: event.usage.cache_read_tokens,
+                cacheWriteTokens: event.usage.cache_creation_tokens,
               },
             };
           }
@@ -129,6 +131,8 @@ export class AnthropicProvider extends BaseProvider {
               usage: {
                 inputTokens: event.message.usage.input_tokens,
                 outputTokens: 0,
+                cacheReadTokens: event.message.usage.cache_read_tokens,
+                cacheWriteTokens: event.message.usage.cache_creation_tokens,
               },
             };
           }
@@ -260,6 +264,8 @@ export class AnthropicProvider extends BaseProvider {
           provider: 'anthropic',
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
+          cacheReadTokens: response.usage.cache_read_tokens,
+          cacheWriteTokens: response.usage.cache_creation_tokens,
           stopReason,
         },
       },
@@ -267,6 +273,8 @@ export class AnthropicProvider extends BaseProvider {
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
+        cacheReadTokens: response.usage.cache_read_tokens,
+        cacheWriteTokens: response.usage.cache_creation_tokens,
       },
     };
   }

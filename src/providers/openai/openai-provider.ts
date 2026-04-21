@@ -174,6 +174,7 @@ export class OpenAIProvider extends BaseProvider {
             usage: {
               inputTokens: chunk.usage.prompt_tokens || 0,
               outputTokens: chunk.usage.completion_tokens || 0,
+              cacheReadTokens: (chunk.usage as any)?.prompt_tokens_details?.cached_tokens,
             },
           };
         }
@@ -309,6 +310,7 @@ export class OpenAIProvider extends BaseProvider {
           provider: 'openai',
           inputTokens: response.usage?.prompt_tokens || 0,
           outputTokens: response.usage?.completion_tokens || 0,
+          cacheReadTokens: (response.usage as any)?.prompt_tokens_details?.cached_tokens,
           stopReason,
         },
       },
@@ -316,6 +318,7 @@ export class OpenAIProvider extends BaseProvider {
       usage: {
         inputTokens: response.usage?.prompt_tokens || 0,
         outputTokens: response.usage?.completion_tokens || 0,
+        cacheReadTokens: (response.usage as any)?.prompt_tokens_details?.cached_tokens,
       },
     };
   }

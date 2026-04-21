@@ -179,13 +179,16 @@ export class XAIProvider extends BaseProvider {
         metadata: {
           model: request.model, provider: 'xai',
           inputTokens: response.usage?.prompt_tokens || 0,
-          outputTokens: response.usage?.completion_tokens || 0, stopReason,
+          outputTokens: response.usage?.completion_tokens || 0,
+          cacheReadTokens: (response.usage as any)?.prompt_tokens_details?.cached_tokens,
+          stopReason,
         },
       },
       stopReason,
       usage: {
         inputTokens: response.usage?.prompt_tokens || 0,
         outputTokens: response.usage?.completion_tokens || 0,
+        cacheReadTokens: (response.usage as any)?.prompt_tokens_details?.cached_tokens,
       },
     };
   }
@@ -207,7 +210,14 @@ export class XAIProvider extends BaseProvider {
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) {
         if (chunk.usage) {
-          yield { type: 'usage', usage: { inputTokens: chunk.usage.prompt_tokens || 0, outputTokens: chunk.usage.completion_tokens || 0 } };
+          yield {
+            type: 'usage',
+            usage: {
+              inputTokens: chunk.usage.prompt_tokens || 0,
+              outputTokens: chunk.usage.completion_tokens || 0,
+              cacheReadTokens: (chunk.usage as any)?.prompt_tokens_details?.cached_tokens,
+            },
+          };
         }
         continue;
       }
@@ -318,6 +328,7 @@ export class XAIProvider extends BaseProvider {
           provider: 'xai',
           inputTokens: data.usage?.input_tokens || 0,
           outputTokens: data.usage?.output_tokens || 0,
+          cacheReadTokens: data.usage?.cached_tokens,
           stopReason: 'end_turn',
         },
       },
@@ -325,6 +336,7 @@ export class XAIProvider extends BaseProvider {
       usage: {
         inputTokens: data.usage?.input_tokens || 0,
         outputTokens: data.usage?.output_tokens || 0,
+        cacheReadTokens: data.usage?.cached_tokens,
       },
     };
   }
@@ -391,6 +403,7 @@ export class XAIProvider extends BaseProvider {
                   usage: {
                     inputTokens: usage.input_tokens || 0,
                     outputTokens: usage.output_tokens || 0,
+                    cacheReadTokens: usage.cached_tokens,
                   },
                 };
                 yield { type: 'done' };

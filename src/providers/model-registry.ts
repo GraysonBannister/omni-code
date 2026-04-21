@@ -456,11 +456,93 @@ export const MODEL_REGISTRY: ModelInfo[] = [
   },
 
   // ── Google Gemini ──
+  // Per https://ai.google.dev/gemini-api/docs/pricing
+  // Note: Gemini 2.0 Flash/Flash-Lite are deprecated (shutdown June 1, 2026)
+
+  // Gemini 2.5 Pro — flagship reasoning model (output includes thinking tokens)
+  {
+    id: 'gemini-2.5-pro',
+    provider: 'google',
+    displayName: 'Gemini 2.5 Pro',
+    aliases: ['gemini-pro', 'gemini', 'gemini-2-5-pro', 'gemini-2.5-pro'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 1.25, outputPerMillion: 10, cacheReadPerMillion: 0.125 },
+  },
+  // Gemini 2.5 Flash — hybrid reasoning with thinking budget
+  {
+    id: 'gemini-2.5-flash',
+    provider: 'google',
+    displayName: 'Gemini 2.5 Flash',
+    aliases: ['gemini-flash', 'flash', 'gemini-2-5-flash', 'gemini-2.5-flash'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 0.3, outputPerMillion: 2.5, cacheReadPerMillion: 0.03 },
+  },
+  // Gemini 2.5 Flash-Lite — most cost-effective
+  {
+    id: 'gemini-2.5-flash-lite',
+    provider: 'google',
+    displayName: 'Gemini 2.5 Flash-Lite',
+    aliases: ['gemini-flash-lite', 'flash-lite', 'gemini-2-5-flash-lite'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 0.1, outputPerMillion: 0.4, cacheReadPerMillion: 0.01 },
+  },
+  // Gemini 3 Flash Preview — speed-focused with thinking
+  {
+    id: 'gemini-3-flash-preview',
+    provider: 'google',
+    displayName: 'Gemini 3 Flash Preview',
+    aliases: ['gemini-3-flash', 'gemini3-flash'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 0.5, outputPerMillion: 3, cacheReadPerMillion: 0.05 },
+  },
+  // Gemini 3.1 Pro Preview — world-class multimodal (output includes thinking)
+  {
+    id: 'gemini-3.1-pro-preview',
+    provider: 'google',
+    displayName: 'Gemini 3.1 Pro Preview',
+    aliases: ['gemini-3-pro', 'gemini3-pro', 'gemini-3.1-pro'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 2, outputPerMillion: 12, cacheReadPerMillion: 0.2 },
+  },
+  // Gemini 3.1 Flash-Lite Preview — cost-effective for agent tasks
+  {
+    id: 'gemini-3.1-flash-lite-preview',
+    provider: 'google',
+    displayName: 'Gemini 3.1 Flash-Lite Preview',
+    aliases: ['gemini-3.1-flash-lite', 'gemini3-flash-lite'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 1_000_000, maxOutputTokens: 64_000,
+    },
+    pricing: { inputPerMillion: 0.25, outputPerMillion: 1.5, cacheReadPerMillion: 0.025 },
+  },
+  // Legacy: Gemini 2.0 Pro (deprecated, shutdown June 1, 2026)
   {
     id: 'gemini-2.0-pro',
     provider: 'google',
-    displayName: 'Gemini 2.0 Pro',
-    aliases: ['gemini-pro', 'gemini'],
+    displayName: 'Gemini 2.0 Pro (Deprecated)',
+    aliases: ['gemini-2-0-pro'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: false,
@@ -468,17 +550,18 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     },
     pricing: { inputPerMillion: 1.25, outputPerMillion: 5 },
   },
+  // Legacy: Gemini 2.0 Flash (deprecated, shutdown June 1, 2026)
   {
     id: 'gemini-2.0-flash',
     provider: 'google',
-    displayName: 'Gemini 2.0 Flash',
-    aliases: ['gemini-flash', 'flash'],
+    displayName: 'Gemini 2.0 Flash (Deprecated)',
+    aliases: ['gemini-2-0-flash'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: false,
       maxContextWindow: 1_000_000, maxOutputTokens: 8_192,
     },
-    pricing: { inputPerMillion: 0.075, outputPerMillion: 0.3 },
+    pricing: { inputPerMillion: 0.1, outputPerMillion: 0.4 },
   },
 
   // ── Mistral ──
@@ -539,6 +622,7 @@ export const MODEL_REGISTRY: ModelInfo[] = [
   // Each mini model gets a base entry (no thinking) + a thinking variant.
 
   // Grok 3 — deep domain knowledge, no reasoning_effort support
+  // Per https://docs.x.ai/developers/models - Updated to Grok 4 pricing
   {
     id: 'grok-3-latest',
     provider: 'xai',
@@ -546,10 +630,10 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok', 'grok-3', 'grok3', 'grok-3-beta'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 3, outputPerMillion: 15 },
+    pricing: { inputPerMillion: 2, outputPerMillion: 6, cacheReadPerMillion: 0.2 },
   },
   {
     id: 'grok-3-fast-latest',
@@ -558,12 +642,13 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok-fast', 'grok-3-fast', 'grok3-fast', 'grok-3-fast-beta'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 5, outputPerMillion: 25 },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
   },
   // Grok 3 Mini — supports reasoning_effort; split into base and thinking variants
+  // Updated per https://docs.x.ai/developers/models - Grok 4 specs
   {
     id: 'grok-3-mini-latest',
     provider: 'xai',
@@ -571,10 +656,10 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok-mini', 'grok-3-mini', 'grok3-mini', 'grok-3-mini-beta'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5 },
+    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
   },
   {
     id: 'grok-3-mini-latest-thinking',
@@ -584,10 +669,10 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok-mini-thinking', 'grok-3-mini-thinking'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: true,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5 },
+    pricing: { inputPerMillion: 0.3, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
   },
   {
     id: 'grok-3-mini-fast-latest',
@@ -596,10 +681,10 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok-mini-fast', 'grok-3-mini-fast', 'grok3-mini-fast', 'grok-3-mini-fast-beta'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: false,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 0.6, outputPerMillion: 4 },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
   },
   {
     id: 'grok-3-mini-fast-latest-thinking',
@@ -609,10 +694,10 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     aliases: ['grok-mini-fast-thinking', 'grok-3-mini-fast-thinking'],
     capabilities: {
       streaming: true, toolUse: true, vision: false, jsonMode: true,
-      systemPrompt: true, caching: false, extendedThinking: true,
-      maxContextWindow: 131_072, maxOutputTokens: 16_384,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 2_000_000, maxOutputTokens: 16_384,
     },
-    pricing: { inputPerMillion: 0.6, outputPerMillion: 4 },
+    pricing: { inputPerMillion: 0.2, outputPerMillion: 0.5, cacheReadPerMillion: 0.05 },
   },
   // Grok 2 — vision and general chat
   {
