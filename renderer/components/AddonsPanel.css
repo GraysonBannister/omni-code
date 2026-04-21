@@ -158,6 +158,14 @@
   border-color: rgba(239, 68, 68, 0.4);
 }
 
+.addon-card--has-update {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.addon-card--has-update:hover {
+  border-color: rgba(245, 158, 11, 0.7);
+}
+
 .addon-card-top {
   display: flex;
   align-items: flex-start;
@@ -232,6 +240,15 @@
   color: var(--color-text-tertiary);
 }
 
+.addon-action-btn--update {
+  color: #f59e0b;
+}
+
+.addon-action-btn--update:hover {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+}
+
 .addon-card-desc {
   margin: 0;
   font-size: var(--font-size-xs);
@@ -265,6 +282,40 @@
   font-size: var(--font-size-xs);
   color: #ef4444;
   margin-top: 2px;
+}
+
+/* Version update display: "v1.0.0 → v1.1.0" */
+.addon-version-update {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+}
+
+.addon-version-old {
+  color: var(--color-text-tertiary);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.addon-version-arrow {
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+
+.addon-version-new {
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+/* Update dot on section header */
+.addons-update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  margin-left: 2px;
 }
 
 /* Spinning animation */

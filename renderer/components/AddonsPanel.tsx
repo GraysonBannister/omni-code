@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Puzzle, Download, Trash2, AlertCircle, ExternalLink, CheckCircle2, Loader2 } from 'lucide-react';
+import { RefreshCw, Puzzle, Download, Trash2, AlertCircle, ExternalLink, CheckCircle2, Loader2, ArrowUpCircle } from 'lucide-react';
 import './AddonsPanel.css';
 
 interface AddonManifest {
@@ -20,9 +20,23 @@ const REGISTRY_OWNER = 'GraysonBannister';
 const REGISTRY_REPO = 'omni-addons';
 const REGISTRY_DIR = 'addons';
 
+/** Returns true if registryVer is strictly greater than installedVer (semver). */
+function isNewerVersion(registryVer: string, installedVer: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const rv = parse(registryVer);
+  const iv = parse(installedVer);
+  for (let i = 0; i < Math.max(rv.length, iv.length); i++) {
+    const r = rv[i] ?? 0;
+    const ins = iv[i] ?? 0;
+    if (r > ins) return true;
+    if (r < ins) return false;
+  }
+  return false;
+}
+
 export const AddonsPanel: React.FC = () => {
   const [registryAddons, setRegistryAddons] = useState<AddonManifest[]>([]);
-  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
+  const [installedManifests, setInstalledManifests] = useState<Map<string, AddonManifest>>(new Map());
   const [loadingRegistry, setLoadingRegistry] = useState(false);
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
@@ -37,7 +51,7 @@ export const AddonsPanel: React.FC = () => {
     try {
       const result = await addonsAPI.list();
       if (result.error) return;
-      setInstalledIds(new Set(result.manifests.map((m) => m.id)));
+      setInstalledManifests(new Map(result.manifests.map((m) => [m.id, m])));
     } catch {
       // silently ignore
     }
@@ -123,8 +137,12 @@ export const AddonsPanel: React.FC = () => {
     }
   };
 
-  const installed = registryAddons.filter((a) => installedIds.has(a.id));
-  const available = registryAddons.filter((a) => !installedIds.has(a.id));
+  const installed = registryAddons.filter((a) => installedManifests.has(a.id));
+  const available = registryAddons.filter((a) => !installedManifests.has(a.id));
+  const updateCount = installed.filter((a) => {
+    const local = installedManifests.get(a.id);
+    return local && isNewerVersion(a.version, local.version);
+  }).length;
 
   return (
     <div className="addons-panel">
@@ -179,18 +197,32 @@ export const AddonsPanel: React.FC = () => {
 
         {/* INSTALLED section */}
         {installed.length > 0 && (
-          <Section label={`INSTALLED (${installed.length})`}>
-            {installed.map((addon) => (
-              <AddonCard
-                key={addon.id}
-                addon={addon}
-                installed
-                inProgress={actionInProgress === addon.id}
-                error={actionError?.id === addon.id ? actionError.msg : null}
-                success={successId === addon.id}
-                onUninstall={() => uninstall(addon.id)}
-              />
-            ))}
+          <Section
+            label={
+              updateCount > 0
+                ? `INSTALLED (${installed.length}) · ${updateCount} update${updateCount > 1 ? 's' : ''}`
+                : `INSTALLED (${installed.length})`
+            }
+            hasUpdates={updateCount > 0}
+          >
+            {installed.map((addon) => {
+              const localManifest = installedManifests.get(addon.id);
+              const hasUpdate = localManifest ? isNewerVersion(addon.version, localManifest.version) : false;
+              return (
+                <AddonCard
+                  key={addon.id}
+                  addon={addon}
+                  installed
+                  installedVersion={localManifest?.version}
+                  hasUpdate={hasUpdate}
+                  inProgress={actionInProgress === addon.id}
+                  error={actionError?.id === addon.id ? actionError.msg : null}
+                  success={successId === addon.id}
+                  onUpdate={hasUpdate ? () => install(addon) : undefined}
+                  onUninstall={() => uninstall(addon.id)}
+                />
+              );
+            })}
           </Section>
         )}
 
@@ -225,13 +257,14 @@ export const AddonsPanel: React.FC = () => {
 
 /* ── Sub-components ──────────────────────────────────────────────────────── */
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, children, hasUpdates }: { label: string; children: React.ReactNode; hasUpdates?: boolean }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="addons-section">
       <button className="addons-section-header" onClick={() => setOpen((o) => !o)}>
         <span className="addons-section-chevron">{open ? '▾' : '▸'}</span>
         <span className="addons-section-label">{label}</span>
+        {hasUpdates && <span className="addons-update-dot" title="Updates available" />}
       </button>
       {open && <div className="addons-section-body">{children}</div>}
     </div>
@@ -241,20 +274,31 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 interface AddonCardProps {
   addon: AddonManifest;
   installed: boolean;
+  installedVersion?: string;
+  hasUpdate?: boolean;
   inProgress: boolean;
   error: string | null;
   success: boolean;
   onInstall?: () => void;
+  onUpdate?: () => void;
   onUninstall?: () => void;
 }
 
-function AddonCard({ addon, installed, inProgress, error, success, onInstall, onUninstall }: AddonCardProps) {
+function AddonCard({ addon, installed, installedVersion, hasUpdate, inProgress, error, success, onInstall, onUpdate, onUninstall }: AddonCardProps) {
   return (
-    <div className={`addon-card ${error ? 'addon-card--error' : ''}`}>
+    <div className={`addon-card ${error ? 'addon-card--error' : ''} ${hasUpdate ? 'addon-card--has-update' : ''}`}>
       <div className="addon-card-top">
         <div className="addon-card-info">
           <span className="addon-card-name">{addon.name}</span>
-          <span className="addon-card-version">v{addon.version}</span>
+          {installed && hasUpdate && installedVersion ? (
+            <span className="addon-card-version addon-version-update" title={`Update available: v${installedVersion} → v${addon.version}`}>
+              <span className="addon-version-old">v{installedVersion}</span>
+              <span className="addon-version-arrow">→</span>
+              <span className="addon-version-new">v{addon.version}</span>
+            </span>
+          ) : (
+            <span className="addon-card-version">v{addon.version}</span>
+          )}
         </div>
         <div className="addon-card-actions">
           {addon.repo && (
@@ -269,14 +313,26 @@ function AddonCard({ addon, installed, inProgress, error, success, onInstall, on
             </a>
           )}
           {installed ? (
-            <button
-              className="addon-action-btn addon-action-btn--remove"
-              title="Remove add-on"
-              onClick={onUninstall}
-              disabled={inProgress}
-            >
-              {inProgress ? <Loader2 size={12} className="spinning" /> : <Trash2 size={12} />}
-            </button>
+            <>
+              {hasUpdate && (
+                <button
+                  className="addon-action-btn addon-action-btn--update"
+                  title={`Update to v${addon.version}`}
+                  onClick={onUpdate}
+                  disabled={inProgress}
+                >
+                  {inProgress ? <Loader2 size={12} className="spinning" /> : <ArrowUpCircle size={12} />}
+                </button>
+              )}
+              <button
+                className="addon-action-btn addon-action-btn--remove"
+                title="Remove add-on"
+                onClick={onUninstall}
+                disabled={inProgress}
+              >
+                {inProgress && !hasUpdate ? <Loader2 size={12} className="spinning" /> : <Trash2 size={12} />}
+              </button>
+            </>
           ) : (
             <button
               className="addon-action-btn addon-action-btn--install"
