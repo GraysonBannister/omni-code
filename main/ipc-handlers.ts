@@ -7,6 +7,7 @@ import * as https from 'node:https';
 import * as http from 'node:http';
 import { execFile } from 'node:child_process';
 import { setWorkingDirectory, setWorkingDirectoryForWindow, getWorkingDirectory, getWorkingDirectoryForConversation, setPermissionMode, getProviderRegistry, reinitializeProviders, refreshSystemPrompt, rulesManager, skillsManager, reloadAddons, setWorkspaceContext, clearWorkspaceContext, type WorkspaceFolder } from './core-integration.js';
+import { MODEL_REGISTRY } from '../src/providers/model-registry.js';
 import { remoteClientMode } from './remote-client-mode.js';
 import {
   createPlanFile,
@@ -1185,6 +1186,22 @@ export function setupIpcHandlers(): void {
       return await usageStorage.getAllMonthlyLimits();
     } catch (error) {
       return {};
+    }
+  });
+
+  ipcMain.handle('usage:getModelPricing', async () => {
+    try {
+      return MODEL_REGISTRY.map(model => ({
+        id: model.id,
+        displayName: model.displayName,
+        provider: model.provider,
+        inputPerMillion: model.pricing.inputPerMillion,
+        outputPerMillion: model.pricing.outputPerMillion,
+        cacheReadPerMillion: model.pricing.cacheReadPerMillion,
+        cacheWritePerMillion: model.pricing.cacheWritePerMillion,
+      }));
+    } catch (error) {
+      return [];
     }
   });
 
@@ -2675,6 +2692,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler('usage:getAvailableMonths');
   ipcMain.removeHandler('usage:setLimit');
   ipcMain.removeHandler('usage:getLimits');
+  ipcMain.removeHandler('usage:getModelPricing');
   ipcMain.removeHandler('usage:cleanup');
   ipcMain.removeHandler('usage:export');
   ipcMain.removeHandler('indexing:start');

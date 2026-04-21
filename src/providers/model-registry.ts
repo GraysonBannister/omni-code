@@ -6,12 +6,38 @@ export const MODEL_REGISTRY: ModelInfo[] = [
   //   base  → extendedThinking: false  (user picks this to use the model without thinking)
   //   -thinking → extendedThinking: true, apiId = base model  (user picks this to enable thinking)
 
+  // Claude Opus 4.7
+  {
+    id: 'claude-opus-4-7',
+    provider: 'anthropic',
+    displayName: 'Claude Opus 4.7',
+    aliases: ['opus', 'claude-opus', 'opus-4-7'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: false,
+      maxContextWindow: 1_000_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25, cacheReadPerMillion: 0.5, cacheWritePerMillion: 6.25 },
+  },
+  {
+    id: 'claude-opus-4-7-thinking',
+    apiId: 'claude-opus-4-7',
+    provider: 'anthropic',
+    displayName: 'Claude Opus 4.7 (Thinking)',
+    aliases: ['opus-thinking', 'claude-opus-thinking', 'opus-4-7-thinking'],
+    capabilities: {
+      streaming: true, toolUse: true, vision: true, jsonMode: true,
+      systemPrompt: true, caching: true, extendedThinking: true,
+      maxContextWindow: 1_000_000, maxOutputTokens: 128_000,
+    },
+    pricing: { inputPerMillion: 5, outputPerMillion: 25, cacheReadPerMillion: 0.5, cacheWritePerMillion: 6.25 },
+  },
   // Claude Opus 4.6
   {
     id: 'claude-opus-4-6',
     provider: 'anthropic',
     displayName: 'Claude Opus 4.6',
-    aliases: ['opus', 'claude-opus', 'opus-4-6'],
+    aliases: ['opus-4-6'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: false,
@@ -24,7 +50,7 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     apiId: 'claude-opus-4-6',
     provider: 'anthropic',
     displayName: 'Claude Opus 4.6 (Thinking)',
-    aliases: ['opus-thinking', 'claude-opus-thinking'],
+    aliases: ['opus-4-6-thinking'],
     capabilities: {
       streaming: true, toolUse: true, vision: true, jsonMode: true,
       systemPrompt: true, caching: true, extendedThinking: true,

@@ -18,6 +18,19 @@ interface UsageSummary {
   byProvider: Record<string, { cost: number; tokens: number }>;
 }
 
+interface ModelPricing {
+  id: string;
+  displayName: string;
+  provider: string;
+  inputPerMillion: number;
+  outputPerMillion: number;
+  cacheReadPerMillion?: number;
+  cacheWritePerMillion?: number;
+}
+
+type SortField = 'displayName' | 'provider' | 'inputPerMillion' | 'outputPerMillion' | 'cacheReadPerMillion' | 'cacheWritePerMillion';
+type SortDirection = 'asc' | 'desc';
+
 export const UsageDashboard: React.FC = () => {
   const { projectPath } = useAppStore();
   const { settings, setSetting } = useSettingsStore();
@@ -29,6 +42,11 @@ export const UsageDashboard: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [monthlyLimit, setMonthlyLimit] = useState<number>(settings?.usage?.monthlyLimit || 0);
+
+  // Model pricing state
+  const [modelPricing, setModelPricing] = useState<ModelPricing[]>([]);
+  const [sortField, setSortField] = useState<SortField>('displayName');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Get current month
   useEffect(() => {
@@ -82,6 +100,20 @@ export const UsageDashboard: React.FC = () => {
   useEffect(() => {
     loadUsageData();
   }, [loadUsageData]);
+
+  // Load model pricing data
+  useEffect(() => {
+    const loadPricing = async () => {
+      if (!window.electronAPI?.usage?.getModelPricing) return;
+      try {
+        const pricing = await window.electronAPI.usage.getModelPricing();
+        setModelPricing(pricing);
+      } catch (err) {
+        console.error('Failed to load model pricing:', err);
+      }
+    };
+    loadPricing();
+  }, []);
 
   // Filter daily usage by selected models
   const filteredDailyUsage = dailyUsage.map(day => {
@@ -164,6 +196,27 @@ export const UsageDashboard: React.FC = () => {
     if (window.electronAPI?.usage && selectedMonth) {
       await window.electronAPI.usage.setLimit(selectedMonth, value);
     }
+  };
+
+  // Sort handler for pricing table
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get sorted pricing data
+  const getSortedPricing = () => {
+    return [...modelPricing].sort((a, b) => {
+      const aVal = a[sortField] ?? (sortField.startsWith('cache') ? -1 : Infinity);
+      const bVal = b[sortField] ?? (sortField.startsWith('cache') ? -1 : Infinity);
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
   };
 
   // Get all unique models from usage data
@@ -468,6 +521,49 @@ export const UsageDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Model Pricing Table */}
+      {modelPricing.length > 0 && (
+        <div className="usage-breakdown">
+          <h4>Model Pricing (per million tokens)</h4>
+          <table className="usage-table pricing-table">
+            <thead>
+              <tr>
+                <th onClick={() => handleSort('displayName')} className="sortable">
+                  Model {sortField === 'displayName' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('provider')} className="sortable">
+                  Provider {sortField === 'provider' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('inputPerMillion')} className="sortable">
+                  Input {sortField === 'inputPerMillion' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('outputPerMillion')} className="sortable">
+                  Output {sortField === 'outputPerMillion' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('cacheReadPerMillion')} className="sortable">
+                  Cache Read {sortField === 'cacheReadPerMillion' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('cacheWritePerMillion')} className="sortable">
+                  Cache Write {sortField === 'cacheWritePerMillion' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {getSortedPricing().map((model) => (
+                <tr key={model.id}>
+                  <td>{model.displayName}</td>
+                  <td>{model.provider}</td>
+                  <td>{formatPrice(model.inputPerMillion)}</td>
+                  <td>{formatPrice(model.outputPerMillion)}</td>
+                  <td>{formatPrice(model.cacheReadPerMillion)}</td>
+                  <td>{formatPrice(model.cacheWritePerMillion)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* No Data Message */}
       {!loading && !error && (!summary || summary.totalCost === 0) && (
         <div className="usage-empty">
@@ -480,6 +576,12 @@ export const UsageDashboard: React.FC = () => {
     </div>
   );
 };
+
+// Helper function to format price or show N/A
+function formatPrice(price: number | undefined): string {
+  if (price === undefined || price === null) return 'N/A';
+  return `$${price.toFixed(2)}`;
+}
 
 // Helper function to generate consistent colors for models
 function getModelColor(model: string, index: number): string {

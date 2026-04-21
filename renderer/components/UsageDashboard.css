@@ -343,6 +343,30 @@
   text-align: right;
 }
 
+/* Sortable table headers */
+.usage-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.usage-table th.sortable:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Pricing table specific */
+.pricing-table th,
+.pricing-table td {
+  text-align: right;
+}
+
+.pricing-table th:first-child,
+.pricing-table td:first-child,
+.pricing-table th:nth-child(2),
+.pricing-table td:nth-child(2) {
+  text-align: left;
+}
+
 /* Button overrides */
 .btn-xs {
   padding: 4px 8px;

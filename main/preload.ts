@@ -262,6 +262,15 @@ type UsageAPI = {
   getLimits: () => Promise<Record<string, number>>;
   cleanup: (monthsToKeep?: number) => Promise<{ deleted: number; error?: string }>;
   export: (workspacePath?: string) => Promise<{ csv?: string; error?: string }>;
+  getModelPricing: () => Promise<Array<{
+    id: string;
+    displayName: string;
+    provider: string;
+    inputPerMillion: number;
+    outputPerMillion: number;
+    cacheReadPerMillion?: number;
+    cacheWritePerMillion?: number;
+  }>>;
 };
 
 // Indexing API
@@ -733,6 +742,7 @@ const api: ElectronAPI = {
     getLimits: () => ipcRenderer.invoke('usage:getLimits'),
     cleanup: (monthsToKeep?: number) => ipcRenderer.invoke('usage:cleanup', monthsToKeep),
     export: (workspacePath?: string) => ipcRenderer.invoke('usage:export', workspacePath),
+    getModelPricing: () => ipcRenderer.invoke('usage:getModelPricing'),
   },
 
   customModels: {
