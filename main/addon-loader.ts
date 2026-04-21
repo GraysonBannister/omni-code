@@ -85,6 +85,17 @@ export async function loadInstalledAddons(toolRegistry: ToolRegistry): Promise<v
   } catch (err) {
     console.error('[AddonLoader] Failed to scan addons directory:', err);
   }
+
+  // Summary log so it's always clear what each addon registered
+  const toolNames = toolRegistry.getAll()
+    .filter(r => r.source === 'plugin')
+    .map(r => r.tool.name);
+  console.log(
+    `[AddonLoader] Load complete — ` +
+    `${toolNames.length} plugin tool(s): [${toolNames.join(', ') || 'none'}] | ` +
+    `${systemPromptFragments.length} prompt fragment(s) | ` +
+    `${toolOutputFilters.length} output filter(s)`
+  );
 }
 
 async function loadAddon(id: string, addonDir: string, toolRegistry: ToolRegistry): Promise<void> {
@@ -141,11 +152,13 @@ async function loadAddon(id: string, addonDir: string, toolRegistry: ToolRegistr
       registerSystemPromptFragment(fragment: string) {
         if (fragment && fragment.trim()) {
           systemPromptFragments.push(fragment.trim());
+          console.log(`[AddonLoader] "${id}" registered a system prompt fragment (${fragment.trim().length} chars)`);
         }
       },
       registerToolOutputFilter(filter: ToolOutputFilter) {
         if (typeof filter === 'function') {
           toolOutputFilters.push(filter);
+          console.log(`[AddonLoader] "${id}" registered a tool output filter`);
         }
       },
     };
