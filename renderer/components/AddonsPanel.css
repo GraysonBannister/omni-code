@@ -1,6 +1,7 @@
 /* ── Addons Panel ────────────────────────────────────────────────────────── */
 
 .addons-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -316,6 +317,203 @@
   background: #f59e0b;
   flex-shrink: 0;
   margin-left: 2px;
+}
+
+/* ── Info Modal ──────────────────────────────────────────────────────────── */
+
+.addons-info-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.addons-info-modal {
+  width: 100%;
+  max-width: 360px;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  margin-top: 8px;
+}
+
+.addons-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
+}
+
+.addons-info-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.addons-info-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.addons-info-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.addons-info-body {
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+.addons-info-section {
+  padding: 10px 12px;
+}
+
+.addons-info-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.addons-info-divider::before,
+.addons-info-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sidebar-border);
+}
+
+.addons-info-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.addons-info-bullet {
+  display: flex;
+  gap: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.addons-info-bullet-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--color-accent, #3b82f6);
+  opacity: 0.8;
+}
+
+.addons-info-steps {
+  margin: 0 0 8px 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.addons-info-steps li {
+  padding-left: 2px;
+}
+
+.addons-info-steps strong {
+  color: var(--color-text-primary);
+}
+
+.addons-info-steps code,
+.addons-info-bullet code {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 3px;
+  padding: 0 3px;
+  color: var(--color-text-primary);
+}
+
+.addons-info-code {
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: var(--color-bg-hover, rgba(255,255,255,0.04));
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.addons-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.addons-info-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.addons-info-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover, var(--color-accent));
+}
+
+.addons-info-btn--primary {
+  background: var(--color-accent, #3b82f6);
+  border-color: var(--color-accent, #3b82f6);
+  color: #fff;
+}
+
+.addons-info-btn--primary:hover {
+  opacity: 0.88;
+  background: var(--color-accent, #3b82f6);
+  color: #fff;
 }
 
 /* Spinning animation */

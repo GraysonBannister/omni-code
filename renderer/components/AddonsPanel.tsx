@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Puzzle, Download, Trash2, AlertCircle, ExternalLink, CheckCircle2, Loader2, ArrowUpCircle } from 'lucide-react';
+import { RefreshCw, Puzzle, Download, Trash2, AlertCircle, ExternalLink, CheckCircle2, Loader2, ArrowUpCircle, HelpCircle, X, Wrench, Zap, Filter, ChevronRight } from 'lucide-react';
 import './AddonsPanel.css';
 
 interface AddonManifest {
@@ -42,6 +42,7 @@ export const AddonsPanel: React.FC = () => {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [actionError, setActionError] = useState<{ id: string; msg: string } | null>(null);
   const [successId, setSuccessId] = useState<string | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   const addonsAPI = window.electronAPI?.addons;
 
@@ -146,10 +147,18 @@ export const AddonsPanel: React.FC = () => {
 
   return (
     <div className="addons-panel">
+      {showInfo && <AddonInfoModal onClose={() => setShowInfo(false)} />}
       {/* Header */}
       <div className="addons-header">
         <span className="addons-title">Add-ons</span>
         <div className="addons-header-actions">
+          <button
+            className="addons-icon-btn"
+            title="How add-ons work"
+            onClick={() => setShowInfo(true)}
+          >
+            <HelpCircle size={13} />
+          </button>
           <button
             className="addons-icon-btn"
             title="Refresh registry"
@@ -282,6 +291,113 @@ interface AddonCardProps {
   onInstall?: () => void;
   onUpdate?: () => void;
   onUninstall?: () => void;
+}
+
+const INDEX_JS_SKELETON = `function activate(context) {
+  // Register a new tool
+  context.registerTool({
+    name: 'MyTool',
+    description: 'What this tool does',
+    inputSchema: { type: 'object', properties: {} },
+    async execute(input, ctx) {
+      return { content: 'result' };
+    },
+  });
+
+  // Or add instructions to the system prompt
+  context.registerSystemPromptFragment(
+    'Always respond in bullet points.'
+  );
+
+  // Or compress noisy tool output
+  context.registerToolOutputFilter((toolName, output) => {
+    return output.slice(0, 2000); // trim long output
+  });
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };`;
+
+function AddonInfoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="addons-info-overlay" onClick={onClose}>
+      <div className="addons-info-modal" onClick={(e) => e.stopPropagation()}>
+        {/* Modal header */}
+        <div className="addons-info-header">
+          <span className="addons-info-title">How Add-ons Work</span>
+          <button className="addons-info-close" onClick={onClose} title="Close">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="addons-info-body">
+          {/* Section 1: How they work */}
+          <div className="addons-info-section">
+            <div className="addons-info-bullets">
+              <div className="addons-info-bullet">
+                <span className="addons-info-bullet-icon"><Wrench size={13} /></span>
+                <span>Add-ons are Node.js modules loaded at startup. They live in <code>~/Library/Application Support/Omni Code/addons/</code> and are managed by the registry above.</span>
+              </div>
+              <div className="addons-info-bullet">
+                <span className="addons-info-bullet-icon"><Zap size={13} /></span>
+                <span>Each addon can register <strong>tools</strong> (new agent capabilities), <strong>system prompt fragments</strong> (extra instructions injected into every conversation), or <strong>output filters</strong> (compress/transform tool results before they enter the context).</span>
+              </div>
+              <div className="addons-info-bullet">
+                <span className="addons-info-bullet-icon"><Filter size={13} /></span>
+                <span>Installed add-ons are automatically checked for updates whenever the registry is refreshed. Click the update button on any card to reinstall the latest version.</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="addons-info-divider">
+            <span>Build Your Own</span>
+          </div>
+
+          {/* Section 2: Build your own */}
+          <div className="addons-info-section">
+            <ol className="addons-info-steps">
+              <li>
+                <strong>Create a GitHub repo</strong> with three files: <code>index.js</code>, <code>manifest.json</code>, and <code>README.md</code>.
+              </li>
+              <li>
+                <strong>Export <code>activate(context)</code></strong> from <code>index.js</code>. Use the context API to register tools, prompt fragments, or output filters:
+              </li>
+            </ol>
+
+            <pre className="addons-info-code">{INDEX_JS_SKELETON}</pre>
+
+            <ol className="addons-info-steps" start={3}>
+              <li>
+                <strong>Submit a PR</strong> to the registry repo adding a folder under <code>addons/</code> containing only your <code>manifest.json</code> (pointing to your repo via the <code>repo</code> and <code>download</code> fields). Once merged, your add-on appears in the browser for everyone.
+              </li>
+            </ol>
+
+            <div className="addons-info-actions">
+              <a
+                className="addons-info-btn"
+                href="https://github.com/GraysonBannister/omni-terse"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink size={11} />
+                View example addon
+              </a>
+              <a
+                className="addons-info-btn addons-info-btn--primary"
+                href={`https://github.com/${REGISTRY_OWNER}/${REGISTRY_REPO}/compare`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Submit PR
+                <ChevronRight size={11} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AddonCard({ addon, installed, installedVersion, hasUpdate, inProgress, error, success, onInstall, onUpdate, onUninstall }: AddonCardProps) {
