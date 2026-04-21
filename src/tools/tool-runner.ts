@@ -11,6 +11,8 @@ const LINT_ELIGIBLE_TOOLS = new Set(['Edit', 'Write', 'MultiFileEdit', 'DiffEdit
 const FILE_PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'DiffEdit']);
 // Tools that mutate files and must be blocked from writing to protected directories
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiFileEdit', 'DiffEdit']);
+// Search/exploration tools whose `path` argument must resolve within the workspace
+const WORKSPACE_BOUND_TOOLS = new Set(['Glob', 'Grep', 'FileTree']);
 
 export class ToolRunner {
   private autoLintFix: boolean;
@@ -37,6 +39,17 @@ export class ToolRunner {
     const resolved = path.resolve(filePath);
     return this.protectedPaths.some(
       protected_ => resolved === protected_ || resolved.startsWith(protected_ + path.sep),
+    );
+  }
+
+  /**
+   * Returns true if the resolved filePath falls inside (or equals) one of the workspace roots.
+   * Used to keep search/exploration tools scoped to the open workspace.
+   */
+  private isWithinWorkspace(filePath: string, workspacePaths: string[]): boolean {
+    const resolved = path.resolve(filePath);
+    return workspacePaths.some(
+      wp => resolved === wp || resolved.startsWith(wp + path.sep),
     );
   }
 
@@ -101,6 +114,21 @@ export class ToolRunner {
               isError: true,
             };
           }
+        }
+      }
+    }
+
+    // 0b. Block search/exploration tools from targeting paths outside the workspace
+    if (WORKSPACE_BOUND_TOOLS.has(toolName) && context.workspacePaths && context.workspacePaths.length > 0) {
+      const searchPath = normalizedInput.path as string | undefined;
+      if (searchPath) {
+        const resolvedSearch = path.resolve(context.cwd, searchPath);
+        if (!this.isWithinWorkspace(resolvedSearch, context.workspacePaths)) {
+          const workspaceList = context.workspacePaths.join(', ');
+          return {
+            content: `Access denied: path "${resolvedSearch}" is outside the workspace. Use a path within the workspace: ${workspaceList}`,
+            isError: true,
+          };
         }
       }
     }

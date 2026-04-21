@@ -87,12 +87,25 @@ This is a multi-folder workspace containing ${workspaceFolders.length} projects:
 ${folderList}
 
 The currently active folder is: ${cwd}
-You have access to all folders in the workspace. When working on tasks, consider all projects unless the user specifies otherwise.
-File operations and searches default to the active folder unless you specify an absolute path.`;
+
+## File System Boundaries — CRITICAL
+Your file access is STRICTLY CONFINED to the workspace folders listed above.
+- NEVER search, read, list, or explore any path outside the workspace folders above.
+- NEVER use "/" (filesystem root), "~" (home directory), or any other path that is not under one of the listed workspace folders.
+- When creating a new project or file, always create it INSIDE the active workspace folder (${cwd}).
+- If a task seems to require going outside the workspace, stop and ask the user to open the relevant folder in the workspace first.
+- File operations and searches default to the active folder (${cwd}) unless the user explicitly requests a different workspace folder from the list above.`;
   } else {
     workingDirectorySection = `## Working Directory
 The user's current working directory is: ${cwd}
-Always use this working directory for file operations and searches unless specifically asked to work elsewhere.`;
+
+## File System Boundaries — CRITICAL
+Your file access is STRICTLY CONFINED to the workspace directory: ${cwd}
+- NEVER search, read, list, or explore any path outside ${cwd}.
+- NEVER use "/" (filesystem root), "~" (home directory), or any path that is not under ${cwd}.
+- When creating a new project or file, always create it INSIDE ${cwd}.
+- If a task seems to require going outside the workspace, stop and ask the user to open the relevant folder first.
+- All file operations and searches must use ${cwd} or a subdirectory within it as the root.`;
   }
 
   return `You are omni-code, a powerful AI coding assistant running in the Electron GUI.
@@ -150,13 +163,15 @@ export async function setWorkingDirectory(cwd: string): Promise<void> {
   ]);
 
   const newSystemPrompt = buildSystemPrompt(cwd, currentWorkspaceName, currentWorkspaceFolders);
-  agentBridge.updateWorkspaceContext(cwd, newSystemPrompt);
+  const newWorkspacePaths = currentWorkspaceFolders?.map(f => f.path) ?? [cwd];
+  agentBridge.updateWorkspaceContext(cwd, newSystemPrompt, newWorkspacePaths);
 
   // Keep the legacy singleton in sync as well if one is ever assigned.
   if (agentInstance) {
     agentInstance.updateConfig({
       systemPrompt: newSystemPrompt,
       cwd,
+      workspacePaths: currentWorkspaceFolders?.map(f => f.path) ?? [cwd],
     });
     console.log('Agent updated with new working directory:', cwd);
   }
@@ -174,7 +189,8 @@ export async function setWorkingDirectoryForWindow(cwd: string, conversationIds:
   ]);
 
   const newSystemPrompt = buildSystemPrompt(cwd, currentWorkspaceName, currentWorkspaceFolders);
-  agentBridge.updateWorkspaceContextForConversations(cwd, newSystemPrompt, conversationIds);
+  const newWorkspacePaths = currentWorkspaceFolders?.map(f => f.path) ?? [cwd];
+  agentBridge.updateWorkspaceContextForConversations(cwd, newSystemPrompt, conversationIds, newWorkspacePaths);
 }
 
 /**
@@ -203,14 +219,19 @@ export async function setWorkspaceContext(
 
   const newSystemPrompt = buildSystemPrompt(activeFolderPath, workspaceName, folders);
 
+  const folderPaths = folders.map(f => f.path);
   if (conversationIds && conversationIds.length > 0) {
-    agentBridge.updateWorkspaceContextForConversations(activeFolderPath, newSystemPrompt, conversationIds);
+    agentBridge.updateWorkspaceContextForConversations(activeFolderPath, newSystemPrompt, conversationIds, folderPaths);
   } else {
-    agentBridge.updateWorkspaceContext(activeFolderPath, newSystemPrompt);
+    agentBridge.updateWorkspaceContext(activeFolderPath, newSystemPrompt, folderPaths);
   }
 
   if (agentInstance) {
-    agentInstance.updateConfig({ systemPrompt: newSystemPrompt, cwd: activeFolderPath });
+    agentInstance.updateConfig({
+      systemPrompt: newSystemPrompt,
+      cwd: activeFolderPath,
+      workspacePaths: folders.map(f => f.path),
+    });
   }
 }
 
@@ -225,9 +246,10 @@ export function clearWorkspaceContext(): void {
 
 export function refreshSystemPrompt(): void {
   const newSystemPrompt = buildSystemPrompt(currentWorkingDirectory, currentWorkspaceName, currentWorkspaceFolders);
-  agentBridge.updateWorkspaceContext(currentWorkingDirectory, newSystemPrompt);
+  const refreshWorkspacePaths = currentWorkspaceFolders?.map(f => f.path) ?? [currentWorkingDirectory];
+  agentBridge.updateWorkspaceContext(currentWorkingDirectory, newSystemPrompt, refreshWorkspacePaths);
   if (agentInstance) {
-    agentInstance.updateConfig({ systemPrompt: newSystemPrompt });
+    agentInstance.updateConfig({ systemPrompt: newSystemPrompt, workspacePaths: refreshWorkspacePaths });
   }
 }
 
@@ -668,6 +690,7 @@ export async function initializeCore(): Promise<void> {
           contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
           planMode: false,
           cwd: currentWorkingDirectory,
+          workspacePaths: currentWorkspaceFolders?.map(f => f.path) ?? [currentWorkingDirectory],
           thinking: thinkingConfig,
           limitCheck: {
             check: async () => {

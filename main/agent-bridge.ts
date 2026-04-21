@@ -62,6 +62,7 @@ interface AgentConfig {
   maxContextTokens?: number;
   maxTurns?: number | null;
   cwd?: string;
+  workspacePaths?: string[];
   thinking?: { enabled: boolean; budgetTokens: number };
 }
 
@@ -269,24 +270,25 @@ export class AgentBridge {
     this.workspacePath = workspacePath;
   }
 
-  updateWorkspaceContext(workspacePath: string, systemPrompt: string): void {
+  updateWorkspaceContext(workspacePath: string, systemPrompt: string, workspacePaths?: string[]): void {
     this.workspacePath = workspacePath;
 
     for (const state of this.conversations.values()) {
       state.agent.updateConfig({
         cwd: workspacePath,
         systemPrompt,
+        workspacePaths: workspacePaths ?? [workspacePath],
       });
     }
   }
 
   // Targeted variant: only updates the specified conversations so that a folder
   // change in one window does not overwrite another window's agent context.
-  updateWorkspaceContextForConversations(workspacePath: string, systemPrompt: string, conversationIds: string[]): void {
+  updateWorkspaceContextForConversations(workspacePath: string, systemPrompt: string, conversationIds: string[], workspacePaths?: string[]): void {
     for (const conversationId of conversationIds) {
       const state = this.conversations.get(conversationId);
       if (state) {
-        state.agent.updateConfig({ cwd: workspacePath, systemPrompt });
+        state.agent.updateConfig({ cwd: workspacePath, systemPrompt, workspacePaths: workspacePaths ?? [workspacePath] });
       }
     }
   }

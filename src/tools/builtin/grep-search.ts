@@ -20,7 +20,7 @@ export class GrepSearchTool implements Tool {
       },
       path: {
         type: 'string',
-        description: 'File or directory to search in. Defaults to current working directory.',
+        description: 'File or directory to search in. Must be within the workspace. Defaults to current working directory (workspace root).',
       },
       glob: {
         type: 'string',

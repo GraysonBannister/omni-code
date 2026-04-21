@@ -58,6 +58,8 @@ export interface AgentConfig {
   isSubAgent?: boolean;
   parentAgentId?: string;
   cwd?: string;
+  /** All open workspace folder roots. Passed to tools for filesystem boundary enforcement. */
+  workspacePaths?: string[];
   thinking?: {
     enabled: boolean;
     budgetTokens: number;

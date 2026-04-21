@@ -20,7 +20,7 @@ export class FileTreeTool implements Tool {
     properties: {
       path: {
         type: 'string',
-        description: 'Directory to display tree for (default: cwd)',
+        description: 'Directory to display tree for. Must be within the workspace. Defaults to current working directory (workspace root).',
       },
       maxDepth: {
         type: 'number',

@@ -26,6 +26,8 @@ import type { EventBus } from '../utils/event-bus.js';
 
 export interface ToolContext {
   cwd: string;
+  /** All open workspace folder roots. Used to enforce filesystem boundary checks. */
+  workspacePaths?: string[];
   sessionId: string;
   abortSignal: AbortSignal;
   onProgress?: (message: string) => void;

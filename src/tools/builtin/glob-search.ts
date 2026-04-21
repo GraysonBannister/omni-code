@@ -18,7 +18,7 @@ export class GlobSearchTool implements Tool {
       },
       path: {
         type: 'string',
-        description: 'Directory to search in. Defaults to current working directory.',
+        description: 'Directory to search in. Must be within the workspace. Defaults to current working directory (workspace root).',
       },
     },
     required: ['pattern'],

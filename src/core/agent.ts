@@ -517,6 +517,7 @@ export class AgentImpl implements Agent {
             toolCall.input,
             {
               cwd: this.config.cwd || process.cwd(),
+              workspacePaths: this.config.workspacePaths,
               sessionId: this.id,
               abortSignal: this.abortController.signal,
               eventBus: this.toolRunner.getEventBus(),
