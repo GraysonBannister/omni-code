@@ -30,7 +30,7 @@ The QR code encodes a JSON object with the following structure:
 ```json
 {
   "url": "https://xxx.ngrok.io",
-  "key": "64-character-api-key",
+  "key": "<YOUR_API_KEY_HERE>",
   "name": "Omni Code Desktop"
 }
 ```

@@ -1,0 +1,34 @@
+#!/bin/sh
+# Pre-commit hook to scan for secrets
+# This hook prevents commits that contain potential secrets
+
+echo "🔒 Scanning for secrets..."
+
+# Check if gitleaks is installed
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "⚠️  Warning: gitleaks is not installed. Skipping secret scan."
+    echo "   Install with: brew install gitleaks"
+    exit 0
+fi
+
+# Run gitleaks on staged files with config if it exists
+if [ -f .gitleaks.toml ]; then
+    gitleaks protect --staged --config .gitleaks.toml --verbose
+else
+    gitleaks protect --staged --verbose
+fi
+
+# Check exit code
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ Secret scan failed!"
+    echo "   Potential secrets detected in your changes."
+    echo "   Please remove any API keys, passwords, or tokens before committing."
+    echo "   If these are false positives, you can bypass this check with:"
+    echo "   git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+echo "✅ No secrets detected."
+exit 0
