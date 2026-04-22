@@ -542,3 +542,52 @@
   outline: none;
   min-width: 0;
 }
+
+/* Drag and Drop Styles */
+.file-node-row.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.file-node-row.drag-over {
+  background: rgba(59, 130, 246, 0.25);
+  border: 2px dashed var(--color-accent, #3b82f6);
+  border-radius: 4px;
+}
+
+.file-node-row.drag-over.file-node-row {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Visual indicator for valid drop target folders */
+.file-node-row.drag-over .file-node-icon:has(.folder-icon),
+.file-node-row.drag-over:has(.folder-icon) {
+  color: var(--color-accent, #3b82f6);
+}
+
+/* Cursor for draggable items */
+.file-node-row[draggable="true"] {
+  cursor: grab;
+}
+
+.file-node-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* Multi-selection Styles */
+.file-node-row.multi-selected {
+  background: rgba(59, 130, 246, 0.2);
+  border-left: 3px solid var(--color-accent-secondary, #10b981);
+}
+
+.file-node-row.multi-selected:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* When file is both active and multi-selected, show both indicators */
+.file-node-row.active.multi-selected {
+  background: rgba(59, 130, 246, 0.25);
+  border-left: 3px solid var(--color-accent, #3b82f6);
+  box-shadow: inset 0 0 0 1px var(--color-accent-secondary, #10b981);
+}

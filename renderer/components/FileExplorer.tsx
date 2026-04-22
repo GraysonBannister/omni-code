@@ -24,6 +24,18 @@ interface FileNodeProps {
   handleKeyDown?: (e: React.KeyboardEvent) => void;
   onRefresh: () => void;
   onStartCreate: (type: 'file' | 'folder', targetPath: string) => void;
+  // Drag and drop props
+  draggedPath: string | null;
+  setDraggedPath: (path: string | null) => void;
+  dragOverPath: string | null;
+  setDragOverPath: (path: string | null) => void;
+  onMoveItem: (sourcePath: string, targetPath: string) => Promise<void>;
+  // Multi-selection props
+  selectedPaths: Set<string>;
+  onSelectPath: (path: string, isMultiSelect: boolean, isRangeSelect: boolean) => void;
+  lastClickedPath: string | null;
+  onDeleteSelected?: () => void;
+  onClearSelection?: () => void;
 }
 
 const FileNode: React.FC<FileNodeProps> = ({
@@ -41,16 +53,32 @@ const FileNode: React.FC<FileNodeProps> = ({
   handleKeyDown,
   onRefresh,
   onStartCreate,
+  // Drag and drop
+  draggedPath,
+  setDraggedPath,
+  dragOverPath,
+  setDragOverPath,
+  onMoveItem,
+  // Multi-selection
+  selectedPaths,
+  onSelectPath,
+  lastClickedPath,
+  onDeleteSelected,
+  onClearSelection,
 }) => {
   const { expandedDirs, toggleDir, openFile, activeFilePath, files } = useAppStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const expandTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
 
   const isExpanded = expandedDirs.has(path) || ((isCreatingFile || isCreatingFolder) && selectedFolderPath === path);
   const isActiveFile = activeFilePath === path;
   const isSelectedFolder = selectedFolderPath === path;
+  const isSelected = selectedPaths.has(path);
   const showCreateInput = (isCreatingFile || isCreatingFolder) && selectedFolderPath === path;
 
   // Scroll into view when this file becomes active
@@ -67,7 +95,16 @@ const FileNode: React.FC<FileNodeProps> = ({
   }, [isActiveFile, isDirectory]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    if (isDirectory) {
+    const isMultiSelect = e.metaKey || e.ctrlKey; // Cmd on Mac, Ctrl on Windows/Linux
+    const isRangeSelect = e.shiftKey;
+
+    if (isMultiSelect || isRangeSelect) {
+      // Multi-selection mode - don't open file, just select
+      e.preventDefault();
+      e.stopPropagation();
+      onSelectPath(path, isMultiSelect, isRangeSelect);
+    } else if (isDirectory) {
+      // Normal folder click - select folder for creation and toggle expansion
       if (onSelectFolder) onSelectFolder(path);
       toggleDir(path);
       if (!isExpanded) {
@@ -75,11 +112,15 @@ const FileNode: React.FC<FileNodeProps> = ({
         console.log('[FileNode] Loading directory on expand:', path);
         loadDirectory(path);
       }
+      // Also select the path in multi-selection (single selection mode)
+      onSelectPath(path, false, false);
     } else {
+      // Normal file click - open file and select
       console.log('[FileNode] Opening file:', path);
       openFile(path);
+      onSelectPath(path, false, false);
     }
-  }, [isDirectory, path, isExpanded, toggleDir, openFile, onSelectFolder]);
+  }, [isDirectory, path, isExpanded, toggleDir, openFile, onSelectFolder, onSelectPath]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -137,8 +178,143 @@ const FileNode: React.FC<FileNodeProps> = ({
     if (!result.success) alert(`Could not copy path: ${result.error}`);
   }, [path, projectPath]);
 
+  // Drag and drop handlers
+  const isDescendant = useCallback((parentPath: string, childPath: string): boolean => {
+    return childPath.startsWith(parentPath + '/');
+  }, []);
+
+  const isValidDropTarget = useCallback((dragPath: string, dropPath: string): boolean => {
+    // Cannot drop onto itself
+    if (dragPath === dropPath) return false;
+    // Cannot drop a folder into itself or its descendants
+    if (isDirectory && isDescendant(dragPath, dropPath)) return false;
+    // Cannot drop into same parent (no-op)
+    const dragParent = dragPath.substring(0, dragPath.lastIndexOf('/'));
+    const dropParent = isDirectory ? dropPath : dropPath.substring(0, dropPath.lastIndexOf('/'));
+    if (dragParent === dropParent && !isDirectory) return false;
+    return true;
+  }, [isDirectory, isDescendant]);
+
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', path);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedPath(path);
+    setIsDragging(true);
+    console.log('[FileNode] Drag started:', path);
+  }, [path, setDraggedPath]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedPath(null);
+    setIsDragging(false);
+    setDragOverPath(null);
+    setIsDragOver(false);
+    if (expandTimeoutRef.current) {
+      clearTimeout(expandTimeoutRef.current);
+      expandTimeoutRef.current = null;
+    }
+    console.log('[FileNode] Drag ended');
+  }, [setDraggedPath, setDragOverPath]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (!draggedPath || draggedPath === path) return;
+
+    if (isValidDropTarget(draggedPath, path)) {
+      setDragOverPath(path);
+      setIsDragOver(true);
+
+      // Auto-expand folder after hovering for 500ms
+      if (isDirectory && !expandedDirs.has(path) && !expandTimeoutRef.current) {
+        expandTimeoutRef.current = setTimeout(() => {
+          toggleDir(path);
+          const { loadDirectory } = useAppStore.getState();
+          loadDirectory(path);
+          expandTimeoutRef.current = null;
+        }, 500);
+      }
+    }
+  }, [draggedPath, path, isDirectory, expandedDirs, toggleDir, isValidDropTarget, setDragOverPath]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear if we're actually leaving the node (not entering a child)
+    if (!nodeRef.current?.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+      if (dragOverPath === path) {
+        setDragOverPath(null);
+      }
+      if (expandTimeoutRef.current) {
+        clearTimeout(expandTimeoutRef.current);
+        expandTimeoutRef.current = null;
+      }
+    }
+  }, [dragOverPath, path, setDragOverPath]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const sourcePath = e.dataTransfer.getData('text/plain') || draggedPath;
+    if (!sourcePath || sourcePath === path || !isValidDropTarget(sourcePath, path)) {
+      handleDragEnd();
+      return;
+    }
+
+    console.log('[FileNode] Dropping:', sourcePath, 'onto', path);
+
+    // Calculate destination path
+    let destinationPath: string;
+    if (isDirectory) {
+      // Drop into folder
+      const itemName = sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+      destinationPath = `${path}/${itemName}`;
+    } else {
+      // Drop onto file - move to same folder as target file
+      const targetParent = path.substring(0, path.lastIndexOf('/'));
+      const itemName = sourcePath.substring(sourcePath.lastIndexOf('/') + 1);
+      destinationPath = `${targetParent}/${itemName}`;
+    }
+
+    // Check if destination already exists
+    if (sourcePath !== destinationPath) {
+      await onMoveItem(sourcePath, destinationPath);
+    }
+
+    handleDragEnd();
+  }, [draggedPath, path, isDirectory, isValidDropTarget, onMoveItem, handleDragEnd]);
+
   const buildContextMenuItems = (): ContextMenuItem[] => {
     const divider: ContextMenuItem = { id: 'divider', label: '', divider: true };
+
+    // Check if we have multiple items selected
+    const hasMultiSelection = selectedPaths.size > 1 && selectedPaths.has(path);
+
+    if (hasMultiSelection) {
+      // Multi-selection context menu
+      return [
+        {
+          id: 'delete-selected',
+          label: `Delete ${selectedPaths.size} Items`,
+          icon: <Trash2 size={14} />,
+          action: () => {
+            console.log('[FileNode] Context: Delete selected', selectedPaths.size, 'items');
+            onDeleteSelected?.();
+          },
+        },
+        divider,
+        {
+          id: 'clear-selection',
+          label: 'Clear Selection',
+          icon: <Eye size={14} />,
+          shortcut: 'Esc',
+          action: () => {
+            console.log('[FileNode] Context: Clear selection');
+            onClearSelection?.();
+          },
+        },
+      ];
+    }
 
     if (isDirectory) {
       return [
@@ -267,11 +443,17 @@ const FileNode: React.FC<FileNodeProps> = ({
     <div className="file-node">
       <div
         ref={nodeRef}
-        className={`file-node-row ${isActiveFile ? 'active' : ''} ${isSelectedFolder ? 'selected-folder' : ''}`}
+        className={`file-node-row ${isActiveFile ? 'active' : ''} ${isSelectedFolder ? 'selected-folder' : ''} ${isSelected ? 'multi-selected' : ''} ${isDragging ? 'dragging' : ''} ${isDragOver ? 'drag-over' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        title={isDirectory ? 'Click to select folder, click again to expand/collapse' : path}
+        draggable
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        title={isDirectory ? 'Click to select folder, Cmd/Ctrl+Click for multi-select, Shift+Click for range select. Drag to move.' : `${path} - Cmd/Ctrl+Click for multi-select, Shift+Click for range select, Drag to move`}
       >
         <span className="file-node-icon">
           {isDirectory ? (
@@ -341,6 +523,16 @@ const FileNode: React.FC<FileNodeProps> = ({
               handleKeyDown={handleKeyDown}
               onRefresh={onRefresh}
               onStartCreate={onStartCreate}
+              draggedPath={draggedPath}
+              setDraggedPath={setDraggedPath}
+              dragOverPath={dragOverPath}
+              setDragOverPath={setDragOverPath}
+              onMoveItem={onMoveItem}
+              selectedPaths={selectedPaths}
+              onSelectPath={onSelectPath}
+              lastClickedPath={lastClickedPath}
+              onDeleteSelected={onDeleteSelected}
+              onClearSelection={onClearSelection}
             />
           ))}
         </div>
@@ -369,6 +561,7 @@ export const FileExplorer: React.FC = () => {
     activeFolderId,
     setActiveFolder,
     loadDirectory,
+    expandedDirs,
   } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [newItemName, setNewItemName] = useState('');
@@ -377,11 +570,125 @@ export const FileExplorer: React.FC = () => {
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [rootContextMenu, setRootContextMenu] = useState<{ x: number; y: number } | null>(null);
+  // Drag and drop state
+  const [draggedPath, setDraggedPath] = useState<string | null>(null);
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  // Multi-selection state
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [lastClickedPath, setLastClickedPath] = useState<string | null>(null);
 
-  // Clear selected folder when project path changes
+  // Clear selected folder and multi-selection when project path changes
   useEffect(() => {
     setSelectedFolderPath(null);
+    setSelectedPaths(new Set());
+    setLastClickedPath(null);
   }, [projectPath]);
+
+  // Handle multi-selection of files/folders
+  const handleSelectPath = useCallback((path: string, isMultiSelect: boolean, isRangeSelect: boolean) => {
+    setSelectedPaths(prev => {
+      const newSet = new Set(prev);
+
+      if (isRangeSelect && lastClickedPath && lastClickedPath !== path) {
+        // Range selection - select all files between last clicked and current
+        // Get all visible file paths in order
+        const allPaths = getAllVisiblePaths();
+        const lastIndex = allPaths.indexOf(lastClickedPath);
+        const currentIndex = allPaths.indexOf(path);
+
+        if (lastIndex !== -1 && currentIndex !== -1) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          for (let i = start; i <= end; i++) {
+            newSet.add(allPaths[i]);
+          }
+        }
+      } else if (isMultiSelect) {
+        // Toggle selection
+        if (newSet.has(path)) {
+          newSet.delete(path);
+        } else {
+          newSet.add(path);
+        }
+      } else {
+        // Single selection - clear others
+        newSet.clear();
+        newSet.add(path);
+      }
+
+      return newSet;
+    });
+
+    setLastClickedPath(path);
+  }, [lastClickedPath]);
+
+  // Get all visible file paths in the tree order
+  const getAllVisiblePaths = useCallback((): string[] => {
+    const paths: string[] = [];
+
+    const collectPaths = (parentPath: string) => {
+      const children = files.filter(f => {
+        const fileDir = f.path.substring(0, f.path.lastIndexOf('/')) || '';
+        return fileDir === parentPath && f.path !== parentPath;
+      });
+
+      for (const child of children) {
+        paths.push(child.path);
+        if (child.isDirectory && expandedDirs.has(child.path)) {
+          collectPaths(child.path);
+        }
+      }
+    };
+
+    if (projectPath) {
+      collectPaths(projectPath);
+    }
+
+    return paths;
+  }, [files, expandedDirs, projectPath]);
+
+  // Handle deleting multiple selected files
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedPaths.size === 0) return;
+
+    const confirmed = window.confirm(`Delete ${selectedPaths.size} item(s)? This cannot be undone.`);
+    if (!confirmed) return;
+
+    const pathsArray = Array.from(selectedPaths);
+    const parentDirs = new Set<string>();
+
+    for (const path of pathsArray) {
+      console.log('[FileExplorer] Deleting:', path);
+      const result = await window.electronAPI!.file.delete(path);
+      if (result.success) {
+        const parentDir = path.substring(0, path.lastIndexOf('/'));
+        parentDirs.add(parentDir);
+      } else {
+        console.error('[FileExplorer] Delete failed:', result.error);
+      }
+    }
+
+    // Refresh all affected directories
+    const { loadDirectory } = useAppStore.getState();
+    for (const dir of parentDirs) {
+      await loadDirectory(dir);
+    }
+
+    setSelectedPaths(new Set());
+  }, [selectedPaths]);
+
+  // Clear selection on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedPaths(new Set());
+        setLastClickedPath(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Auto-expand parent directories when activeFilePath changes, loading each directory
   // level sequentially so its children appear in the file tree before expanding further.
@@ -501,6 +808,36 @@ export const FileExplorer: React.FC = () => {
       setIsLoading(false);
     }
   }, [projectPath]);
+
+  const handleMoveItem = useCallback(async (sourcePath: string, destinationPath: string) => {
+    console.log('[FileExplorer] Moving item:', sourcePath, '->', destinationPath);
+    try {
+      const result = await window.electronAPI!.file.rename(sourcePath, destinationPath);
+      if (result.success) {
+        // Refresh both source and destination parent directories
+        const sourceParent = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+        const destParent = destinationPath.substring(0, destinationPath.lastIndexOf('/'));
+
+        const { loadDirectory } = useAppStore.getState();
+        await loadDirectory(sourceParent);
+        if (destParent !== sourceParent) {
+          await loadDirectory(destParent);
+        }
+
+        // If the moved file was the active file, update activeFilePath
+        const { activeFilePath, setActiveFile } = useAppStore.getState();
+        if (activeFilePath === sourcePath) {
+          setActiveFile?.(destinationPath);
+        }
+      } else {
+        console.error('[FileExplorer] Move failed:', result.error);
+        alert(`Move failed: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FileExplorer] Exception moving item:', (error as Error).message);
+      alert(`Move failed: ${(error as Error).message}`);
+    }
+  }, []);
 
   const handleAddFileClick = useCallback(() => {
     if (!projectPath) return;
@@ -753,6 +1090,19 @@ export const FileExplorer: React.FC = () => {
                             handleKeyDown={handleKeyDown}
                             onRefresh={handleRefresh}
                             onStartCreate={handleStartCreate}
+                            draggedPath={draggedPath}
+                            setDraggedPath={setDraggedPath}
+                            dragOverPath={dragOverPath}
+                            setDragOverPath={setDragOverPath}
+                            onMoveItem={handleMoveItem}
+                            selectedPaths={selectedPaths}
+                            onSelectPath={handleSelectPath}
+                            lastClickedPath={lastClickedPath}
+                            onDeleteSelected={handleDeleteSelected}
+                            onClearSelection={() => {
+                              setSelectedPaths(new Set());
+                              setLastClickedPath(null);
+                            }}
                           />
                         ))
                       )}
@@ -824,6 +1174,19 @@ export const FileExplorer: React.FC = () => {
                     handleKeyDown={handleKeyDown}
                     onRefresh={handleRefresh}
                     onStartCreate={handleStartCreate}
+                    draggedPath={draggedPath}
+                    setDraggedPath={setDraggedPath}
+                    dragOverPath={dragOverPath}
+                    setDragOverPath={setDragOverPath}
+                    onMoveItem={handleMoveItem}
+                    selectedPaths={selectedPaths}
+                    onSelectPath={handleSelectPath}
+                    lastClickedPath={lastClickedPath}
+                    onDeleteSelected={handleDeleteSelected}
+                    onClearSelection={() => {
+                      setSelectedPaths(new Set());
+                      setLastClickedPath(null);
+                    }}
                   />
                 ))}
               </div>
