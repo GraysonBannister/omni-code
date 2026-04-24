@@ -799,7 +799,7 @@ const api: ElectronAPI = {
       // Listen to specific menu channels
       const menuChannels = [
         'menu:new-file', 'menu:open-folder', 'menu:close-folder', 'menu:close-workspace',
-        'menu:save', 'menu:open-settings',
+        'menu:add-folder-to-workspace', 'menu:save', 'menu:open-settings',
         'menu:toggle-sidebar', 'menu:toggle-chat',
         'menu:send-message', 'menu:abort', 'menu:clear-chat'
       ];

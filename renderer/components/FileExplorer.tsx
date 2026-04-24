@@ -66,7 +66,7 @@ const FileNode: React.FC<FileNodeProps> = ({
   onDeleteSelected,
   onClearSelection,
 }) => {
-  const { expandedDirs, toggleDir, openFile, activeFilePath, files } = useAppStore();
+  const { expandedDirs, toggleDir, openFile, activeFilePath, files, createTerminal, toggleTerminal } = useAppStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
@@ -80,6 +80,13 @@ const FileNode: React.FC<FileNodeProps> = ({
   const isSelectedFolder = selectedFolderPath === path;
   const isSelected = selectedPaths.has(path);
   const showCreateInput = (isCreatingFile || isCreatingFolder) && selectedFolderPath === path;
+
+  // Debug: Log selection state changes
+  useEffect(() => {
+    if (isSelected) {
+      console.log('[FileNode] Selected:', path);
+    }
+  }, [isSelected, path]);
 
   // Scroll into view when this file becomes active
   // Small delay to allow parent directory expansion to complete first
@@ -105,6 +112,7 @@ const FileNode: React.FC<FileNodeProps> = ({
       onSelectPath(path, isMultiSelect, isRangeSelect);
     } else if (isDirectory) {
       // Normal folder click - select folder for creation and toggle expansion
+      e.stopPropagation(); // Prevent parent container from clearing selection
       if (onSelectFolder) onSelectFolder(path);
       toggleDir(path);
       if (!isExpanded) {
@@ -116,6 +124,7 @@ const FileNode: React.FC<FileNodeProps> = ({
       onSelectPath(path, false, false);
     } else {
       // Normal file click - open file and select
+      e.stopPropagation(); // Prevent parent container from clearing selection
       console.log('[FileNode] Opening file:', path);
       openFile(path);
       onSelectPath(path, false, false);
@@ -334,6 +343,16 @@ const FileNode: React.FC<FileNodeProps> = ({
           action: () => {
             console.log('[FileNode] Context: New Folder in', path);
             onStartCreate('folder', path);
+          },
+        },
+        {
+          id: 'open-in-terminal',
+          label: 'Open in Integrated Terminal',
+          icon: <Terminal size={14} />,
+          action: () => {
+            console.log('[FileNode] Context: Open in Terminal', path);
+            createTerminal(path);
+            toggleTerminal();
           },
         },
         divider,
@@ -562,6 +581,8 @@ export const FileExplorer: React.FC = () => {
     setActiveFolder,
     loadDirectory,
     expandedDirs,
+    createTerminal,
+    toggleTerminal,
   } = useAppStore();
   const [isLoading, setIsLoading] = useState(false);
   const [newItemName, setNewItemName] = useState('');
@@ -570,6 +591,7 @@ export const FileExplorer: React.FC = () => {
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [rootContextMenu, setRootContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; folderPath: string } | null>(null);
   // Drag and drop state
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
@@ -990,6 +1012,32 @@ export const FileExplorer: React.FC = () => {
     });
   }, [files]);
 
+  // Handle click on blank space to deselect all
+  const handleContentClick = useCallback((e: React.MouseEvent) => {
+    // Check if click was on a file node row, project header, or interactive element
+    const target = e.target as HTMLElement;
+
+    // Check for various clickable/interactive elements
+    const isFileNode = target.closest('.file-node-row');
+    const isProjectHeader = target.closest('.file-explorer-project-header');
+    const isButton = target.closest('button');
+    const isInput = target.closest('input');
+
+    // If clicked on an interactive element, don't deselect
+    if (isFileNode || isProjectHeader || isButton || isInput) {
+      return;
+    }
+
+    // Clicked on blank space - deselect all
+    if (selectedPaths.size > 0) {
+      console.log('[FileExplorer] Deselecting all, count was:', selectedPaths.size);
+      // Stop propagation to prevent any parent handlers from running
+      e.stopPropagation();
+      setSelectedPaths(new Set());
+      setLastClickedPath(null);
+    }
+  }, [selectedPaths]);
+
   return (
     <div className="file-explorer" onContextMenu={handleRootContextMenu}>
       <div className="file-explorer-header">
@@ -1029,7 +1077,7 @@ export const FileExplorer: React.FC = () => {
         </div>
       </div>
 
-      <div className="file-explorer-content">
+      <div className="file-explorer-content" onClick={handleContentClick}>
         {isWorkspaceMode && currentWorkspace ? (
           <div className="file-explorer-workspace">
             <div className="file-explorer-workspace-header">
@@ -1054,6 +1102,11 @@ export const FileExplorer: React.FC = () => {
                     onClick={() => {
                       toggleProject(folder.id);
                       handleProjectClick(folder);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setProjectContextMenu({ x: e.clientX, y: e.clientY, folderPath: folder.path });
                     }}
                   >
                     <span className="file-explorer-project-toggle">
@@ -1201,6 +1254,25 @@ export const FileExplorer: React.FC = () => {
           y={rootContextMenu.y}
           items={getRootContextMenuItems()}
           onClose={() => setRootContextMenu(null)}
+        />
+      )}
+
+      {projectContextMenu && (
+        <ContextMenu
+          x={projectContextMenu.x}
+          y={projectContextMenu.y}
+          items={[
+            {
+              id: 'open-in-terminal',
+              label: 'Open in Integrated Terminal',
+              icon: <Terminal size={14} />,
+              action: () => {
+                createTerminal(projectContextMenu.folderPath);
+                toggleTerminal();
+              },
+            },
+          ]}
+          onClose={() => setProjectContextMenu(null)}
         />
       )}
     </div>

@@ -2,12 +2,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 100vh;
+  max-height: 100vh;
   padding: 40px;
   background: var(--color-bg-primary, #0d1117);
   color: var(--color-text-primary, #eeeee8);
   font-family: var(--font-family, 'JetBrains Mono', monospace);
+  overflow-y: auto;
 }
 
 .welcome-content {
@@ -16,6 +18,8 @@
   align-items: center;
   max-width: 600px;
   width: 100%;
+  padding-top: 40px;
+  padding-bottom: 40px;
 }
 
 /* Header Section */
@@ -178,6 +182,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .recent-item {

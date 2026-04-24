@@ -882,13 +882,12 @@ var init_config_schema = __esm({
 });
 
 // src/constants.ts
-var CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_MAX_CONTEXT_TOKENS, CONTEXT_COMPRESSION_THRESHOLD, RECENT_MESSAGES_TO_KEEP, DEFAULT_MAX_FILE_SIZE_BYTES;
+var CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONTEXT_COMPRESSION_THRESHOLD, RECENT_MESSAGES_TO_KEEP, DEFAULT_MAX_FILE_SIZE_BYTES;
 var init_constants = __esm({
   "src/constants.ts"() {
     "use strict";
     CONFIG_DIR_NAME = ".omnicode";
     CONFIG_FILE_NAME = "config.json";
-    DEFAULT_MAX_CONTEXT_TOKENS = 1e5;
     CONTEXT_COMPRESSION_THRESHOLD = 0.9;
     RECENT_MESSAGES_TO_KEEP = 6;
     DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
@@ -2658,7 +2657,28 @@ var init_anthropic_provider = __esm({
         return ToolCallNormalizer.toAnthropic(tools);
       }
       formatMessages(messages) {
-        return messages.filter((m) => m.role !== "system").map((msg) => this.convertMessage(msg));
+        const idMap = this.buildToolIdMap(messages);
+        return messages.filter((m) => m.role !== "system").map((msg) => this.convertMessage(msg, idMap));
+      }
+      /**
+       * Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$.
+       * When history originates from another provider (e.g. after a model switch),
+       * IDs may contain dots, colons, or other characters that Anthropic rejects.
+       * Build a remapping table so both tool_use and tool_result references stay in sync.
+       */
+      buildToolIdMap(messages) {
+        const idMap = /* @__PURE__ */ new Map();
+        const pattern = /^[a-zA-Z0-9_-]+$/;
+        for (const msg of messages) {
+          if (msg.role !== "assistant" || !Array.isArray(msg.content))
+            continue;
+          for (const block of msg.content) {
+            if (block.type === "tool_use" && !pattern.test(block.id)) {
+              idMap.set(block.id, crypto.randomUUID());
+            }
+          }
+        }
+        return idMap;
       }
       async complete(request2) {
         const params = this.buildParams(request2);
@@ -2854,7 +2874,7 @@ var init_anthropic_provider = __esm({
           }
         };
       }
-      convertMessage(msg) {
+      convertMessage(msg, idMap = /* @__PURE__ */ new Map()) {
         if (typeof msg.content === "string") {
           return {
             role: msg.role === "assistant" ? "assistant" : "user",
@@ -2870,7 +2890,7 @@ var init_anthropic_provider = __esm({
             case "tool_use":
               blocks.push({
                 type: "tool_use",
-                id: block.id,
+                id: idMap.get(block.id) ?? block.id,
                 name: block.name,
                 input: block.input
               });
@@ -2878,7 +2898,7 @@ var init_anthropic_provider = __esm({
             case "tool_result":
               blocks.push({
                 type: "tool_result",
-                tool_use_id: block.toolUseId,
+                tool_use_id: idMap.get(block.toolUseId) ?? block.toolUseId,
                 content: typeof block.content === "string" ? block.content : block.content.map((b) => {
                   if (b.type === "text")
                     return { type: "text", text: b.text };
@@ -14292,6 +14312,9 @@ function enhanceErrorMessage(error, model) {
   if (lowerMsg.includes("network") || lowerMsg.includes("connection") || lowerMsg.includes("timeout")) {
     return `${context}${message}. Suggestion: Check your internet connection and try again.`;
   }
+  if (message.includes("tool_use.id") || message.includes("String should match pattern")) {
+    return `${context}${message}. Suggestion: The conversation history contains tool call IDs from a previous model that are incompatible with this provider. Start a new conversation to resolve this.`;
+  }
   return `${context}${message}`;
 }
 function truncateToolResults(messages, maxChars = 6e3) {
@@ -14396,29 +14419,24 @@ var init_agent = __esm({
           const modelMaxContext = modelInfo?.capabilities?.maxContextWindow;
           const modelMaxOutput = modelInfo?.capabilities?.maxOutputTokens ?? 8192;
           const modelEffectiveLimit = modelMaxContext ? modelMaxContext - modelMaxOutput : void 0;
-          const configuredMax = this.config.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
-          const softLimit = modelEffectiveLimit !== void 0 ? Math.min(configuredMax, modelEffectiveLimit) : configuredMax;
           try {
             const currentTokens = await this.getTokenCount();
             const thresholdValue = this.config.contextCompressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
-            const approachingSoftLimit = this._messages.length > 6 && currentTokens > softLimit * thresholdValue;
-            const exceedsModelCeiling = modelEffectiveLimit !== void 0 && currentTokens > modelEffectiveLimit * 0.9;
-            if (approachingSoftLimit || exceedsModelCeiling) {
+            const exceedsModelLimit = modelEffectiveLimit !== void 0 && currentTokens > modelEffectiveLimit * thresholdValue;
+            if (exceedsModelLimit) {
               const before = currentTokens;
               await this.compressContext();
-              if (exceedsModelCeiling && modelEffectiveLimit !== void 0) {
-                const originalKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
-                let retries = 0;
-                while (retries < 2) {
-                  const afterTokens = await this.getTokenCount();
-                  if (afterTokens <= modelEffectiveLimit * 0.95)
-                    break;
-                  this.config.contextRecentMessagesToKeep = Math.max(2, originalKeep - 2 * (retries + 1));
-                  await this.compressContext();
-                  retries++;
-                }
-                this.config.contextRecentMessagesToKeep = originalKeep;
+              const originalKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
+              let retries = 0;
+              while (retries < 2) {
+                const afterTokens = await this.getTokenCount();
+                if (afterTokens <= modelEffectiveLimit * 0.95)
+                  break;
+                this.config.contextRecentMessagesToKeep = Math.max(2, originalKeep - 2 * (retries + 1));
+                await this.compressContext();
+                retries++;
               }
+              this.config.contextRecentMessagesToKeep = originalKeep;
               const after = await this.getTokenCount();
               yield {
                 type: "context_compressed",
@@ -24419,7 +24437,7 @@ function setupIpcHandlers() {
     if (!window)
       return { canceled: true, path: null };
     const result = await import_electron11.dialog.showOpenDialog(window, {
-      properties: ["openDirectory"],
+      properties: ["openDirectory", "createDirectory"],
       title: "Open Folder"
     });
     return {
@@ -25943,6 +25961,12 @@ function buildMenu() {
           label: "Close Folder",
           accelerator: "CmdOrCtrl+Shift+W",
           click: () => fw()?.webContents.send("menu:close-folder")
+        },
+        { type: "separator" },
+        {
+          label: "Add Folder to Workspace",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: () => fw()?.webContents.send("menu:add-folder-to-workspace")
         },
         { type: "separator" },
         {

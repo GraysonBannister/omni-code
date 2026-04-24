@@ -169,6 +169,7 @@ var api = {
         "menu:open-folder",
         "menu:close-folder",
         "menu:close-workspace",
+        "menu:add-folder-to-workspace",
         "menu:save",
         "menu:open-settings",
         "menu:toggle-sidebar",

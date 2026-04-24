@@ -36,6 +36,7 @@ export const App: React.FC = () => {
     loadSavedWorkspaces,
     setRecentWorkspaces,
     setRecentFolders,
+    addFolderToWorkspace,
   } = useAppStore();
 
   const themePref = useSettingsStore(state => state.settings?.general?.theme ?? 'dark');
@@ -343,6 +344,15 @@ export const App: React.FC = () => {
         break;
       case 'close-folder':
         state.returnToMenu();
+        break;
+      case 'add-folder-to-workspace':
+        if (state.isWorkspaceMode && state.currentWorkspace) {
+          window.electronAPI?.dialog?.openFolder().then((result) => {
+            if (result && !result.canceled && result.path) {
+              state.addFolderToWorkspace(result.path);
+            }
+          });
+        }
         break;
     }
   }, [openFolder, openRecentWorkspace, openWorkspace]);

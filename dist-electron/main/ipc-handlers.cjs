@@ -12841,6 +12841,12 @@ function buildMenu() {
         },
         { type: "separator" },
         {
+          label: "Add Folder to Workspace",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: () => fw()?.webContents.send("menu:add-folder-to-workspace")
+        },
+        { type: "separator" },
+        {
           label: "Recent Projects",
           submenu: recentSubmenu,
           id: "recent-projects"
@@ -13968,7 +13974,7 @@ function setupIpcHandlers() {
     if (!window)
       return { canceled: true, path: null };
     const result = await import_electron12.dialog.showOpenDialog(window, {
-      properties: ["openDirectory"],
+      properties: ["openDirectory", "createDirectory"],
       title: "Open Folder"
     });
     return {

@@ -1080,7 +1080,7 @@ export function setupIpcHandlers(): void {
     if (!window) return { canceled: true, path: null };
 
     const result = await dialog.showOpenDialog(window, {
-      properties: ['openDirectory'],
+      properties: ['openDirectory', 'createDirectory'],
       title: 'Open Folder',
     });
 

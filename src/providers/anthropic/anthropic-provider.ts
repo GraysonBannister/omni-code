@@ -47,9 +47,30 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   formatMessages(messages: UnifiedMessage[]): Anthropic.MessageParam[] {
+    const idMap = this.buildToolIdMap(messages);
     return messages
       .filter(m => m.role !== 'system')
-      .map(msg => this.convertMessage(msg));
+      .map(msg => this.convertMessage(msg, idMap));
+  }
+
+  /**
+   * Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$.
+   * When history originates from another provider (e.g. after a model switch),
+   * IDs may contain dots, colons, or other characters that Anthropic rejects.
+   * Build a remapping table so both tool_use and tool_result references stay in sync.
+   */
+  private buildToolIdMap(messages: UnifiedMessage[]): Map<string, string> {
+    const idMap = new Map<string, string>();
+    const pattern = /^[a-zA-Z0-9_-]+$/;
+    for (const msg of messages) {
+      if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (block.type === 'tool_use' && !pattern.test(block.id)) {
+          idMap.set(block.id, crypto.randomUUID());
+        }
+      }
+    }
+    return idMap;
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
@@ -279,7 +300,7 @@ export class AnthropicProvider extends BaseProvider {
     };
   }
 
-  private convertMessage(msg: UnifiedMessage): Anthropic.MessageParam {
+  private convertMessage(msg: UnifiedMessage, idMap: Map<string, string> = new Map()): Anthropic.MessageParam {
     if (typeof msg.content === 'string') {
       return {
         role: msg.role === 'assistant' ? 'assistant' : 'user',
@@ -296,7 +317,7 @@ export class AnthropicProvider extends BaseProvider {
         case 'tool_use':
           blocks.push({
             type: 'tool_use',
-            id: block.id,
+            id: idMap.get(block.id) ?? block.id,
             name: block.name,
             input: block.input,
           });
@@ -304,7 +325,7 @@ export class AnthropicProvider extends BaseProvider {
         case 'tool_result':
           blocks.push({
             type: 'tool_result',
-            tool_use_id: block.toolUseId,
+            tool_use_id: idMap.get(block.toolUseId) ?? block.toolUseId,
             content: typeof block.content === 'string'
               ? block.content
               : block.content.map(b => {

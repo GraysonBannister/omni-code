@@ -832,7 +832,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen = true, onC
 
               <SettingInput
                 label="Context Compression Threshold"
-                description="Compress conversation when context exceeds this percentage of max (0.5-0.95)"
+                description="When conversation tokens exceed this percentage of the model's maximum context window, older messages will be compressed/summarized (0.5-0.95)"
                 value={currentSettings.ai.contextCompressionThreshold}
                 type="number"
                 min={0.5}

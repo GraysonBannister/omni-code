@@ -48,6 +48,10 @@ function enhanceErrorMessage(error: Error, model?: string): string {
     return `${context}${message}. Suggestion: Check your internet connection and try again.`;
   }
 
+  if (message.includes('tool_use.id') || message.includes('String should match pattern')) {
+    return `${context}${message}. Suggestion: The conversation history contains tool call IDs from a previous model that are incompatible with this provider. Start a new conversation to resolve this.`;
+  }
+
   return `${context}${message}`;
 }
 
@@ -163,7 +167,7 @@ export class AgentImpl implements Agent {
     while (maxTurns === null || turns < maxTurns) {
       turns++;
 
-      // Auto-compress context if approaching token limit.
+      // Auto-compress context if approaching the model's token limit.
       // Derive effective limits from the model registry so we respect each model's
       // actual context window rather than relying solely on the global config value.
       const modelInfo = this.config.provider.getModelInfo(this.config.model);
@@ -171,37 +175,28 @@ export class AgentImpl implements Agent {
       const modelMaxOutput = modelInfo?.capabilities?.maxOutputTokens ?? 8192;
       // Reserve space for the model's output; this is the usable input ceiling.
       const modelEffectiveLimit = modelMaxContext ? modelMaxContext - modelMaxOutput : undefined;
-      // Soft limit: smallest of the configured cap and the model's effective input window.
-      const configuredMax = this.config.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
-      const softLimit = modelEffectiveLimit !== undefined
-        ? Math.min(configuredMax, modelEffectiveLimit)
-        : configuredMax;
       try {
         const currentTokens = await this.getTokenCount();
         const thresholdValue = this.config.contextCompressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
-        // Soft trigger: approaching the soft limit with enough messages to compress meaningfully.
-        const approachingSoftLimit = this._messages.length > 6 && currentTokens > softLimit * thresholdValue;
-        // Hard trigger: over 90% of the model's actual context ceiling, regardless of message count.
-        const exceedsModelCeiling = modelEffectiveLimit !== undefined && currentTokens > modelEffectiveLimit * 0.9;
-        if (approachingSoftLimit || exceedsModelCeiling) {
+        // Trigger compression when tokens exceed the configured percentage of the model's hard limit.
+        const exceedsModelLimit = modelEffectiveLimit !== undefined && currentTokens > modelEffectiveLimit * thresholdValue;
+        if (exceedsModelLimit) {
           const before = currentTokens;
           await this.compressContext();
 
-          // If still over the hard ceiling after the first pass, retry up to 2 more
+          // If still over the limit after the first pass, retry up to 2 more
           // times with progressively fewer retained messages until we fit.
-          if (exceedsModelCeiling && modelEffectiveLimit !== undefined) {
-            const originalKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
-            let retries = 0;
-            while (retries < 2) {
-              const afterTokens = await this.getTokenCount();
-              if (afterTokens <= modelEffectiveLimit * 0.95) break;
-              this.config.contextRecentMessagesToKeep = Math.max(2, originalKeep - 2 * (retries + 1));
-              await this.compressContext();
-              retries++;
-            }
-            // Restore so future turns use the configured setting
-            this.config.contextRecentMessagesToKeep = originalKeep;
+          const originalKeep = this.config.contextRecentMessagesToKeep ?? RECENT_MESSAGES_TO_KEEP;
+          let retries = 0;
+          while (retries < 2) {
+            const afterTokens = await this.getTokenCount();
+            if (afterTokens <= modelEffectiveLimit * 0.95) break;
+            this.config.contextRecentMessagesToKeep = Math.max(2, originalKeep - 2 * (retries + 1));
+            await this.compressContext();
+            retries++;
           }
+          // Restore so future turns use the configured setting
+          this.config.contextRecentMessagesToKeep = originalKeep;
 
           const after = await this.getTokenCount();
           yield {

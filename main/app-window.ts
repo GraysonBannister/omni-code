@@ -71,6 +71,12 @@ function buildMenu(): Menu {
         },
         { type: 'separator' },
         {
+          label: 'Add Folder to Workspace',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => fw()?.webContents.send('menu:add-folder-to-workspace'),
+        },
+        { type: 'separator' },
+        {
           label: 'Recent Projects',
           submenu: recentSubmenu,
           id: 'recent-projects',
