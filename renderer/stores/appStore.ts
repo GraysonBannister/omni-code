@@ -261,6 +261,7 @@ interface AppState {
   setPendingChangePreviews: (conversationId: string, previews: Map<string, ChangePreviewData[]>) => void;
   setConversationRevertedAt: (conversationId: string, userMessageId: string | undefined) => void;
   truncateMessagesAfter: (conversationId: string, userMessageId: string) => void;
+  removeMessage: (conversationId: string, messageId: string) => void;
 
   // Past Chats Actions
   listSavedConversations: () => Promise<void>;
@@ -1149,6 +1150,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   })),
 
+  removeMessage: (conversationId, messageId) => set(state => ({
+    conversations: state.conversations.map(c => {
+      if (c.id !== conversationId) return c;
+      return { ...c, messages: c.messages.filter(m => m.id !== messageId), updatedAt: Date.now(), isDirty: true };
+    }),
+  })),
+
   switchConversationModel: (conversationId, model, provider) => {
     // Update the conversation's model in the store
     set(state => ({
@@ -1457,6 +1465,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           planningApproach: saved.planningApproach,
           pendingPlan: saved.pendingPlan ?? null,
           planSourceMessageId: saved.planSourceMessageId ?? null,
+          pendingChangePreviews: saved.pendingChangePreviews instanceof Map
+            ? saved.pendingChangePreviews
+            : new Map(saved.pendingChangePreviews ?? []),
         }));
 
         // Set the loaded conversations

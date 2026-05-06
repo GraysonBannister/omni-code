@@ -512,6 +512,101 @@
   border-color: var(--color-text-secondary);
 }
 
+/* ── Inline message editing ────────────────────────────────────────────────── */
+
+/* Editable user message content shows a subtle edit hint on hover */
+.chat-message-content--editable {
+  cursor: text;
+  position: relative;
+}
+
+.message-edit-hint {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  opacity: 0;
+  color: var(--color-text-secondary);
+  vertical-align: middle;
+  transition: opacity 0.15s;
+}
+
+.chat-message-content--editable:hover .message-edit-hint {
+  opacity: 0.6;
+}
+
+/* Container for the inline editing UI (replaces the content area) */
+.message-edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 6px);
+  width: 100%;
+}
+
+.message-edit-area {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-accent, #e05252);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+}
+
+.message-edit-area:focus {
+  border-color: var(--color-accent, #e05252);
+  box-shadow: 0 0 0 2px rgba(224, 82, 82, 0.18);
+}
+
+.message-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.message-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.message-edit-btn--send {
+  background: var(--color-accent, #e05252);
+  color: #fff;
+  border: 1px solid transparent;
+}
+
+.message-edit-btn--send:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.message-edit-btn--send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.message-edit-btn--cancel {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.message-edit-btn--cancel:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
 /* Ultra-minimal inline tool name - just text */
 .chat-inline-tool-name {
   color: var(--color-text-secondary);

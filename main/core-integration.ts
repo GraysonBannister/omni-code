@@ -625,8 +625,11 @@ export async function initializeCore(): Promise<void> {
     // Initialize agent bridge with a factory function for creating new agent instances
     // This supports the multi-conversation feature where each tab gets its own agent
     // Now supports per-conversation model selection
-    agentBridge.initialize((conversationId?: string, conversationModel?: string, conversationProvider?: string) => {
-      const systemPrompt = buildSystemPrompt(currentWorkingDirectory);
+    agentBridge.initialize((conversationId?: string, conversationModel?: string, conversationProvider?: string, conversationCwd?: string) => {
+      // Use the per-conversation cwd when provided (set from windowCwdMap at conversation creation
+      // time). Falling back to currentWorkingDirectory handles the initial startup case.
+      const effectiveCwd = conversationCwd || currentWorkingDirectory;
+      const systemPrompt = buildSystemPrompt(effectiveCwd);
 
       // Use conversation-specific model/provider if provided, otherwise fall back to global defaults
       const model = conversationModel || currentModel;
@@ -689,8 +692,8 @@ export async function initializeCore(): Promise<void> {
           contextCompressionThreshold: config.get('contextCompressionThreshold'),
           contextRecentMessagesToKeep: config.get('contextRecentMessagesToKeep'),
           planMode: false,
-          cwd: currentWorkingDirectory,
-          workspacePaths: currentWorkspaceFolders?.map(f => f.path) ?? [currentWorkingDirectory],
+          cwd: effectiveCwd,
+          workspacePaths: currentWorkspaceFolders?.map(f => f.path) ?? [effectiveCwd],
           thinking: thinkingConfig,
           limitCheck: {
             check: async () => {

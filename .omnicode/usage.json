@@ -9095,8 +9095,270 @@
       ],
       "totalCost": 33.534399499999964,
       "alertedAt": []
+    },
+    {
+      "month": "2026-05",
+      "days": [
+        {
+          "date": "2026-05-06",
+          "records": [
+            {
+              "timestamp": 1778054672562,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9718,
+              "outputTokens": 75,
+              "cost": 0.0050089999999999996,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054674823,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9884,
+              "outputTokens": 44,
+              "cost": 0.005030000000000001,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054678026,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9962,
+              "outputTokens": 85,
+              "cost": 0.005151,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054688374,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9925,
+              "outputTokens": 72,
+              "cost": 0.0051065,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054693753,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 10482,
+              "outputTokens": 150,
+              "cost": 0.005541,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054698386,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 10704,
+              "outputTokens": 134,
+              "cost": 0.00562,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054703198,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 11403,
+              "outputTokens": 136,
+              "cost": 0.0059735,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054707734,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 12025,
+              "outputTokens": 122,
+              "cost": 0.0062565,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054710941,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 12219,
+              "outputTokens": 102,
+              "cost": 0.0063135000000000005,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054715129,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 12376,
+              "outputTokens": 82,
+              "cost": 0.006352,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054720750,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 12662,
+              "outputTokens": 112,
+              "cost": 0.006555,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054726771,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 12799,
+              "outputTokens": 191,
+              "cost": 0.0067815,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054737216,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 13010,
+              "outputTokens": 446,
+              "cost": 0.007397000000000001,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778054740858,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 13533,
+              "outputTokens": 118,
+              "cost": 0.0070025,
+              "conversationId": "5bca6754-30b5-43e6-8343-1669969e556f"
+            },
+            {
+              "timestamp": 1778055398337,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9646,
+              "outputTokens": 48,
+              "cost": 0.004919,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778055404794,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9725,
+              "outputTokens": 52,
+              "cost": 0.0049664999999999996,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778055412310,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 15437,
+              "outputTokens": 160,
+              "cost": 0.0080385,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778055416057,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 15637,
+              "outputTokens": 45,
+              "cost": 0.0079085,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778057013925,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 15560,
+              "outputTokens": 69,
+              "cost": 0.007918,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778057020037,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 21306,
+              "outputTokens": 106,
+              "cost": 0.010865,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778057022416,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 21452,
+              "outputTokens": 34,
+              "cost": 0.010794,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778058258545,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 21405,
+              "outputTokens": 94,
+              "cost": 0.010890500000000001,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778058263932,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 21539,
+              "outputTokens": 30,
+              "cost": 0.010829499999999999,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778070166017,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9668,
+              "outputTokens": 45,
+              "cost": 0.0049239999999999996,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778070168119,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 9744,
+              "outputTokens": 52,
+              "cost": 0.0049759999999999995,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778070172343,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 15456,
+              "outputTokens": 119,
+              "cost": 0.007965999999999999,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            },
+            {
+              "timestamp": 1778070174145,
+              "provider": "moonshot",
+              "model": "kimi-k2.5",
+              "inputTokens": 15615,
+              "outputTokens": 30,
+              "cost": 0.0078675,
+              "conversationId": "e6584740-5cd2-4f7a-bed0-2d4039124090"
+            }
+          ],
+          "totalCost": 0.186952,
+          "byModel": {
+            "kimi-k2.5": 0.186952
+          },
+          "byProvider": {
+            "moonshot": 0.186952
+          }
+        }
+      ],
+      "totalCost": 0.186952,
+      "alertedAt": []
     }
   ],
-  "allTimeTotal": 33.534399499999964,
-  "lastUpdated": 1776752207937
+  "allTimeTotal": 33.72135149999996,
+  "lastUpdated": 1778070174157
 }

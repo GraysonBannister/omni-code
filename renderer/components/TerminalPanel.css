@@ -26,27 +26,41 @@
 
 .terminal-panel-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 0 8px;
-  height: 32px;
+  padding: 4px 8px;
+  min-height: 32px;
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
-  gap: 4px;
+  gap: 6px;
+  /* Stack above .terminal-instances so the folder dropdown (which extends downward) receives clicks */
+  position: relative;
+  z-index: 20;
 }
 
-/* Tab bar styles */
-.terminal-tabs {
+/* Row: scrollable tabs + add button (add stays outside overflow so dropdown is not clipped) */
+.terminal-tabs-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
+.terminal-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE 10+ */
 }
 
-.terminal-tabs::-webkit-scrollbar {
+.terminal-tabs-scroll::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
 }
 
@@ -130,12 +144,136 @@
   border-color: var(--color-accent, #58a6ff);
 }
 
+.terminal-add-btn.active {
+  border-color: var(--color-accent, #58a6ff);
+  color: var(--color-accent, #58a6ff);
+}
+
+.terminal-add-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.terminal-folder-picker {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 200px;
+  max-width: min(320px, 85vw);
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  padding: 4px;
+}
+
+.terminal-folder-picker-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-folder-picker-item:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.terminal-search-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.terminal-search-toggle:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary);
+  border-color: var(--color-accent, #58a6ff);
+}
+
+.terminal-search-toggle.active {
+  border-color: var(--color-accent, #58a6ff);
+  color: var(--color-accent, #58a6ff);
+}
+
+.terminal-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 100%;
+  order: 10;
+  min-width: 0;
+}
+
+.terminal-search-input {
+  flex: 1;
+  min-width: 120px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.terminal-search-input:focus {
+  border-color: var(--color-accent, #58a6ff);
+}
+
+.terminal-search-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.terminal-search-nav-btn:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary);
+}
+
 /* Terminal instances container */
 .terminal-instances {
   flex: 1;
   overflow: hidden;
   min-height: 0;
   position: relative;
+  z-index: 1;
 }
 
 .terminal-instance {

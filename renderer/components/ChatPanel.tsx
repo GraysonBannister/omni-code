@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Send, Square, Trash2, Bot, User, Terminal, Plus, X, MessageSquare, Cpu, ChevronDown, ChevronUp, Undo, History, FolderOpen, Files, Layers, Check, ImagePlus, Copy, AlertTriangle, RotateCcw, Pencil } from 'lucide-react';
 import { FileHistoryPopup } from './FileHistoryPopup';
 import { MentionPopup, type MentionFile } from './MentionPopup';
 import { FileReferenceChip, FileReferenceChipRow, type FileReference } from './FileReferenceChip';
@@ -819,9 +819,22 @@ export const ChatPanel: React.FC = () => {
     messageContent: string;
   } | null>(null);
 
+  // Inline message editing state
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [editConfirmPending, setEditConfirmPending] = useState(false);
+  const editConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editPendingActionRef = useRef<(() => Promise<void>) | null>(null);
+
   // Clear stale file change data when switching conversations
   // Restore pending change previews from saved conversation if they exist
   useEffect(() => {
+    // Cancel any in-progress inline edit when switching conversations
+    setEditingMessageId(null);
+    setEditingText('');
+    setEditConfirmPending(false);
+    editPendingActionRef.current = null;
+
     setMessageFileChanges(new Map());
     setConversationFileChanges([]);
     useAppStore.getState().clearAllFilePendingPreviews();
@@ -971,16 +984,33 @@ export const ChatPanel: React.FC = () => {
     }
   }, [activeConversationId]);
 
-  // userMessageId — the user message whose turn we are reverting
-  // assistantMsgIds — all assistant message IDs produced by that turn
+  // userMessageId — the user message from which we revert onward
+  // assistantMsgIds — assistant message IDs produced by THIS turn (used to find
+  //   the target snapshot); the backend now rolls back all snapshots from that
+  //   point onward so we also reject pending changes for subsequent turns.
   const handleRollback = useCallback(async (userMessageId: string, assistantMsgIds: string[]) => {
     if (!activeConversationId || !window.electronAPI) return;
 
     if (!assistantMsgIds.length) return;
 
     try {
-      // Reject any pending change previews for all assistant messages in this turn
-      for (const msgId of assistantMsgIds) {
+      // Collect ALL assistant message IDs from this turn onward so we can
+      // reject pending change previews for every subsequent turn as well.
+      const allMsgs = useAppStore.getState().conversations.find(c => c.id === activeConversationId)?.messages ?? [];
+      const userIdx = allMsgs.findIndex(m => m.id === userMessageId);
+      const allAssistantIdsFromHere: string[] = [];
+      if (userIdx >= 0) {
+        for (let j = userIdx + 1; j < allMsgs.length; j++) {
+          if (allMsgs[j].role === 'assistant') {
+            allAssistantIdsFromHere.push(allMsgs[j].id);
+          }
+        }
+      }
+      // Fallback to the passed-in IDs if the above produced nothing
+      const idsToReject = allAssistantIdsFromHere.length > 0 ? allAssistantIdsFromHere : assistantMsgIds;
+
+      // Reject any pending change previews for all assistant messages from this point onward
+      for (const msgId of idsToReject) {
         const previews = messageChangePreviews.get(msgId) ?? [];
         const hasPending = previews.some(p => {
           const effective = reviewedToolCallIds.get(p.toolCallId) ?? p.status;
@@ -999,8 +1029,6 @@ export const ChatPanel: React.FC = () => {
 
       // Primary: backend file-history record (loaded async after turn_complete).
       // Secondary: change-preview records (populated in real-time, always present).
-      //   This fallback is critical — conversationFileChanges may not be loaded yet
-      //   when the user clicks the button, but previews are always available.
       const msgWithChanges =
         (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
           .map(fc => fc.lastMessageId ?? fc.messageId ?? '')
@@ -1010,7 +1038,7 @@ export const ChatPanel: React.FC = () => {
       // Fall back to the last assistant ID if neither source resolved the correct ID.
       const targetAssistantId = msgWithChanges ?? assistantMsgIds[assistantMsgIds.length - 1];
 
-      // Restore files to their pre-turn state
+      // Restore files from this message onward (backend handles all subsequent snapshots)
       const restoreResult = await window.electronAPI.file.restore(activeConversationId, targetAssistantId);
       if (restoreResult && !restoreResult.success) {
         console.warn('[Rollback] file.restore returned failure:', restoreResult, 'targetAssistantId:', targetAssistantId, 'assistantMsgIds:', assistantMsgIds);
@@ -1029,22 +1057,23 @@ export const ChatPanel: React.FC = () => {
     const revertedId = conv?.revertedAtUserMessageId;
     if (!revertedId) return;
 
-    // Find assistant messages produced by that user turn without depending on the memo
+    // Collect ALL assistant messages from the reverted user message onward
     const msgs = conv?.messages ?? [];
     const userIdx = msgs.findIndex(m => m.id === revertedId);
     const assistantIds: string[] = [];
     for (let j = userIdx + 1; j < msgs.length; j++) {
-      if (msgs[j].role === 'user') break;
       if (msgs[j].role === 'assistant') assistantIds.push(msgs[j].id);
     }
-    // Use the same logic as handleRollback: find the message that actually has a snapshot
+
+    // Find the first assistant ID that has a file history snapshot
     const assistantIdSet = new Set(assistantIds);
     const msgWithChanges = (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
       .map(fc => fc.lastMessageId ?? fc.messageId ?? '')
       .find(id => assistantIdSet.has(id));
-    const targetAssistantId = msgWithChanges ?? assistantIds[assistantIds.length - 1];
+    const targetAssistantId = msgWithChanges ?? assistantIds[0] ?? assistantIds[assistantIds.length - 1];
     if (targetAssistantId) {
       try {
+        // Backend re-applies all snapshots from this message onward
         await window.electronAPI.file.reapply(activeConversationId, targetAssistantId);
       } catch (error) {
         console.error('[Restore] Failed:', error);
@@ -1052,6 +1081,113 @@ export const ChatPanel: React.FC = () => {
     }
     useAppStore.getState().setConversationRevertedAt(activeConversationId, undefined);
   }, [activeConversationId, conversationFileChanges]);
+
+  // ── Inline message editing ─────────────────────────────────────────────────
+
+  const cancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditingText('');
+    setEditConfirmPending(false);
+    if (editConfirmTimeoutRef.current) clearTimeout(editConfirmTimeoutRef.current);
+  }, []);
+
+  const handleEditStart = useCallback((message: Message) => {
+    const currentlyProcessing = useAppStore.getState().conversations.find(
+      c => c.id === useAppStore.getState().activeConversationId
+    )?.isProcessing ?? false;
+    if (currentlyProcessing) return;
+    const text = typeof message.content === 'string'
+      ? message.content
+      : Array.isArray(message.content)
+        ? (message.content as ContentBlock[])
+            .filter(b => b.type === 'text')
+            .map(b => (b as { type: 'text'; text: string }).text)
+            .join('')
+        : String(message.content);
+    setEditingMessageId(message.id);
+    setEditingText(text);
+    setEditConfirmPending(false);
+  }, []);
+
+  // Core send logic shared by handleSend and handleEditSend.
+  // Sends `rawMessage` immediately (after any revert-checkpoint cleanup already done by caller).
+  const doSendMessage = useCallback(async (rawMessage: string) => {
+    if (!activeConversationId || !window.electronAPI) return;
+
+    const activeConv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
+    const currentApproach = activeConv?.planningApproach ?? 'one-shot';
+    const userMessage = (activeConv?.mode === 'architect' && currentApproach === 'one-shot')
+      ? `[Generate the complete plan immediately without asking clarifying questions]\n\n${rawMessage}`
+      : rawMessage;
+
+    setConversationProcessing(activeConversationId, true);
+    try {
+      await window.electronAPI.agent.sendMessage(
+        activeConversationId,
+        userMessage,
+        projectPath || undefined,
+      );
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      setConversationProcessing(activeConversationId, false);
+    }
+  }, [activeConversationId, setConversationProcessing, projectPath]);
+
+  // Called when the user presses Send inside an edited message bubble.
+  // `userMessageId` is the message being replaced; `assistantIds` are the
+  // assistant messages produced by that turn (for rollback targeting).
+  // `hasFileChanges` controls whether the confirm popup is shown first.
+  const handleEditSend = useCallback(async (
+    userMessageId: string,
+    assistantIds: string[],
+    hasFileChanges: boolean,
+  ) => {
+    if (!activeConversationId || !editingText.trim()) return;
+
+    const newText = editingText.trim();
+
+    const executeEdit = async () => {
+      setEditingMessageId(null);
+      setEditConfirmPending(false);
+
+      // Roll back file changes from this turn onward (if any)
+      if (hasFileChanges && assistantIds.length > 0) {
+        await handleRollback(userMessageId, assistantIds);
+      }
+
+      // Remove the edited message AND all downstream messages from the store.
+      // truncateMessagesAfter keeps the message at the given ID, so we pass the
+      // ID of the message *before* the edited one to also remove the original.
+      const msgs = useAppStore.getState().conversations.find(c => c.id === activeConversationId)?.messages ?? [];
+      const editedIdx = msgs.findIndex(m => m.id === userMessageId);
+      const prevMessageId = editedIdx > 0 ? msgs[editedIdx - 1].id : null;
+
+      if (prevMessageId) {
+        useAppStore.getState().truncateMessagesAfter(activeConversationId, prevMessageId);
+      } else {
+        // Edited message is the very first — clear all messages manually
+        useAppStore.getState().truncateMessagesAfter(activeConversationId, userMessageId);
+        // Then remove the last remaining message (the edited one itself)
+        useAppStore.getState().removeMessage(activeConversationId, userMessageId);
+      }
+
+      // Also clear the revert checkpoint if one was set
+      useAppStore.getState().setConversationRevertedAt(activeConversationId, undefined);
+
+      await doSendMessage(newText);
+    };
+
+    if (hasFileChanges && assistantIds.length > 0) {
+      // Show two-step confirm popup
+      setEditConfirmPending(true);
+      if (editConfirmTimeoutRef.current) clearTimeout(editConfirmTimeoutRef.current);
+      editConfirmTimeoutRef.current = setTimeout(() => setEditConfirmPending(false), 5000);
+      // Store the pending action so the confirm button can fire it
+      editPendingActionRef.current = executeEdit;
+    } else {
+      await executeEdit();
+    }
+  }, [activeConversationId, editingText, handleRollback, doSendMessage]);
 
   // Load conversation-level file changes
   const loadConversationFileChanges = useCallback(async () => {
@@ -2227,13 +2363,6 @@ export const ChatPanel: React.FC = () => {
       useAppStore.getState().truncateMessagesAfter(activeConversationId, revertedId);
     }
 
-    // In architect mode with one-shot approach, instruct the agent to plan immediately
-    const activeConv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
-    const currentApproach = activeConv?.planningApproach ?? 'one-shot';
-    const userMessage = (activeConv?.mode === 'architect' && currentApproach === 'one-shot')
-      ? `[Generate the complete plan immediately without asking clarifying questions]\n\n${rawMessage}`
-      : rawMessage;
-
     // Snapshot and clear attached images
     const imagesToSend = [...attachedImages];
     setAttachedImages([]);
@@ -2263,10 +2392,15 @@ export const ChatPanel: React.FC = () => {
     // Clear selected references
     setSelectedReferences([]);
 
+    const activeConv = useAppStore.getState().conversations.find(c => c.id === activeConversationId);
+    const currentApproach = activeConv?.planningApproach ?? 'one-shot';
+    const userMessage = (activeConv?.mode === 'architect' && currentApproach === 'one-shot')
+      ? `[Generate the complete plan immediately without asking clarifying questions]\n\n${rawMessage}`
+      : rawMessage;
+
     setConversationProcessing(activeConversationId, true);
 
     try {
-      // Send message with file references and optional images
       await window.electronAPI!.agent.sendMessage(
         activeConversationId, 
         userMessage, 
@@ -2278,7 +2412,7 @@ export const ChatPanel: React.FC = () => {
       console.error('Failed to send message:', error);
       setConversationProcessing(activeConversationId, false);
     }
-  }, [inputValue, attachedImages, isProcessing, activeConversationId, addMessageToConversation, setConversationProcessing, projectPath, selectedReferences]);
+  }, [inputValue, attachedImages, isProcessing, activeConversationId, setConversationProcessing, projectPath, selectedReferences]);
 
   // ── Plan handlers ─────────────────────────────────────────────────────────
 
@@ -2977,7 +3111,94 @@ export const ChatPanel: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className={`chat-message-content ${isErrorMessage ? 'error' : ''}`}>
+                {/* Inline edit mode replaces the content area */}
+                {message.role === 'user' && editingMessageId === message.id ? (() => {
+                  const assistantIds = userToAssistantMessagesMap.get(message.id) ?? [];
+                  const historyChangeCount = assistantIds.reduce((sum, id) => sum + (messageFileChanges.get(id)?.length ?? 0), 0);
+                  const previewChangeCount = assistantIds.reduce((sum, id) => sum + (messageChangePreviews.get(id)?.length ?? 0), 0);
+                  const assistantIdSet = new Set(assistantIds);
+                  const convHistoryCount = (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
+                    .filter(fc => assistantIdSet.has(fc.lastMessageId ?? fc.messageId ?? ''))
+                    .length;
+                  const totalCount = historyChangeCount || previewChangeCount || convHistoryCount;
+                  const hasFileChanges = totalCount > 0;
+
+                  return (
+                    <div className="message-edit-container">
+                      {message.fileReferences && message.fileReferences.length > 0 && (
+                        <FileReferenceChipRow references={message.fileReferences} compact readonly />
+                      )}
+                      <textarea
+                        className="message-edit-area"
+                        value={editingText}
+                        onChange={e => setEditingText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Escape') { cancelEdit(); }
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleEditSend(message.id, assistantIds, hasFileChanges);
+                          }
+                        }}
+                        autoFocus
+                        rows={Math.max(2, editingText.split('\n').length)}
+                      />
+                      <div className="message-edit-actions">
+                        {editConfirmPending ? (
+                          <span className="rollback-confirm">
+                            <span className="rollback-confirm-text">
+                              Revert {totalCount} change{totalCount !== 1 ? 's' : ''} and re-send?
+                            </span>
+                            <button
+                              className="rollback-confirm-yes"
+                              onClick={() => {
+                                if (editConfirmTimeoutRef.current) clearTimeout(editConfirmTimeoutRef.current);
+                                setEditConfirmPending(false);
+                                const action = editPendingActionRef.current;
+                                editPendingActionRef.current = null;
+                                action?.();
+                              }}
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              className="rollback-confirm-no"
+                              onClick={() => {
+                                if (editConfirmTimeoutRef.current) clearTimeout(editConfirmTimeoutRef.current);
+                                setEditConfirmPending(false);
+                                editPendingActionRef.current = null;
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              className="message-edit-btn message-edit-btn--send"
+                              onClick={() => handleEditSend(message.id, assistantIds, hasFileChanges)}
+                              disabled={!editingText.trim()}
+                              title="Send edited message"
+                            >
+                              <Send size={13} />
+                              Send
+                            </button>
+                            <button
+                              className="message-edit-btn message-edit-btn--cancel"
+                              onClick={cancelEdit}
+                              title="Cancel edit"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })() : (
+                <div className={`chat-message-content ${isErrorMessage ? 'error' : ''}${message.role === 'user' && !isErrorMessage && !isProcessing ? ' chat-message-content--editable' : ''}`}
+                  onClick={message.role === 'user' && !isErrorMessage && !isProcessing ? () => handleEditStart(message) : undefined}
+                  title={message.role === 'user' && !isErrorMessage && !isProcessing ? 'Click to edit' : undefined}
+                >
                   {message.role === 'user' && message.fileReferences && message.fileReferences.length > 0 && (
                     <FileReferenceChipRow references={message.fileReferences} compact readonly />
                   )}
@@ -3003,9 +3224,15 @@ export const ChatPanel: React.FC = () => {
                   ) : (
                     <MessageContent content={message.content} />
                   )}
+                  {message.role === 'user' && !isErrorMessage && !isProcessing && (
+                    <span className="message-edit-hint" aria-hidden>
+                      <Pencil size={11} />
+                    </span>
+                  )}
                 </div>
-                {/* Copy button - appears at bottom right of message bubble */}
-                {messageTextContent && !isErrorMessage && (
+                )}
+                {/* Copy button - only when not editing */}
+                {editingMessageId !== message.id && messageTextContent && !isErrorMessage && (
                   <button
                     className="message-copy-btn"
                     onClick={() => handleCopyMessage(messageTextContent)}
@@ -3014,12 +3241,12 @@ export const ChatPanel: React.FC = () => {
                     <Copy size={14} />
                   </button>
                 )}
-                {message.role === 'user' && (() => {
+                {/* Rollback button - only when not editing */}
+                {editingMessageId !== message.id && message.role === 'user' && (() => {
                   const assistantIds = userToAssistantMessagesMap.get(message.id) ?? [];
                   if (!assistantIds.length) return null;
                   const historyChangeCount = assistantIds.reduce((sum, id) => sum + (messageFileChanges.get(id)?.length ?? 0), 0);
                   const previewChangeCount = assistantIds.reduce((sum, id) => sum + (messageChangePreviews.get(id)?.length ?? 0), 0);
-                  // Fallback: check conversationFileChanges (uses lastMessageId from backend)
                   const assistantIdSet = new Set(assistantIds);
                   const convHistoryCount = (conversationFileChanges as Array<{ lastMessageId?: string; messageId?: string }>)
                     .filter(fc => assistantIdSet.has(fc.lastMessageId ?? fc.messageId ?? ''))

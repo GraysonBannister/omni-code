@@ -70,8 +70,8 @@ interface ProviderRegistry {
   getProvider: (name: string) => LLMProvider | undefined;
 }
 
-// Factory function type - can accept optional conversationId, model, and provider
-type AgentFactory = (conversationId?: string, model?: string, provider?: string) => AgentInstance;
+// Factory function type - can accept optional conversationId, model, provider, and cwd
+type AgentFactory = (conversationId?: string, model?: string, provider?: string, cwd?: string) => AgentInstance;
 
 export interface UnifiedMessage {
   id: string;
@@ -323,14 +323,13 @@ export class AgentBridge {
       return true;
     }
 
-    // Pass conversationId, model, and provider to factory for per-conversation model selection
-    const agent = this.agentFactory(conversationId, model, provider);
+    // Pass conversationId, model, provider, and cwd to the factory so the agent is created
+    // with the correct system prompt and working directory from the start.
+    const agent = this.agentFactory(conversationId, model, provider, workingDirectory);
 
-    // Apply the working directory immediately so the system prompt uses the correct workspace
     if (workingDirectory) {
-      agent.updateConfig({ cwd: workingDirectory });
       this.workspacePath = workingDirectory;
-      console.log(`[AgentBridge] Set cwd for conversation ${conversationId}: ${workingDirectory}`);
+      console.log(`[AgentBridge] Created conversation ${conversationId} with cwd: ${workingDirectory}`);
     }
 
     this.conversations.set(conversationId, {

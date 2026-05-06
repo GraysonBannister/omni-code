@@ -594,8 +594,9 @@ export class FileHistoryManager {
   }
 
   /**
-   * Rollback all changes from a specific message onwards
-   * This restores files to their state before the specified message was processed
+   * Rollback all changes from a specific message onwards.
+   * Collects ALL snapshots from the target message onward, determines the
+   * earliest beforeContent for each affected file, and restores it.
    */
   async rollbackToMessage(conversationId: string, messageId: string): Promise<{
     success: boolean;
@@ -613,16 +614,56 @@ export class FileHistoryManager {
       return { success: false, restoredFiles, failedFiles };
     }
 
-    // Restore each file to its before state
-    for (const change of targetSnapshot.changes.filter(entry => entry.afterContent !== undefined)) {
-      const absolutePath = this.resolveFilePath(change.filePath);
+    // Load all snapshots for this conversation so we can find everything
+    // from the target timestamp onward.
+    await this.ensureConversationLoaded(conversationId);
+
+    const affectedSnapshots: MessageSnapshot[] = [];
+    for (const [, snapshot] of this.snapshots.entries()) {
+      if (snapshot.conversationId === conversationId && snapshot.timestamp >= targetSnapshot.timestamp) {
+        affectedSnapshots.push(snapshot);
+      }
+    }
+
+    // Sort chronologically so we process earliest first
+    affectedSnapshots.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(`[FileHistoryManager] Rolling back ${affectedSnapshots.length} snapshot(s) from message ${messageId} onward`);
+
+    // For each file touched across all affected snapshots, we want to restore
+    // to the earliest beforeContent — the state before the first snapshot touched it.
+    const fileRestoreMap = new Map<string, {
+      beforeContent: string;
+      lastAfterContent: string;
+      changeType: 'write' | 'edit' | 'delete';
+      hadBeforeContent: boolean;
+    }>();
+
+    for (const snapshot of affectedSnapshots) {
+      for (const change of snapshot.changes.filter(entry => entry.afterContent !== undefined)) {
+        if (!fileRestoreMap.has(change.filePath)) {
+          fileRestoreMap.set(change.filePath, {
+            beforeContent: change.beforeContent,
+            lastAfterContent: change.afterContent!,
+            changeType: change.changeType,
+            hadBeforeContent: !!change.beforeContent,
+          });
+        } else {
+          // Update lastAfterContent so we know what the file looked like
+          // after the latest snapshot (for inverse-patch detection).
+          const existing = fileRestoreMap.get(change.filePath)!;
+          existing.lastAfterContent = change.afterContent!;
+        }
+      }
+    }
+
+    // Restore each file to its earliest beforeContent
+    for (const [filePath, restore] of fileRestoreMap.entries()) {
+      const absolutePath = this.resolveFilePath(filePath);
 
       try {
-        // Ensure directory exists
         await fs.mkdir(dirname(absolutePath), { recursive: true });
 
-        // Read the current on-disk content to detect concurrent modifications
-        // made by other chats running in parallel with this one.
         let currentContent: string | null;
         try {
           currentContent = await fs.readFile(absolutePath, 'utf8');
@@ -630,69 +671,46 @@ export class FileHistoryManager {
           currentContent = null;
         }
 
-        if (change.changeType === 'delete') {
-          // Original change was a deletion — restore the file regardless of
-          // concurrent modifications (there is no "current" file to preserve).
-          if (change.beforeContent) {
-            await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
-          }
-          restoredFiles.push(change.filePath);
-
-        } else if (change.changeType === 'write' && !change.beforeContent) {
-          // A created a new file. To roll back, delete it — but only when no
-          // other chat has modified it since. If they have, use an inverse
-          // patch to remove just the lines this chat contributed.
-          if (currentContent === null || currentContent === change.afterContent) {
+        if (!restore.hadBeforeContent) {
+          // File was created by the first snapshot — delete it to roll back.
+          if (currentContent === null || currentContent === restore.lastAfterContent) {
             try { await fs.unlink(absolutePath); } catch { /* already gone */ }
-            restoredFiles.push(change.filePath);
           } else {
-            const reverted = applyInversePatch('', change.afterContent!, currentContent);
-            if (reverted !== null) {
-              if (reverted.trim() === '') {
-                try { await fs.unlink(absolutePath); } catch { /* already gone */ }
-              } else {
-                await fs.writeFile(absolutePath, reverted, 'utf8');
-              }
+            const reverted = applyInversePatch('', restore.lastAfterContent, currentContent);
+            if (reverted !== null && reverted.trim() === '') {
+              try { await fs.unlink(absolutePath); } catch { /* already gone */ }
             } else {
-              // Patch conflict: fall back to deletion and warn.
-              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Deleting the file.`);
+              console.warn(`[FileHistoryManager] Could not cleanly revert created file ${filePath}. Deleting.`);
               try { await fs.unlink(absolutePath); } catch { /* already gone */ }
             }
-            restoredFiles.push(change.filePath);
           }
-
+          restoredFiles.push(filePath);
+        } else if (restore.changeType === 'delete' && !restore.lastAfterContent) {
+          // File was deleted — restore it.
+          await fs.writeFile(absolutePath, restore.beforeContent, 'utf8');
+          restoredFiles.push(filePath);
         } else {
-          // File was modified. If no other chat has touched it since, restore
-          // directly. Otherwise apply the inverse patch so that only this
-          // chat's edits are undone.
+          // File was modified. Restore to the earliest beforeContent.
           if (currentContent === null) {
-            // File is gone; restore beforeContent if it existed.
-            if (change.beforeContent) {
-              await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
+            if (restore.beforeContent) {
+              await fs.writeFile(absolutePath, restore.beforeContent, 'utf8');
             }
-            restoredFiles.push(change.filePath);
-          } else if (currentContent === change.afterContent) {
-            // File unchanged since this chat modified it — simple restore.
-            await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
-            restoredFiles.push(change.filePath);
+          } else if (currentContent === restore.lastAfterContent) {
+            await fs.writeFile(absolutePath, restore.beforeContent, 'utf8');
           } else {
-            // Another chat has made further changes — apply the inverse patch
-            // so we only undo this chat's contribution.
-            const reverted = applyInversePatch(change.beforeContent, change.afterContent!, currentContent);
+            const reverted = applyInversePatch(restore.beforeContent, restore.lastAfterContent, currentContent);
             if (reverted !== null) {
               await fs.writeFile(absolutePath, reverted, 'utf8');
             } else {
-              // Patch failed due to conflicts. Fall back to restoring
-              // beforeContent and warn that concurrent edits may be affected.
-              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Restoring to pre-change state.`);
-              await fs.writeFile(absolutePath, change.beforeContent, 'utf8');
+              console.warn(`[FileHistoryManager] Could not cleanly revert ${filePath}. Restoring to pre-change state.`);
+              await fs.writeFile(absolutePath, restore.beforeContent, 'utf8');
             }
-            restoredFiles.push(change.filePath);
           }
+          restoredFiles.push(filePath);
         }
       } catch (error) {
-        console.error(`[FileHistoryManager] Failed to restore ${change.filePath}:`, error);
-        failedFiles.push(change.filePath);
+        console.error(`[FileHistoryManager] Failed to restore ${filePath}:`, error);
+        failedFiles.push(filePath);
       }
     }
 
@@ -707,8 +725,9 @@ export class FileHistoryManager {
   }
 
   /**
-   * Re-apply the changes from a specific message (undo a previous rollback).
-   * Writes afterContent for each file change captured in the snapshot.
+   * Re-apply changes from a specific message onward (undo a previous rollback).
+   * Loads all snapshots from the target message onward and writes the latest
+   * afterContent for each affected file.
    */
   async reapplyMessage(conversationId: string, messageId: string): Promise<{
     success: boolean;
@@ -718,6 +737,9 @@ export class FileHistoryManager {
     const restoredFiles: string[] = [];
     const failedFiles: string[] = [];
 
+    // Load snapshots from disk (they may have been evicted from memory by rollback)
+    await this.ensureConversationLoaded(conversationId);
+
     const targetKey = `${conversationId}/${messageId}`;
     const targetSnapshot = await this.ensureSnapshotLoaded(targetKey);
 
@@ -726,24 +748,50 @@ export class FileHistoryManager {
       return { success: false, restoredFiles, failedFiles };
     }
 
-    for (const change of targetSnapshot.changes.filter(entry => entry.afterContent !== undefined)) {
-      const absolutePath = this.resolveFilePath(change.filePath);
+    // Collect all snapshots from the target onward
+    const affectedSnapshots: MessageSnapshot[] = [];
+    for (const [, snapshot] of this.snapshots.entries()) {
+      if (snapshot.conversationId === conversationId && snapshot.timestamp >= targetSnapshot.timestamp) {
+        affectedSnapshots.push(snapshot);
+      }
+    }
+
+    // Sort chronologically so later changes overwrite earlier ones
+    affectedSnapshots.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(`[FileHistoryManager] Re-applying ${affectedSnapshots.length} snapshot(s) from message ${messageId} onward`);
+
+    // For each file, use the latest afterContent across all affected snapshots
+    const fileReapplyMap = new Map<string, {
+      afterContent: string;
+      changeType: 'write' | 'edit' | 'delete';
+    }>();
+
+    for (const snapshot of affectedSnapshots) {
+      for (const change of snapshot.changes.filter(entry => entry.afterContent !== undefined)) {
+        fileReapplyMap.set(change.filePath, {
+          afterContent: change.afterContent!,
+          changeType: change.changeType,
+        });
+      }
+    }
+
+    for (const [filePath, reapply] of fileReapplyMap.entries()) {
+      const absolutePath = this.resolveFilePath(filePath);
 
       try {
         await fs.mkdir(dirname(absolutePath), { recursive: true });
 
-        if (change.changeType === 'delete') {
-          // Original change deleted the file — re-apply by deleting again.
+        if (reapply.changeType === 'delete') {
           try { await fs.unlink(absolutePath); } catch { /* already gone */ }
-          restoredFiles.push(change.filePath);
+          restoredFiles.push(filePath);
         } else {
-          // Write the afterContent back to disk.
-          await fs.writeFile(absolutePath, change.afterContent!, 'utf8');
-          restoredFiles.push(change.filePath);
+          await fs.writeFile(absolutePath, reapply.afterContent, 'utf8');
+          restoredFiles.push(filePath);
         }
       } catch (error) {
-        console.error(`[FileHistoryManager] Failed to reapply ${change.filePath}:`, error);
-        failedFiles.push(change.filePath);
+        console.error(`[FileHistoryManager] Failed to reapply ${filePath}:`, error);
+        failedFiles.push(filePath);
       }
     }
 

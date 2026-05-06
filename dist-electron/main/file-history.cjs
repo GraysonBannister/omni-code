@@ -384,8 +384,9 @@ var FileHistoryManager = class {
     });
   }
   /**
-   * Rollback all changes from a specific message onwards
-   * This restores files to their state before the specified message was processed
+   * Rollback all changes from a specific message onwards.
+   * Collects ALL snapshots from the target message onward, determines the
+   * earliest beforeContent for each affected file, and restores it.
    */
   async rollbackToMessage(conversationId, messageId) {
     const restoredFiles = [];
@@ -396,8 +397,33 @@ var FileHistoryManager = class {
       console.warn(`[FileHistoryManager] No snapshot found for message ${messageId}`);
       return { success: false, restoredFiles, failedFiles };
     }
-    for (const change of targetSnapshot.changes.filter((entry) => entry.afterContent !== void 0)) {
-      const absolutePath = this.resolveFilePath(change.filePath);
+    await this.ensureConversationLoaded(conversationId);
+    const affectedSnapshots = [];
+    for (const [, snapshot] of this.snapshots.entries()) {
+      if (snapshot.conversationId === conversationId && snapshot.timestamp >= targetSnapshot.timestamp) {
+        affectedSnapshots.push(snapshot);
+      }
+    }
+    affectedSnapshots.sort((a, b) => a.timestamp - b.timestamp);
+    console.log(`[FileHistoryManager] Rolling back ${affectedSnapshots.length} snapshot(s) from message ${messageId} onward`);
+    const fileRestoreMap = /* @__PURE__ */ new Map();
+    for (const snapshot of affectedSnapshots) {
+      for (const change of snapshot.changes.filter((entry) => entry.afterContent !== void 0)) {
+        if (!fileRestoreMap.has(change.filePath)) {
+          fileRestoreMap.set(change.filePath, {
+            beforeContent: change.beforeContent,
+            lastAfterContent: change.afterContent,
+            changeType: change.changeType,
+            hadBeforeContent: !!change.beforeContent
+          });
+        } else {
+          const existing = fileRestoreMap.get(change.filePath);
+          existing.lastAfterContent = change.afterContent;
+        }
+      }
+    }
+    for (const [filePath, restore] of fileRestoreMap.entries()) {
+      const absolutePath = this.resolveFilePath(filePath);
       try {
         await import_node_fs.promises.mkdir((0, import_node_path.dirname)(absolutePath), { recursive: true });
         let currentContent;
@@ -406,61 +432,52 @@ var FileHistoryManager = class {
         } catch {
           currentContent = null;
         }
-        if (change.changeType === "delete") {
-          if (change.beforeContent) {
-            await import_node_fs.promises.writeFile(absolutePath, change.beforeContent, "utf8");
-          }
-          restoredFiles.push(change.filePath);
-        } else if (change.changeType === "write" && !change.beforeContent) {
-          if (currentContent === null || currentContent === change.afterContent) {
+        if (!restore.hadBeforeContent) {
+          if (currentContent === null || currentContent === restore.lastAfterContent) {
             try {
               await import_node_fs.promises.unlink(absolutePath);
             } catch {
             }
-            restoredFiles.push(change.filePath);
           } else {
-            const reverted = applyInversePatch("", change.afterContent, currentContent);
-            if (reverted !== null) {
-              if (reverted.trim() === "") {
-                try {
-                  await import_node_fs.promises.unlink(absolutePath);
-                } catch {
-                }
-              } else {
-                await import_node_fs.promises.writeFile(absolutePath, reverted, "utf8");
+            const reverted = applyInversePatch("", restore.lastAfterContent, currentContent);
+            if (reverted !== null && reverted.trim() === "") {
+              try {
+                await import_node_fs.promises.unlink(absolutePath);
+              } catch {
               }
             } else {
-              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Deleting the file.`);
+              console.warn(`[FileHistoryManager] Could not cleanly revert created file ${filePath}. Deleting.`);
               try {
                 await import_node_fs.promises.unlink(absolutePath);
               } catch {
               }
             }
-            restoredFiles.push(change.filePath);
           }
+          restoredFiles.push(filePath);
+        } else if (restore.changeType === "delete" && !restore.lastAfterContent) {
+          await import_node_fs.promises.writeFile(absolutePath, restore.beforeContent, "utf8");
+          restoredFiles.push(filePath);
         } else {
           if (currentContent === null) {
-            if (change.beforeContent) {
-              await import_node_fs.promises.writeFile(absolutePath, change.beforeContent, "utf8");
+            if (restore.beforeContent) {
+              await import_node_fs.promises.writeFile(absolutePath, restore.beforeContent, "utf8");
             }
-            restoredFiles.push(change.filePath);
-          } else if (currentContent === change.afterContent) {
-            await import_node_fs.promises.writeFile(absolutePath, change.beforeContent, "utf8");
-            restoredFiles.push(change.filePath);
+          } else if (currentContent === restore.lastAfterContent) {
+            await import_node_fs.promises.writeFile(absolutePath, restore.beforeContent, "utf8");
           } else {
-            const reverted = applyInversePatch(change.beforeContent, change.afterContent, currentContent);
+            const reverted = applyInversePatch(restore.beforeContent, restore.lastAfterContent, currentContent);
             if (reverted !== null) {
               await import_node_fs.promises.writeFile(absolutePath, reverted, "utf8");
             } else {
-              console.warn(`[FileHistoryManager] Could not cleanly revert ${change.filePath} without affecting concurrent changes from another chat. Restoring to pre-change state.`);
-              await import_node_fs.promises.writeFile(absolutePath, change.beforeContent, "utf8");
+              console.warn(`[FileHistoryManager] Could not cleanly revert ${filePath}. Restoring to pre-change state.`);
+              await import_node_fs.promises.writeFile(absolutePath, restore.beforeContent, "utf8");
             }
-            restoredFiles.push(change.filePath);
           }
+          restoredFiles.push(filePath);
         }
       } catch (error) {
-        console.error(`[FileHistoryManager] Failed to restore ${change.filePath}:`, error);
-        failedFiles.push(change.filePath);
+        console.error(`[FileHistoryManager] Failed to restore ${filePath}:`, error);
+        failedFiles.push(filePath);
       }
     }
     this.clearSnapshotsFromMessage(conversationId, targetSnapshot.timestamp);
@@ -471,35 +488,54 @@ var FileHistoryManager = class {
     };
   }
   /**
-   * Re-apply the changes from a specific message (undo a previous rollback).
-   * Writes afterContent for each file change captured in the snapshot.
+   * Re-apply changes from a specific message onward (undo a previous rollback).
+   * Loads all snapshots from the target message onward and writes the latest
+   * afterContent for each affected file.
    */
   async reapplyMessage(conversationId, messageId) {
     const restoredFiles = [];
     const failedFiles = [];
+    await this.ensureConversationLoaded(conversationId);
     const targetKey = `${conversationId}/${messageId}`;
     const targetSnapshot = await this.ensureSnapshotLoaded(targetKey);
     if (!targetSnapshot) {
       console.warn(`[FileHistoryManager] No snapshot found for message ${messageId} (reapply)`);
       return { success: false, restoredFiles, failedFiles };
     }
-    for (const change of targetSnapshot.changes.filter((entry) => entry.afterContent !== void 0)) {
-      const absolutePath = this.resolveFilePath(change.filePath);
+    const affectedSnapshots = [];
+    for (const [, snapshot] of this.snapshots.entries()) {
+      if (snapshot.conversationId === conversationId && snapshot.timestamp >= targetSnapshot.timestamp) {
+        affectedSnapshots.push(snapshot);
+      }
+    }
+    affectedSnapshots.sort((a, b) => a.timestamp - b.timestamp);
+    console.log(`[FileHistoryManager] Re-applying ${affectedSnapshots.length} snapshot(s) from message ${messageId} onward`);
+    const fileReapplyMap = /* @__PURE__ */ new Map();
+    for (const snapshot of affectedSnapshots) {
+      for (const change of snapshot.changes.filter((entry) => entry.afterContent !== void 0)) {
+        fileReapplyMap.set(change.filePath, {
+          afterContent: change.afterContent,
+          changeType: change.changeType
+        });
+      }
+    }
+    for (const [filePath, reapply] of fileReapplyMap.entries()) {
+      const absolutePath = this.resolveFilePath(filePath);
       try {
         await import_node_fs.promises.mkdir((0, import_node_path.dirname)(absolutePath), { recursive: true });
-        if (change.changeType === "delete") {
+        if (reapply.changeType === "delete") {
           try {
             await import_node_fs.promises.unlink(absolutePath);
           } catch {
           }
-          restoredFiles.push(change.filePath);
+          restoredFiles.push(filePath);
         } else {
-          await import_node_fs.promises.writeFile(absolutePath, change.afterContent, "utf8");
-          restoredFiles.push(change.filePath);
+          await import_node_fs.promises.writeFile(absolutePath, reapply.afterContent, "utf8");
+          restoredFiles.push(filePath);
         }
       } catch (error) {
-        console.error(`[FileHistoryManager] Failed to reapply ${change.filePath}:`, error);
-        failedFiles.push(change.filePath);
+        console.error(`[FileHistoryManager] Failed to reapply ${filePath}:`, error);
+        failedFiles.push(filePath);
       }
     }
     return {
