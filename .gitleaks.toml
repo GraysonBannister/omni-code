@@ -1,25 +1,14 @@
 # Gitleaks configuration for Omni Code
-# This file configures gitleaks to ignore false positives in documentation
-
-title = "Omni Code Gitleaks Config"
+# Excludes build artifacts and generated files from secret scanning
 
 [extend]
-# Use the default gitleaks configuration as a base
 useDefault = true
 
-[[rules]]
-# Allowlist for documentation examples and placeholders
-id = "generic-api-key"
-[rules.allowlist]
+[allowlist]
 paths = [
-    '''docs/''',
-    '''README''',
-    '''\.md$'''
-]
-regexes = [
-    '''<YOUR_API_KEY_HERE>''',
-    '''<YOUR_.*_HERE>''',
-    '''xxx\.ngrok\.io''',
-    '''example\.com''',
-    '''placeholder'''
+    '''dist-electron\/.*$''',
+    '''dist\/.*$''',
+    '''\.map$''',
+    '''node_modules\/.*$''',
+    '''\.omnicode\/.*$'''
 ]

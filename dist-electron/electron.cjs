@@ -2389,6 +2389,25 @@ var init_model_registry = __esm({
         pricing: { inputPerMillion: 0.5, outputPerMillion: 2 }
       },
       {
+        id: "kimi-k2.6",
+        provider: "moonshot",
+        displayName: "Kimi K2.6",
+        aliases: ["k2.6", "kimi-k2-6"],
+        fixedTemperature: 1,
+        capabilities: {
+          streaming: true,
+          toolUse: true,
+          vision: true,
+          jsonMode: true,
+          systemPrompt: true,
+          caching: false,
+          extendedThinking: true,
+          maxContextWindow: 256e3,
+          maxOutputTokens: 32768
+        },
+        pricing: { inputPerMillion: 0.5, outputPerMillion: 2 }
+      },
+      {
         id: "kimi-k1.6",
         provider: "moonshot",
         displayName: "Kimi K1.6",
